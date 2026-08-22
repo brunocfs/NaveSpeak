@@ -1,5 +1,6 @@
 import { isRoomMember } from "../db/rooms.repo.js";
 import { createMessage } from "../db/messages.repo.js";
+import { redis } from "../config/redis.js";
 import {
   roomIdParamSchema,
   messageContentSchema,
@@ -8,18 +9,18 @@ import {
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_MESSAGES = 15;
 
-// Contenção simples de flood por socket (não substitui, mas complementa o
-// rate limit HTTP - aqui é sobre volume de eventos em tempo real).
-const sendTimestamps = new WeakMap();
-
-function isRateLimited(socket) {
-  const now = Date.now();
-  const timestamps = (sendTimestamps.get(socket) ?? []).filter(
-    (t) => now - t < RATE_LIMIT_WINDOW_MS,
-  );
-  timestamps.push(now);
-  sendTimestamps.set(socket, timestamps);
-  return timestamps.length > RATE_LIMIT_MAX_MESSAGES;
+// Contenção de flood por socket, compartilhada no Redis (funciona igual em
+// várias instâncias). Contador com janela deslizante simples: INCR + EXPIRE
+// no primeiro hit. Fail-open: se o Redis falhar, deixa passar (não trava o chat).
+async function isRateLimited(socket) {
+  const key = `ratelimit:socket:${socket.id}`;
+  try {
+    const count = await redis.incr(key);
+    if (count === 1) await redis.pexpire(key, RATE_LIMIT_WINDOW_MS);
+    return count > RATE_LIMIT_MAX_MESSAGES;
+  } catch {
+    return false;
+  }
 }
 
 export function registerChatHandlers(io, socket) {
@@ -28,7 +29,7 @@ export function registerChatHandlers(io, socket) {
   socket.on("chat:send", async (payload, callback) => {
     const ack = typeof callback === "function" ? callback : () => {};
 
-    if (isRateLimited(socket)) {
+    if (await isRateLimited(socket)) {
       return ack({
         error: "Você está enviando mensagens rápido demais. Aguarde um pouco.",
       });

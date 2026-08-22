@@ -30,6 +30,17 @@ const envSchema = z.object({
   MEDIASOUP_ANNOUNCED_IP: z.string().optional().default(''),
   MEDIASOUP_MIN_PORT: z.coerce.number().int().positive().default(40000),
   MEDIASOUP_MAX_PORT: z.coerce.number().int().positive().default(40100),
+
+  // Redis: usado para rate limit compartilhado, presença online/offline e
+  // cache de mensagens. O adapter do socket.io também usa essa URL quando
+  // ENABLE_REDIS_ADAPTER=true (modo multi-instância). Opcional.
+  REDIS_URL: z.string().optional().default('redis://127.0.0.1:6379'),
+  // Liga o adapter Redis do socket.io (necessário só para multi-instância).
+  // false = adapter em memória (single-instance, funciona sem Redis).
+  ENABLE_REDIS_ADAPTER: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 const parsed = envSchema.safeParse(process.env);

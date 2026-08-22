@@ -17,25 +17,28 @@ export function registerPresenceHandlers(io, socket) {
 
     socket.join(parsed.data);
     addPresence(parsed.data, user, socket.id);
-    io.to(parsed.data).emit('presence:update', { roomId: parsed.data, members: listPresence(parsed.data) });
-    return ack({ ok: true, members: listPresence(parsed.data) });
+    const members = await listPresence(parsed.data);
+    io.to(parsed.data).emit('presence:update', { roomId: parsed.data, members });
+    return ack({ ok: true, members });
   });
 
-  socket.on('room:leave', (roomId, callback) => {
+  socket.on('room:leave', async (roomId, callback) => {
     const ack = typeof callback === 'function' ? callback : () => {};
     const parsed = roomIdParamSchema.safeParse(roomId);
     if (!parsed.success) return ack({ error: 'ID de sala inválido.' });
 
     socket.leave(parsed.data);
     removePresence(parsed.data, user.id, socket.id);
-    io.to(parsed.data).emit('presence:update', { roomId: parsed.data, members: listPresence(parsed.data) });
+    const members = await listPresence(parsed.data);
+    io.to(parsed.data).emit('presence:update', { roomId: parsed.data, members });
     return ack({ ok: true });
   });
 
-  socket.on('disconnect', () => {
-    const affectedRooms = removeSocketFromAllRooms(socket.id);
+  socket.on('disconnect', async () => {
+    const affectedRooms = await removeSocketFromAllRooms(socket.id);
     for (const roomId of affectedRooms) {
-      io.to(roomId).emit('presence:update', { roomId, members: listPresence(roomId) });
+      const members = await listPresence(roomId);
+      io.to(roomId).emit('presence:update', { roomId, members });
     }
   });
 }

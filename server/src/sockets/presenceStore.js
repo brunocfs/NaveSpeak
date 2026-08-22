@@ -1,55 +1,83 @@
-// Estado de presença em memória: quem está conectado em cada sala.
-// roomId -> userId -> { username, socketIds: Set<string> }
-// Um usuário pode ter mais de um socket (várias abas/janelas) - só
-// consideramos "offline" quando o último socket dele sai da sala.
-const rooms = new Map();
+// Estado de presença no Redis (compartilhado entre instâncias do servidor).
+//
+// Modelo:
+//   Hash  presence:{roomId}  ->  field userId  ->  JSON { username, socketIds: [] }
+//   Set   sock:{socketId}:rooms  ->  roomIds que esse socket entrou
+//
+// Um usuário pode ter vários sockets (várias abas/janelas) - só consideramos
+// "offline" quando o ÚLTIMO socket dele sai da sala. A atomicidade do
+// add/remove de socketIds é garantida por scripts Lua (ver config/redis.js).
+import { redis } from '../config/redis.js';
 
-export function addPresence(roomId, user, socketId) {
-  if (!rooms.has(roomId)) rooms.set(roomId, new Map());
-  const roomMap = rooms.get(roomId);
+const presenceKey = (roomId) => `presence:${roomId}`;
+const socketRoomsKey = (socketId) => `sock:${socketId}:rooms`;
 
-  if (!roomMap.has(user.id)) {
-    roomMap.set(user.id, { username: user.username, socketIds: new Set() });
+export async function addPresence(roomId, user, socketId) {
+  try {
+    await redis.presenceAdd(presenceKey(roomId), user.id, socketId, user.username);
+    await redis.sadd(socketRoomsKey(socketId), roomId);
+  } catch {
+    // Fail-open: sem Redis, a presença fica desativada mas o join no socket
+    // (e o chat) continuam funcionando.
   }
-  roomMap.get(user.id).socketIds.add(socketId);
 }
 
-// Retorna true se o usuário ficou totalmente offline nessa sala (para saber
-// se vale a pena notificar os outros membros).
-export function removePresence(roomId, userId, socketId) {
-  const roomMap = rooms.get(roomId);
-  if (!roomMap?.has(userId)) return false;
-
-  const entry = roomMap.get(userId);
-  entry.socketIds.delete(socketId);
-
-  if (entry.socketIds.size === 0) {
-    roomMap.delete(userId);
-    if (roomMap.size === 0) rooms.delete(roomId);
-    return true;
+// Retorna true se o usuário ficou totalmente offline nessa sala.
+export async function removePresence(roomId, userId, socketId) {
+  try {
+    const offline = await redis.presenceRemove(presenceKey(roomId), userId, socketId);
+    await redis.srem(socketRoomsKey(socketId), roomId);
+    return offline === 1;
+  } catch {
+    return false;
   }
-  return false;
 }
 
-export function removeSocketFromAllRooms(socketId) {
-  const affectedRooms = [];
-  for (const [roomId, roomMap] of rooms.entries()) {
-    for (const userId of roomMap.keys()) {
-      if (roomMap.get(userId).socketIds.has(socketId)) {
-        if (removePresence(roomId, userId, socketId)) {
-          affectedRooms.push(roomId);
+// Chamado no disconnect. Descobre, para cada sala que o socket participava,
+// qual userId possuía aquele socketId e remove atomicamente. Retorna as salas
+// cujo usuário ficou offline (para notificar os outros membros).
+export async function removeSocketFromAllRooms(socketId) {
+  try {
+    const affectedRooms = [];
+    const roomIds = await redis.smembers(socketRoomsKey(socketId));
+
+    for (const roomId of roomIds) {
+      const hash = await redis.hgetall(presenceKey(roomId));
+      for (const [userId, raw] of Object.entries(hash)) {
+        let entry;
+        try {
+          entry = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+        if (Array.isArray(entry.socketIds) && entry.socketIds.includes(socketId)) {
+          const offline = await redis.presenceRemove(presenceKey(roomId), userId, socketId);
+          if (offline === 1) affectedRooms.push(roomId);
+          break; // um socket só pertence a um usuário por sala
         }
       }
     }
+
+    await redis.del(socketRoomsKey(socketId));
+    return affectedRooms;
+  } catch {
+    return [];
   }
-  return affectedRooms;
 }
 
-export function listPresence(roomId) {
-  const roomMap = rooms.get(roomId);
-  if (!roomMap) return [];
-  return Array.from(roomMap.entries()).map(([userId, entry]) => ({
-    userId,
-    username: entry.username,
-  }));
+export async function listPresence(roomId) {
+  try {
+    const hash = await redis.hgetall(presenceKey(roomId));
+    return Object.entries(hash).map(([userId, raw]) => {
+      let username = userId;
+      try {
+        username = JSON.parse(raw).username ?? userId;
+      } catch {
+        /* mantém userId como fallback */
+      }
+      return { userId, username };
+    });
+  } catch {
+    return [];
+  }
 }

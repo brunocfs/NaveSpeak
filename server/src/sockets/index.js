@@ -1,5 +1,7 @@
 import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
 import { env } from '../config/env.js';
+import { redis } from '../config/redis.js';
 import { verifyAccessToken } from '../utils/tokens.js';
 import { findUserByPublicId } from '../db/users.repo.js';
 import { registerPresenceHandlers } from './presence.handler.js';
@@ -13,6 +15,31 @@ export function attachSockets(httpServer) {
       credentials: true,
     },
   });
+
+  // Ponto de extensão para multi-instância: quando ENABLE_REDIS_ADAPTER=true
+  // (e REDIS_URL aponta para um Redis acessível), anexamos o adapter Redis.
+  // Assim o broadcast de eventos (chat, presença) propaga entre várias
+  // instâncias do servidor atrás de um load balancer.
+  //
+  // IMPORTANTE: o adapter Redis roteia ATÉ a entrega local pela pub/sub do
+  // Redis. Se ligado sem Redis disponível, o chat em tempo real quebra - por
+  // isso NÃO ativamos só por existir REDIS_URL. Em single-instance (padrão)
+  // usamos o adapter em memória do socket.io, que funciona sem Redis. Para virar
+  // multi, basta subir o Redis e definir ENABLE_REDIS_ADAPTER=true.
+  if (env.ENABLE_REDIS_ADAPTER) {
+    const pubClient = redis.duplicate();
+    const subClient = redis.duplicate();
+    // Os duplicates não herdam o handler de erro do cliente original - sem
+    // isso o Node reclama ("missing 'error' handler") e pode encerrar o
+    // processo num erro de Redis do adapter.
+    const onError = (err) => console.error('[redis/adapter] erro:', err.message);
+    pubClient.on('error', onError);
+    subClient.on('error', onError);
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log('[socket.io] adapter Redis ativo (multi-instância).');
+  } else {
+    console.log('[socket.io] adapter em memória (single-instance). Defina ENABLE_REDIS_ADAPTER=true para multi-instância via Redis.');
+  }
 
   // Todo socket precisa apresentar um access token JWT válido no handshake
   // (client envia via `auth: { token }`) - sem isso, a conexão é recusada
