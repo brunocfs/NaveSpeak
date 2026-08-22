@@ -12,7 +12,7 @@ export function registerPresenceHandlers(io, socket) {
 
     // Checagem de membership no banco a cada join - nunca confiar só no fato
     // de o cliente ter pedido para entrar nessa sala específica.
-    const member = await isRoomMember(parsed.data, user.id);
+    const member = await isRoomMember(parsed.data, user.internalId);
     if (!member) return ack({ error: 'Você não é membro dessa sala.' });
 
     socket.join(parsed.data);

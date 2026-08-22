@@ -1,3 +1,5 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 :root {
   color-scheme: dark;
   --bg: #1e1f26;
@@ -6,7 +8,13 @@
   --text: #e7e9ee;
   --muted: #9a9ca8;
   --error: #ed4245;
-  font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 * {
@@ -304,12 +312,12 @@ body {
 }
 
 .room-sidebar li.online::before {
-  content: '● ';
+  content: "● ";
   color: #57f287;
 }
 
 .room-sidebar li.offline::before {
-  content: '○ ';
+  content: "○ ";
 }
 
 .voice-panel {

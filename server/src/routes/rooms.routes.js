@@ -30,7 +30,7 @@ async function loadRoomForMember(req, res, next) {
     return res.status(404).json({ error: 'Sala não encontrada.' });
   }
 
-  const member = await isRoomMember(room.id, req.user.id);
+  const member = await isRoomMember(room.id, req.user.internalId);
   if (!member) {
     // 404 (não 403) para não confirmar a um não-membro que a sala existe.
     return res.status(404).json({ error: 'Sala não encontrada.' });
@@ -42,7 +42,7 @@ async function loadRoomForMember(req, res, next) {
 
 router.get('/', async (req, res, next) => {
   try {
-    const rooms = await listRoomsForUser(req.user.id);
+    const rooms = await listRoomsForUser(req.user.internalId);
     return res.json({ rooms });
   } catch (err) {
     return next(err);
@@ -51,7 +51,10 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', validateBody(roomNameSchema), async (req, res, next) => {
   try {
-    const room = await createRoom({ name: req.body.name, createdBy: req.user.id });
+    // createdBy usa a PK interna (req.user.internalId); a resposta expõe o
+    // public_id do criador (req.user.id) no campo created_by.
+    const room = await createRoom({ name: req.body.name, createdBy: req.user.internalId });
+    room.created_by = req.user.id;
     return res.status(201).json({ room });
   } catch (err) {
     return next(err);
@@ -64,7 +67,7 @@ router.post('/join', validateBody(inviteCodeSchema), async (req, res, next) => {
     if (!room) {
       return res.status(404).json({ error: 'Código de convite inválido.' });
     }
-    await addRoomMember({ roomId: room.id, userId: req.user.id });
+    await addRoomMember({ roomId: room.id, userId: req.user.internalId });
     return res.status(200).json({ room });
   } catch (err) {
     return next(err);

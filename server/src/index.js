@@ -65,9 +65,9 @@ attachSockets(httpServer);
 async function start() {
   try {
     await assertDbConnection();
-    console.log('Conexão com o MySQL OK.');
+    console.log('Conexão com o PostgreSQL OK.');
   } catch (err) {
-    console.error('Não foi possível conectar ao MySQL. Confira DB_HOST/DB_USER/DB_PASSWORD no .env.');
+    console.error('Não foi possível conectar ao PostgreSQL. Confira DB_HOST/DB_USER/DB_PASSWORD no .env.');
     console.error(err.message);
     process.exit(1);
   }

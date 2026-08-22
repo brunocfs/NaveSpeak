@@ -5,7 +5,9 @@ import { env } from '../config/env.js';
 // --- Access token (JWT curto, enviado no header Authorization, NUNCA em localStorage) ---
 
 export function signAccessToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username }, env.JWT_ACCESS_SECRET, {
+  // `sub` recebe o public_id (UUID) e não a PK interna (BIGINT), para não
+  // expor a sequência do banco no token distribuído ao cliente.
+  return jwt.sign({ sub: user.publicId, username: user.username }, env.JWT_ACCESS_SECRET, {
     expiresIn: env.JWT_ACCESS_TTL,
   });
 }

@@ -25,7 +25,7 @@ export function registerMediasoupHandlers(io, socket) {
     const parsed = roomIdParamSchema.safeParse(roomId);
     if (!parsed.success) return ack({ error: 'ID de sala inválido.' });
 
-    const member = await isRoomMember(parsed.data, user.id);
+    const member = await isRoomMember(parsed.data, user.internalId);
     if (!member) return ack({ error: 'Você não é membro dessa sala.' });
 
     try {

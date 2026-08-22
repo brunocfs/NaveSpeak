@@ -12,7 +12,8 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN é obrigatório'),
 
   DB_HOST: z.string().min(1),
-  DB_PORT: z.coerce.number().int().positive().default(3306),
+  // MySQL=3306, PostgreSQL=5432. O .env define o valor real.
+  DB_PORT: z.coerce.number().int().positive().default(5432),
   DB_NAME: z.string().min(1),
   DB_USER: z.string().min(1),
   DB_PASSWORD: z.string().min(1, 'DB_PASSWORD é obrigatório - o banco não pode ficar sem senha'),

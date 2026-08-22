@@ -11,17 +11,22 @@
 --
 -- Troque a senha acima pela mesma que voce colocar em DB_PASSWORD no .env.
 
-CREATE DATABASE IF NOT EXISTS navespeak
+CREATE DATABASE IF NOT EXISTS nvshom
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
 USE navespeak;
 
--- Usuarios. IDs sao UUID (nao sequenciais) como defesa em profundidade contra
--- enumeracao de IDs; a checagem de autorizacao real acontece na camada da API
--- (ver server/src/routes), nunca so pelo formato do ID.
+-- Usuarios. Abordagem hibrida de ID:
+--   * id BIGINT AUTO_INCREMENT -> chave primaria INTERNA, estreita e rapida
+--     para joins, FKs e indices (melhor performance/escala).
+--   * public_id CHAR(36) -> UUID exposto publicamente (tokens JWT, rotas da
+--     API) para nao vazar a sequencia interna e dificultar enumeracao de IDs.
+-- A checagem de autorizacao real acontece na camada da API (ver
+-- server/src/routes), nunca so pelo formato do ID.
 CREATE TABLE IF NOT EXISTS users (
-  id CHAR(36) NOT NULL PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  public_id CHAR(36) NOT NULL,
   username VARCHAR(32) NOT NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
@@ -29,7 +34,8 @@ CREATE TABLE IF NOT EXISTS users (
   locked_until DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_users_username (username),
-  UNIQUE KEY uq_users_email (email)
+  UNIQUE KEY uq_users_email (email),
+  UNIQUE KEY uq_users_public_id (public_id)
 ) ENGINE=InnoDB;
 
 -- Refresh tokens sao guardados como HASH (nunca o token em texto puro), assim
@@ -37,7 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- a cada uso (ver server/src/utils/tokens.js).
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id CHAR(36) NOT NULL PRIMARY KEY,
-  user_id CHAR(36) NOT NULL,
+  user_id BIGINT NOT NULL,
   token_hash CHAR(64) NOT NULL,
   expires_at DATETIME NOT NULL,
   revoked_at DATETIME NULL,
@@ -51,7 +57,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   id CHAR(36) NOT NULL PRIMARY KEY,
   name VARCHAR(64) NOT NULL,
   invite_code CHAR(12) NOT NULL,
-  created_by CHAR(36) NOT NULL,
+  created_by BIGINT NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_rooms_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE KEY uq_rooms_invite_code (invite_code)
@@ -63,7 +69,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 -- formato do ID.
 CREATE TABLE IF NOT EXISTS room_members (
   room_id CHAR(36) NOT NULL,
-  user_id CHAR(36) NOT NULL,
+  user_id BIGINT NOT NULL,
   joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (room_id, user_id),
   CONSTRAINT fk_room_members_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -73,7 +79,7 @@ CREATE TABLE IF NOT EXISTS room_members (
 CREATE TABLE IF NOT EXISTS messages (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   room_id CHAR(36) NOT NULL,
-  user_id CHAR(36) NOT NULL,
+  user_id BIGINT NOT NULL,
   content VARCHAR(2000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_messages_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,

@@ -9,6 +9,7 @@ import {
   findUserByEmail,
   findUserByUsername,
   findUserById,
+  findUserByPublicId,
   registerFailedLogin,
   clearFailedLogins,
 } from '../db/users.repo.js';
@@ -65,6 +66,7 @@ function setRefreshCookie(res, token) {
 async function issueSession(res, user) {
   const accessToken = signAccessToken(user);
   const { token: refreshToken, hash } = generateRefreshToken();
+  // user.id aqui é a PK interna (BIGINT) usada na FK refresh_tokens.user_id.
   await storeRefreshToken({ userId: user.id, tokenHash: hash, expiresAt: refreshTokenExpiryDate() });
   setRefreshCookie(res, refreshToken);
   return accessToken;
@@ -85,7 +87,7 @@ router.post('/register', authRateLimiter, validateBody(registerSchema), async (r
     const user = await createUser({ username, email, passwordHash });
     const accessToken = await issueSession(res, user);
 
-    return res.status(201).json({ accessToken, user: { id: user.id, username: user.username } });
+    return res.status(201).json({ accessToken, user: { id: user.publicId, username: user.username } });
   } catch (err) {
     return next(err);
   }
@@ -116,7 +118,7 @@ router.post('/login', authRateLimiter, validateBody(loginSchema), async (req, re
 
     await clearFailedLogins(user.id);
     const accessToken = await issueSession(res, user);
-    return res.json({ accessToken, user: { id: user.id, username: user.username } });
+    return res.json({ accessToken, user: { id: user.publicId, username: user.username } });
   } catch (err) {
     return next(err);
   }
@@ -139,6 +141,7 @@ router.post('/refresh', async (req, res, next) => {
     // rotacionado, ele será rejeitado aqui.
     await revokeRefreshToken(hash);
 
+    // stored.user_id é a PK interna (BIGINT) - busca por ela, não pelo UUID.
     const user = await findUserById(stored.user_id);
     if (!user) {
       res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
@@ -146,7 +149,7 @@ router.post('/refresh', async (req, res, next) => {
     }
 
     const accessToken = await issueSession(res, user);
-    return res.json({ accessToken, user: { id: user.id, username: user.username } });
+    return res.json({ accessToken, user: { id: user.publicId, username: user.username } });
   } catch (err) {
     return next(err);
   }
@@ -167,9 +170,12 @@ router.post('/logout', async (req, res, next) => {
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const user = await findUserById(req.user.id);
+    // req.user.id é o public_id (UUID) - busca por ele.
+    const user = await findUserByPublicId(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    return res.json({ user });
+    return res.json({
+      user: { id: user.publicId, username: user.username, email: user.email, created_at: user.created_at },
+    });
   } catch (err) {
     return next(err);
   }
