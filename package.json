@@ -1,0 +1,17 @@
+{
+  "name": "navespeak",
+  "private": true,
+  "version": "0.1.0",
+  "description": "App de voz, texto e compartilhamento de tela para um grupo fechado de usuarios via VPN.",
+  "workspaces": [
+    "server",
+    "client",
+    "electron"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "dev:electron": "npm run dev --workspace electron",
+    "build:client": "npm run build --workspace client"
+  }
+}

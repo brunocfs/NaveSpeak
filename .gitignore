@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+build/
+electron/dist/
+*.log
+.DS_Store
+
+# Estado interno do harness Claude Code (ex.: lock de agendamento), não é
+# conteúdo do projeto.
+.claude/
