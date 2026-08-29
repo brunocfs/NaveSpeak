@@ -7,6 +7,7 @@ import { findUserByPublicId } from '../db/users.repo.js';
 import { registerPresenceHandlers } from './presence.handler.js';
 import { registerChatHandlers } from './chat.handler.js';
 import { registerMediasoupHandlers } from './mediasoup.handler.js';
+import { registerOnlineHandlers } from './online.handler.js';
 
 export function attachSockets(httpServer) {
   const io = new Server(httpServer, {
@@ -61,6 +62,7 @@ export function attachSockets(httpServer) {
   });
 
   io.on('connection', (socket) => {
+    registerOnlineHandlers(io, socket);
     registerPresenceHandlers(io, socket);
     registerChatHandlers(io, socket);
     registerMediasoupHandlers(io, socket);

@@ -76,13 +76,45 @@ CREATE TABLE IF NOT EXISTS room_members (
   CONSTRAINT fk_room_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Canais de texto ou voz dentro de um servidor (rooms.id = o servidor).
+-- type: 'text' (recebe mensagens) | 'voice' (estado de voz fica no Redis,
+-- nao nesta tabela). position ordena a exibicao na sidebar do servidor.
+-- (server_id, name) unico para nao duplicar nomes no mesmo servidor.
+CREATE TABLE IF NOT EXISTS channels (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  server_id CHAR(36) NOT NULL,
+  type VARCHAR(8) NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  topic VARCHAR(255) NULL,
+  position INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_channels_server FOREIGN KEY (server_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_channels_server_name (server_id, name),
+  KEY ix_channels_server_pos (server_id, position)
+) ENGINE=InnoDB;
+
+-- Mensagens pertencem a um CANAL de texto (channels.id), e nao mais
+-- diretamente a uma sala/servidor. A app so insere aqui quando
+-- channels.type = 'text' (canal de voz nao recebe mensagens).
 CREATE TABLE IF NOT EXISTS messages (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  room_id CHAR(36) NOT NULL,
+  channel_id CHAR(36) NOT NULL,
   user_id BIGINT NOT NULL,
   content VARCHAR(2000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_messages_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_messages_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
   CONSTRAINT fk_messages_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  KEY ix_messages_room_created (room_id, created_at)
+  KEY ix_messages_channel_created (channel_id, created_at)
 ) ENGINE=InnoDB;
+
+-- MIGRACAO (bancos ja existentes que ainda tem messages.room_id):
+-- 1) a tabela channels acima e criada normalmente (CREATE TABLE IF NOT EXISTS);
+-- 2) para cada servidor existente, crie um canal texto padrao e repoint:
+--    INSERT INTO channels (id, server_id, type, name, position)
+--      SELECT UUID(), r.id, 'text', 'geral', 0 FROM rooms r;
+--    UPDATE messages m
+--      JOIN channels c ON c.server_id = m.room_id AND c.name = 'geral'
+--      SET m.channel_id = c.id;
+-- 3) remova a FK e a coluna antiga:
+--    ALTER TABLE messages DROP FOREIGN KEY fk_messages_room;
+--    ALTER TABLE messages DROP COLUMN room_id;

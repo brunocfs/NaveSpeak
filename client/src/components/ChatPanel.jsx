@@ -4,7 +4,7 @@ import { getSocket } from "../api/socket.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import MessageInput from "./MessageInput.jsx";
 
-export default function ChatPanel({ roomId }) {
+export default function ChatPanel({ channelId }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export default function ChatPanel({ roomId }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    apiRequest(`/rooms/${roomId}/messages`)
+    apiRequest(`/channels/${channelId}/messages`)
       .then((data) => {
         if (!cancelled) setMessages(data.messages);
       })
@@ -33,7 +33,7 @@ export default function ChatPanel({ roomId }) {
     return () => {
       cancelled = true;
     };
-  }, [roomId]);
+  }, [channelId]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -42,13 +42,13 @@ export default function ChatPanel({ roomId }) {
       // O conteúdo renderizado abaixo passa só pelo JSX ({message.content}),
       // que o React escapa automaticamente - sem dangerouslySetInnerHTML,
       // então uma mensagem maliciosa não vira HTML/script executável aqui.
-      if (message.room_id !== roomId) return;
+      if (message.channel_id !== channelId) return;
       setMessages((prev) => [...prev, message]);
     }
 
     socket.on("chat:message", handleIncoming);
     return () => socket.off("chat:message", handleIncoming);
-  }, [roomId]);
+  }, [channelId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,7 +57,7 @@ export default function ChatPanel({ roomId }) {
   async function handleSend(content) {
     const socket = getSocket();
     return new Promise((resolve) => {
-      socket.emit("chat:send", { roomId, content }, (response) => {
+      socket.emit("chat:send", { channelId, content }, (response) => {
         resolve(response ?? { error: "Sem resposta do servidor." });
       });
     });

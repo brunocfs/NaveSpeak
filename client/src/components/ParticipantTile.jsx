@@ -1,31 +1,100 @@
 import { useEffect, useRef } from 'react';
+import { MicOff, Pin, PinOff } from 'lucide-react';
+import { useSpeaking } from '../hooks/useSpeaking.js';
 
-// Toca um MediaStream remoto (áudio, e vídeo a partir da Fase 4) e mostra o
-// nome do participante. Um único componente cobre voz e tela/câmera.
-export default function ParticipantTile({ username, stream, kind = 'audio', muted = false, isLocal = false }) {
-  const mediaRef = useRef(null);
+function initials(name = '') {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Um "quadradinho" da chamada, no estilo Discord: representa UMA pessoa (com
+// câmera ligada ou avatar com iniciais) OU uma tela compartilhada - nunca os
+// dois juntos no mesmo tile (uma tela compartilhada é sempre um tile à parte,
+// rotulado com o nome de quem está compartilhando). kind='person' também toca
+// o áudio do microfone dessa pessoa (se houver stream) e desenha o anel verde
+// de "está falando".
+export default function ParticipantTile({
+  username,
+  videoStream = null,
+  micStream = null,
+  micMuted = false,
+  isLocal = false,
+  deafened = false,
+  kind = 'person',
+  pinned = false,
+  onTogglePin,
+  className = '',
+}) {
+  const videoRef = useRef(null);
+  const audioRef = useRef(null);
+  const speaking = useSpeaking(kind === 'person' ? micStream : null);
 
   useEffect(() => {
-    const el = mediaRef.current;
-    if (!el || !stream) return;
-    el.srcObject = stream;
-    el.play?.().catch(() => {
-      // Autoplay pode ser bloqueado pelo navegador em alguns casos; o próprio
-      // gesto de "Entrar na voz" já contou como interação do usuário, mas
-      // engolimos o erro aqui para não quebrar a UI se acontecer mesmo assim.
-    });
-  }, [stream]);
+    const el = videoRef.current;
+    if (!el || !videoStream) return;
+    el.srcObject = videoStream;
+    el.play?.().catch(() => {});
+  }, [videoStream]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !micStream) return;
+    el.srcObject = micStream;
+    el.play?.().catch(() => {});
+  }, [micStream]);
+
+  // Reprodução local sempre muda (não ecoar o próprio mic/câmera); a de
+  // qualquer participante remoto some com "silenciar todos" (deafen) ativo.
+  const playbackMuted = isLocal || deafened;
+  const hasVideo = Boolean(videoStream);
 
   return (
-    <div className={`participant-tile${muted ? ' muted' : ''}`}>
-      {kind === 'video' ? (
-        <video ref={mediaRef} autoPlay playsInline muted={isLocal} className="participant-video" />
+    <div
+      className={`group relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-2 transition ${
+        speaking ? 'ring-emerald-500' : 'ring-transparent'
+      } ${className}`}
+    >
+      {hasVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={playbackMuted}
+          className={`h-full w-full ${kind === 'screen' ? 'object-contain bg-black' : 'object-cover'}`}
+        />
       ) : (
-        <audio ref={mediaRef} autoPlay playsInline muted={isLocal} />
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-700">
+          <span className="flex size-14 items-center justify-center rounded-full bg-slate-600 text-lg font-semibold text-slate-100">
+            {initials(username)}
+          </span>
+        </div>
       )}
-      <span className="participant-name">
-        {username} {muted && '🔇'}
-      </span>
+
+      {kind === 'person' && micStream && (
+        <audio ref={audioRef} autoPlay playsInline muted={playbackMuted} />
+      )}
+
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+        <span className="truncate text-xs font-medium text-white">{username}</span>
+        {kind === 'person' && micMuted && (
+          <MicOff className="size-3.5 shrink-0 text-red-400" />
+        )}
+      </div>
+
+      {onTogglePin && (
+        <button
+          onClick={onTogglePin}
+          title={pinned ? 'Desafixar' : 'Fixar (deixar maior)'}
+          className={`absolute right-1.5 top-1.5 rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70 ${
+            pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+        </button>
+      )}
     </div>
   );
 }

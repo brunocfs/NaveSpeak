@@ -1,8 +1,9 @@
 import { isRoomMember } from "../db/rooms.repo.js";
+import { findChannelById } from "../db/channels.repo.js";
 import { createMessage } from "../db/messages.repo.js";
 import { redis } from "../config/redis.js";
 import {
-  roomIdParamSchema,
+  channelIdParamSchema,
   messageContentSchema,
 } from "../validation/schemas.js";
 
@@ -35,8 +36,8 @@ export function registerChatHandlers(io, socket) {
       });
     }
 
-    const roomIdResult = roomIdParamSchema.safeParse(payload?.roomId);
-    if (!roomIdResult.success) return ack({ error: "ID de sala inválido." });
+    const channelIdResult = channelIdParamSchema.safeParse(payload?.channelId);
+    if (!channelIdResult.success) return ack({ error: "ID de canal inválido." });
 
     const contentResult = messageContentSchema.safeParse(payload?.content);
     if (!contentResult.success) {
@@ -45,21 +46,25 @@ export function registerChatHandlers(io, socket) {
       });
     }
 
-    const roomId = roomIdResult.data;
+    const channelId = channelIdResult.data;
 
-    // Checagem de membership no banco a cada envio - independe de o socket
-    // "achar" que já entrou na sala (isso mata a rota de dados vazando por ID
-    // também no transporte de socket, não só no REST).
-    const member = await isRoomMember(roomId, user.internalId);
-    if (!member) return ack({ error: "Você não é membro dessa sala." });
+    // O canal precisa existir, ser do tipo 'text' e o usuário precisa ser
+    // membro do servidor dono do canal - tudo checado no banco a cada envio.
+    const channel = await findChannelById(channelId);
+    if (!channel) return ack({ error: "Canal não encontrado." });
+    if (channel.type !== "text") {
+      return ack({ error: "Este canal não aceita mensagens." });
+    }
+    const member = await isRoomMember(channel.server_id, user.internalId);
+    if (!member) return ack({ error: "Você não é membro desse servidor." });
 
     try {
       const message = await createMessage({
-        roomId: roomId,
+        channelId: channelId,
         userId: user.internalId,
         content: contentResult.data,
       });
-      io.to(roomId).emit("chat:message", message);
+      io.to(channelId).emit("chat:message", message);
       return ack({ ok: true, message });
     } catch (err) {
       console.error(err);

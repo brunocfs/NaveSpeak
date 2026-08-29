@@ -11,6 +11,7 @@ import {
   addRoomMember,
   listRoomMembers,
 } from '../db/rooms.repo.js';
+import { listChannelsForServer } from '../db/channels.repo.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -77,7 +78,8 @@ router.post('/join', validateBody(inviteCodeSchema), async (req, res, next) => {
 router.get('/:roomId', loadRoomForMember, async (req, res, next) => {
   try {
     const members = await listRoomMembers(req.room.id);
-    return res.json({ room: req.room, members });
+    const channels = await listChannelsForServer(req.room.id);
+    return res.json({ room: req.room, members, channels });
   } catch (err) {
     return next(err);
   }

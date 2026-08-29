@@ -9,10 +9,12 @@ import { env } from './config/env.js';
 import { assertDbConnection } from './config/db.js';
 import authRoutes from './routes/auth.routes.js';
 import roomsRoutes from './routes/rooms.routes.js';
+import channelsRoutes from './routes/channels.routes.js';
 import messagesRoutes from './routes/messages.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { attachSockets } from './sockets/index.js';
 import { createWorkers } from './mediasoup/workers.js';
+import { resetEphemeralPresenceOnBoot } from './config/redis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDistDir = path.join(__dirname, '..', '..', 'client', 'dist');
@@ -40,7 +42,8 @@ app.use(cookieParser());
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomsRoutes);
-app.use('/api/rooms/:roomId/messages', messagesRoutes);
+app.use('/api/rooms/:roomId/channels', channelsRoutes);
+app.use('/api/channels/:channelId/messages', messagesRoutes);
 
 // Em produção, o próprio Express serve o bundle do client (gerado por
 // `npm run build:client`) - assim a versão web roda inteira a partir de uma
@@ -79,6 +82,12 @@ async function start() {
     console.error(err.message);
     process.exit(1);
   }
+
+  // Antes de aceitar qualquer conexão: descarta presença/roster de voz
+  // fantasma deixados por uma execução anterior deste processo (ver
+  // comentário em config/redis.js). Roda antes do listen() de propósito -
+  // nenhum socket consegue conectar antes da porta abrir.
+  await resetEphemeralPresenceOnBoot();
 
   httpServer.listen(env.PORT, () => {
     console.log(`NaveSpeak server ouvindo em http://localhost:${env.PORT} (CORS: ${env.CORS_ORIGIN})`);

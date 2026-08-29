@@ -3,10 +3,10 @@ import { redis } from "../config/redis.js";
 
 const MESSAGE_CACHE_TTL_SECONDS = 30;
 
-// Invalida o cache de histórico de uma sala. O cache é por
-// (roomId, limit, beforeId), então varremos as chaves com SCAN + DEL.
-async function invalidateRoomMessageCache(roomId) {
-  const pattern = `messages:${roomId}:*`;
+// Invalida o cache de histórico de um canal. O cache é por
+// (channelId, limit, beforeId), então varremos as chaves com SCAN + DEL.
+async function invalidateChannelMessageCache(channelId) {
+  const pattern = `messages:${channelId}:*`;
   try {
     let cursor = "0";
     do {
@@ -19,33 +19,34 @@ async function invalidateRoomMessageCache(roomId) {
   }
 }
 
-// IMPORTANTE: esta função não checa membership - quem chama (rota HTTP ou
-// handler de socket) é responsável por confirmar isRoomMember() antes. Manter
-// a checagem de autorização fora do repositório e explícita em cada chamador
-// evita que uma nova rota "esqueça" de checar.
-export async function createMessage({ roomId, userId, content }) {
+// IMPORTANTE: esta função não checa membership nem o tipo do canal - quem
+// chama (rota HTTP ou handler de socket) é responsável por confirmar
+// isRoomMember() e que o canal é do tipo 'text' antes. Manter a checagem de
+// autorização fora do repositório e explícita em cada chamador evita que uma
+// nova rota "esqueça" de checar.
+export async function createMessage({ channelId, userId, content }) {
   // userId é a PK interna (BIGINT) do usuário.
   const { rows: inserted } = await pool.query(
-    "INSERT INTO messages (room_id, user_id, content) VALUES ($1, $2, $3) RETURNING id",
-    [roomId, userId, content],
+    "INSERT INTO messages (channel_id, user_id, content) VALUES ($1, $2, $3) RETURNING id",
+    [channelId, userId, content],
   );
   const { rows } = await pool.query(
-    `SELECT m.id, m.room_id, m.content, m.created_at, u.public_id AS user_id, u.username
+    `SELECT m.id, m.channel_id, m.content, m.created_at, u.public_id AS user_id, u.username
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.id = $1`,
     [inserted[0].id],
   );
-  await invalidateRoomMessageCache(roomId);
+  await invalidateChannelMessageCache(channelId);
   return rows[0];
 }
 
-export async function listMessagesForRoom(
-  roomId,
+export async function listMessagesForChannel(
+  channelId,
   { limit = 50, beforeId = null } = {},
 ) {
   const cappedLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
 
-  const params = [roomId];
+  const params = [channelId];
   let cursorClause = "";
   if (beforeId) {
     cursorClause = "AND m.id < $2";
@@ -55,7 +56,7 @@ export async function listMessagesForRoom(
   const limitPlaceholder = `$${params.length + 1}`;
   params.push(cappedLimit);
 
-  const cacheKey = `messages:${roomId}:${cappedLimit}:${beforeId ?? "latest"}`;
+  const cacheKey = `messages:${channelId}:${cappedLimit}:${beforeId ?? "latest"}`;
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
@@ -64,9 +65,9 @@ export async function listMessagesForRoom(
   }
 
   const { rows } = await pool.query(
-    `SELECT m.id, m.room_id, m.content, m.created_at, u.public_id AS user_id, u.username
+    `SELECT m.id, m.channel_id, m.content, m.created_at, u.public_id AS user_id, u.username
      FROM messages m INNER JOIN users u ON u.id = m.user_id
-     WHERE m.room_id = $1 ${cursorClause}
+     WHERE m.channel_id = $1 ${cursorClause}
      ORDER BY m.id DESC
      LIMIT ${limitPlaceholder}`,
     params,

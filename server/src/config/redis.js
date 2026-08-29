@@ -18,6 +18,43 @@ redis.on('error', (err) => {
   console.error('[redis] erro de conexão:', err.message);
 });
 
+// ---- Reconciliação no boot: limpa presença "fantasma" ----
+//
+// presence:*, voice:channel:*:members e sock:*:* guardam socketIds de
+// conexões Socket.IO - e uma conexão morre junto com o processo que a
+// aceitou (não sobrevive a um restart, seja um deploy, seja o
+// `node --watch` do dev). Num boot de instância ÚNICA (o padrão: sem
+// ENABLE_REDIS_ADAPTER não existe outra instância que possa ser dona
+// legítima dessas entradas), qualquer coisa que sobrou no Redis de antes
+// deste processo subir é necessariamente fantasma - ninguém está de fato
+// conectado àqueles socketIds nunca mais. Sem essa limpeza, cada restart deixa
+// um usuário "preso" para sempre no roster de voz (e a presença de canal),
+// porque o socket que o listaria como saiu já não existe pra emitir o
+// evento de saída.
+//
+// Em modo multi-instância (ENABLE_REDIS_ADAPTER=true) NÃO fazemos essa
+// limpeza: outras instâncias podem ter usuários de verdade conectados nessas
+// mesmas chaves, e apagar tudo derrubaria a presença deles também.
+export async function resetEphemeralPresenceOnBoot() {
+  if (env.ENABLE_REDIS_ADAPTER) return;
+  try {
+    const [presenceKeys, voiceKeys, sockKeys] = await Promise.all([
+      redis.keys('presence:*'),
+      redis.keys('voice:channel:*'),
+      redis.keys('sock:*'),
+    ]);
+    const allKeys = [...presenceKeys, ...voiceKeys, ...sockKeys];
+    if (allKeys.length > 0) {
+      await redis.del(...allKeys);
+      console.log(`[redis] presença/roster de voz de uma execução anterior limpos (${allKeys.length} chave(s)).`);
+    }
+  } catch (err) {
+    // Fail-open: se o Redis não estiver acessível agora, os próprios
+    // chamadores de presença já tratam erro individualmente depois.
+    console.error('[redis] falha ao limpar presença antiga no boot:', err.message);
+  }
+}
+
 // ---- Presença: scripts Lua para atomicidade ----
 // Várias abas/janelas do mesmo usuário geram vários socketIds na mesma sala.
 // "offline" só ocorre quando o ÚLTIMO socket do usuário sai. Precisamos de

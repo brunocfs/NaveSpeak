@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { apiRequest } from "../api/http.js";
-
+import logo from "../assets/nvspk.svg";
 export default function RoomsPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -86,14 +86,13 @@ export default function RoomsPage() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-10xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              NaveSpeak
+            <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <img src={logo} alt="Canal de voz" className="h-15 w-15" />
+              <strong>Nave</strong> Speak
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Gerencie suas salas
-            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400"></p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -111,7 +110,70 @@ export default function RoomsPage() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-3 lg:px-8">
+      <main className="mx-auto grid max-w-10xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-3 lg:px-8">
+        <section className="lg:col-span-1">
+          <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+            <div className="mb-6 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Seus servidores
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Acesse rapidamente as conversas das quais você participa.
+                </p>
+              </div>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {rooms.length} sala{rooms.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            {loading && (
+              <div className="space-y-3">
+                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
+                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
+                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
+              </div>
+            )}
+
+            {!loading && rooms.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-800/40">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Você ainda não está em nenhuma sala.
+                </p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  Crie uma nova sala ou use um código de convite para entrar.
+                </p>
+              </div>
+            )}
+
+            {!loading && rooms.length > 0 && (
+              <ul className="space-y-3">
+                {rooms.map((room) => (
+                  <li key={room.id}>
+                    <Link
+                      to={`/rooms/${room.id}`}
+                      className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-blue-300 hover:bg-white hover:shadow-sm dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-500/40 dark:hover:bg-slate-800"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
+                          {room.name}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                          Abrir sala
+                        </p>
+                      </div>
+
+                      <div className="shrink-0 rounded-xl bg-slate-200 px-3 py-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                        {room.invite_code}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
         <section className="space-y-6 lg:col-span-1">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -175,68 +237,9 @@ export default function RoomsPage() {
             </div>
           )}
         </section>
-
-        <section className="lg:col-span-2">
+        <section className="space-y-1 lg:col-span-1">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            <div className="mb-6 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  Seus servidores
-                </h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Acesse rapidamente as conversas das quais você participa.
-                </p>
-              </div>
-
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {rooms.length} sala{rooms.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-
-            {loading && (
-              <div className="space-y-3">
-                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
-                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
-                <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
-              </div>
-            )}
-
-            {!loading && rooms.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-800/40">
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  Você ainda não está em nenhuma sala.
-                </p>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  Crie uma nova sala ou use um código de convite para entrar.
-                </p>
-              </div>
-            )}
-
-            {!loading && rooms.length > 0 && (
-              <ul className="space-y-3">
-                {rooms.map((room) => (
-                  <li key={room.id}>
-                    <Link
-                      to={`/rooms/${room.id}`}
-                      className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-blue-300 hover:bg-white hover:shadow-sm dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-500/40 dark:hover:bg-slate-800"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
-                          {room.name}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                          Abrir sala
-                        </p>
-                      </div>
-
-                      <div className="shrink-0 rounded-xl bg-slate-200 px-3 py-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                        {room.invite_code}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            Amigos
           </div>
         </section>
       </main>

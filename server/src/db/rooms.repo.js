@@ -1,6 +1,7 @@
 // Queries parametrizadas ($1, $2, ...) - nunca concatenar entrada do usuário na string SQL.
 import { randomUUID, randomBytes } from 'node:crypto';
 import { pool } from '../config/db.js';
+import { addDefaultChannelsForServer } from './channels.repo.js';
 
 function generateInviteCode() {
   return randomBytes(6).toString('hex').toUpperCase(); // 12 caracteres
@@ -15,6 +16,9 @@ export async function createRoom({ name, createdBy }) {
     [id, name, inviteCode, createdBy]
   );
   await addRoomMember({ roomId: id, userId: createdBy });
+  // Já cria os canais padrão (texto "geral" + voz "Voz") para o servidor não
+  // abrir sem nenhum canal.
+  await addDefaultChannelsForServer(id);
   return { id, name, invite_code: inviteCode, created_by: createdBy };
 }
 
