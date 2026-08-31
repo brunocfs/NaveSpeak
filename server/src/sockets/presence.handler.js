@@ -2,7 +2,7 @@ import { isRoomMember } from "../db/rooms.repo.js";
 import { findChannelById, listChannelsForServer } from "../db/channels.repo.js";
 import { channelIdParamSchema, roomIdParamSchema } from "../validation/schemas.js";
 import { listVoicePresence } from "./voicePresence.js";
-import { listOnlineUserIds } from "./onlineStore.js";
+import { listPublicStatuses } from "./onlineStore.js";
 import {
   addPresence,
   removePresence,
@@ -39,10 +39,12 @@ export function registerPresenceHandlers(io, socket) {
       socket.emit("voice:update", { channelId: channel.id, participants });
     }
 
-    // Snapshot inicial do status ONLINE global (independente de canal/
+    // Snapshot inicial do status de presença global (independente de canal/
     // servidor, ver onlineStore.js) - dali em diante o cliente acompanha
-    // pelos eventos user:online/user:offline emitidos para esta room.
-    return ack({ ok: true, onlineUserIds: await listOnlineUserIds() });
+    // pelo evento presence:status emitido para esta room. Mapa
+    // { userId: 'online'|'busy'|'away' } - quem está offline (ou invisível)
+    // simplesmente não aparece aqui.
+    return ack({ ok: true, statuses: await listPublicStatuses() });
   });
 
   socket.on("channel:join", async (channelId, callback) => {

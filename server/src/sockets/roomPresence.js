@@ -3,7 +3,7 @@
 // roster de voz (quem está na chamada, voicePresence.js). As duas têm
 // exatamente a mesma forma:
 //
-//   Hash  {namespace}:{roomId}  ->  field userId  ->  JSON { username, socketIds: [] }
+//   Hash  {namespace}:{roomId}  ->  field userId  ->  JSON { username, avatarPath, socketIds: [] }
 //   Set   sock:{socketId}:{namespace}  ->  roomIds que esse socket entrou nesse namespace
 //
 // Um usuário pode ter vários sockets (várias abas/janelas) - só consideramos
@@ -19,7 +19,7 @@ export function createRoomPresenceStore(namespace, roomKey) {
 
   async function add(roomId, user, socketId) {
     try {
-      await redis.presenceAdd(roomKey(roomId), user.id, socketId, user.username);
+      await redis.presenceAdd(roomKey(roomId), user.id, socketId, user.username, user.avatarPath ?? '');
       await redis.sadd(socketRoomsKey(socketId), roomId);
     } catch {
       // Fail-open: sem Redis, a presença fica desativada mas o join no socket
@@ -76,12 +76,15 @@ export function createRoomPresenceStore(namespace, roomKey) {
       const hash = await redis.hgetall(roomKey(roomId));
       return Object.entries(hash).map(([userId, raw]) => {
         let username = userId;
+        let avatarPath = null;
         try {
-          username = JSON.parse(raw).username ?? userId;
+          const entry = JSON.parse(raw);
+          username = entry.username ?? userId;
+          avatarPath = entry.avatarPath || null;
         } catch {
-          /* mantém userId como fallback */
+          /* mantém os fallbacks acima */
         }
-        return { userId, username };
+        return { userId, username, avatarPath };
       });
     } catch {
       return [];

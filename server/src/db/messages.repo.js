@@ -31,7 +31,8 @@ export async function createMessage({ channelId, userId, content }) {
     [channelId, userId, content],
   );
   const { rows } = await pool.query(
-    `SELECT m.id, m.channel_id, m.content, m.created_at, u.public_id AS user_id, u.username
+    `SELECT m.id, m.channel_id, m.content, m.created_at,
+            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath"
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.id = $1`,
     [inserted[0].id],
@@ -65,7 +66,8 @@ export async function listMessagesForChannel(
   }
 
   const { rows } = await pool.query(
-    `SELECT m.id, m.channel_id, m.content, m.created_at, u.public_id AS user_id, u.username
+    `SELECT m.id, m.channel_id, m.content, m.created_at,
+            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath"
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.channel_id = $1 ${cursorClause}
      ORDER BY m.id DESC
@@ -80,4 +82,64 @@ export async function listMessagesForChannel(
     /* falha de escrita no cache não deve quebrar a listagem */
   }
   return result;
+}
+
+async function getChannelMaxId(channelId) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(MAX(id), 0) AS "maxId" FROM messages WHERE channel_id = $1`,
+    [channelId],
+  );
+  return rows[0].maxId;
+}
+
+// Avança o cursor de leitura (channel_reads.last_read_message_id) até a
+// mensagem mais recente do canal - chamado ao abrir o canal e, com ele já
+// aberto, a cada mensagem nova recebida (ver ChatPanel.jsx/RoomPage.jsx).
+// Mesmo raciocínio de markConversationRead em privateMessages.repo.js.
+export async function markChannelRead(userId, channelId) {
+  const maxId = await getChannelMaxId(channelId);
+  await pool.query(
+    `INSERT INTO channel_reads (user_id, channel_id, last_read_message_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, channel_id)
+     DO UPDATE SET last_read_message_id = GREATEST(channel_reads.last_read_message_id, EXCLUDED.last_read_message_id)`,
+    [userId, channelId, maxId],
+  );
+}
+
+// Quantidade de mensagens não lidas por canal de um único servidor (chave =
+// channelId) - usado para o badge individual de cada canal de texto dentro
+// da sala (RoomPage.jsx). Nunca conta a própria mensagem do usuário como não
+// lida.
+export async function getUnreadCountsForServer(userId, serverId) {
+  const { rows } = await pool.query(
+    `SELECT m.channel_id AS "channelId", COUNT(*)::int AS count
+     FROM messages m
+     INNER JOIN channels c ON c.id = m.channel_id
+     LEFT JOIN channel_reads cr ON cr.user_id = $1 AND cr.channel_id = m.channel_id
+     WHERE c.server_id = $2
+       AND m.user_id <> $1
+       AND m.id > COALESCE(cr.last_read_message_id, 0)
+     GROUP BY m.channel_id`,
+    [userId, serverId],
+  );
+  return rows;
+}
+
+// Total de mensagens não lidas por SERVIDOR (soma de todos os canais de
+// texto), para todo servidor em que o usuário é membro - usado no badge da
+// lista de servidores da tela inicial (RoomsPage.jsx).
+export async function getUnreadCountsByServer(userId) {
+  const { rows } = await pool.query(
+    `SELECT c.server_id AS "serverId", COUNT(*)::int AS count
+     FROM messages m
+     INNER JOIN channels c ON c.id = m.channel_id
+     INNER JOIN room_members rm ON rm.room_id = c.server_id AND rm.user_id = $1
+     LEFT JOIN channel_reads cr ON cr.user_id = $1 AND cr.channel_id = m.channel_id
+     WHERE m.user_id <> $1
+       AND m.id > COALESCE(cr.last_read_message_id, 0)
+     GROUP BY c.server_id`,
+    [userId],
+  );
+  return rows;
 }

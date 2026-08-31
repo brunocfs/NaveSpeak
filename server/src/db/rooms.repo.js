@@ -24,7 +24,7 @@ export async function createRoom({ name, createdBy }) {
 
 // created_by é exposto como o public_id do usuário (UUID), nunca a PK interna.
 const ROOM_WITH_CREATOR = `
-  SELECT r.id, r.name, r.invite_code, u.public_id AS created_by, r.created_at
+  SELECT r.id, r.name, r.invite_code, r.icon_path, u.public_id AS created_by, r.created_at
   FROM rooms r
   LEFT JOIN users u ON u.id = r.created_by`;
 
@@ -76,9 +76,34 @@ export async function addRoomMember({ roomId, userId }) {
   );
 }
 
+export async function removeRoomMember(roomId, userId) {
+  await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId]);
+}
+
+// PATCH parcial: name/iconPath undefined = não mexe naquele campo (iconPath
+// null é um valor válido - "remover ícone", distinto de undefined).
+export async function updateRoomProfile(roomId, { name, iconPath } = {}) {
+  const fields = [];
+  const values = [];
+  let i = 1;
+  if (name !== undefined) { fields.push(`name = $${i++}`); values.push(name); }
+  if (iconPath !== undefined) { fields.push(`icon_path = $${i++}`); values.push(iconPath); }
+  if (fields.length > 0) {
+    values.push(roomId);
+    await pool.query(`UPDATE rooms SET ${fields.join(', ')} WHERE id = $${i}`, values);
+  }
+  return findRoomById(roomId);
+}
+
+export async function regenerateInviteCode(roomId) {
+  const inviteCode = generateInviteCode();
+  await pool.query('UPDATE rooms SET invite_code = $2 WHERE id = $1', [roomId, inviteCode]);
+  return findRoomById(roomId);
+}
+
 export async function listRoomMembers(roomId) {
   const { rows } = await pool.query(
-    `SELECT u.public_id AS id, u.username
+    `SELECT u.public_id AS id, u.username, u.avatar_path AS "avatarPath"
      FROM room_members rm
      INNER JOIN users u ON u.id = rm.user_id
      WHERE rm.room_id = $1`,

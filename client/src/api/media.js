@@ -31,6 +31,74 @@ export async function listScreenSources() {
   return window.naveSpeak.getScreenSources();
 }
 
+// Lista os microfones/webcams disponíveis (Preferências > Dispositivos e
+// fallback em joinVoice/shareCamera abaixo). Sem permissão concedida ainda,
+// o navegador devolve os dispositivos mas com `label` vazio (só o deviceId
+// existe) - quem chama decide se pede permissão antes pra mostrar nomes.
+export async function listMediaDevices() {
+  assertMediaDevicesAvailable();
+  const list = await navigator.mediaDevices.enumerateDevices();
+  return {
+    mics: list.filter((d) => d.kind === 'audioinput'),
+    cameras: list.filter((d) => d.kind === 'videoinput'),
+  };
+}
+
+// Pede microfone+câmera só para o navegador liberar os `label` reais dos
+// dispositivos em enumerateDevices (fica vazio até alguma permissão de
+// mídia ser concedida) - chamado a partir de um clique explícito no botão
+// "Permitir acesso" da tela de Preferências, nunca sozinho. Encerra as
+// tracks imediatamente: aqui só queremos o rótulo, não uma captura viva.
+// Pede os dois tipos separado porque uma máquina sem webcam (ou sem
+// permissão de câmera) não pode derrubar a liberação do microfone, e
+// vice-versa.
+export async function unlockDeviceLabels() {
+  assertMediaDevicesAvailable();
+  const results = { mic: false, camera: false };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    results.mic = true;
+  } catch {
+    // Sem permissão/sem microfone - segue com a câmera mesmo assim.
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    stream.getTracks().forEach((t) => t.stop());
+    results.camera = true;
+  } catch {
+    // Idem, sem câmera.
+  }
+  return results;
+}
+
+// Tenta os constraints pedidos (com deviceId exato, quando informado) e,
+// se o dispositivo salvo não existir mais (desconectado, driver removido -
+// `OverconstrainedError`/`NotFoundError`), refaz a captura com o padrão do
+// sistema em vez de derrubar a chamada. `fellBack` avisa quem chamou que a
+// preferência salva não pôde ser usada desta vez.
+async function getStreamWithFallback(constraints, fallbackConstraints) {
+  try {
+    return { stream: await navigator.mediaDevices.getUserMedia(constraints), fellBack: false };
+  } catch (err) {
+    if (err.name === 'OverconstrainedError' || err.name === 'NotFoundError') {
+      const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+      return { stream, fellBack: true };
+    }
+    throw err;
+  }
+}
+
+// Usado por joinVoice (MediaSessionContext) ao entrar na voz - reaproveita
+// o microfone salvo em Preferências, com fallback para o padrão do sistema.
+export async function requestMicStream(deviceId) {
+  assertMediaDevicesAvailable();
+  return getStreamWithFallback(
+    { audio: deviceId ? { deviceId: { exact: deviceId } } : true },
+    { audio: true }
+  );
+}
+
 export async function requestScreenStream(sourceId) {
   assertMediaDevicesAvailable();
 
@@ -53,11 +121,15 @@ export async function requestScreenStream(sourceId) {
   return navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
 }
 
-export async function requestCameraStream() {
+// Reaproveita a webcam salva em Preferências (deviceId), com fallback para
+// o padrão do sistema se ela não existir mais - mesma lógica de
+// requestMicStream acima.
+export async function requestCameraStream(deviceId) {
   assertMediaDevicesAvailable();
-  return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  return getStreamWithFallback(
+    { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false },
+    { video: true, audio: false }
+  );
 }
 
-// Reexportado para o hook useMediasoup usar antes de pedir o microfone ao
-// entrar na voz (o único lugar que chama getUserMedia fora deste módulo).
 export { assertMediaDevicesAvailable };

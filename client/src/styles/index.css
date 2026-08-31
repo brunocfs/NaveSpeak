@@ -1,12 +1,21 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Tema claro (padrão dos tokens abaixo) e escuro (classe .dark na <html>,
+   alternada por PreferencesContext.jsx) - mesmos nomes de variável nos dois
+   blocos, só o valor muda, então todo CSS legado abaixo (auth-card,
+   modal-overlay, etc.) segue o tema sem precisar saber qual está ativo. As
+   telas migradas pro Tailwind usam a variant `dark:` acima em vez destas
+   variáveis, mas respondem à mesma classe .dark. */
 :root {
-  color-scheme: dark;
-  --bg: #1e1f26;
-  --panel: #2a2c37;
+  color-scheme: light;
+  --bg: #f1f5f9;
+  --panel: #ffffff;
+  --panel-border: #e2e8f0;
+  --input-bg: #ffffff;
   --accent: #5865f2;
-  --text: #e7e9ee;
-  --muted: #9a9ca8;
+  --text: #1e1f26;
+  --muted: #64748b;
   --error: #ed4245;
   font-family:
     -apple-system,
@@ -15,6 +24,16 @@
     Helvetica,
     Arial,
     sans-serif;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #1e1f26;
+  --panel: #2a2c37;
+  --panel-border: #3f4250;
+  --input-bg: #1e1f26;
+  --text: #e7e9ee;
+  --muted: #9a9ca8;
 }
 
 * {
@@ -71,8 +90,8 @@ body {
 .auth-card input {
   padding: 0.6rem;
   border-radius: 6px;
-  border: 1px solid #3f4250;
-  background: #1e1f26;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
   color: var(--text);
 }
 
@@ -132,7 +151,7 @@ body {
   padding: 0.4rem 0.8rem;
   border: none;
   border-radius: 6px;
-  background: #3f4250;
+  background: var(--panel-border);
   color: var(--text);
   cursor: pointer;
 }
@@ -158,7 +177,7 @@ body {
 .inline-form input {
   padding: 0.5rem;
   border-radius: 6px;
-  border: 1px solid #3f4250;
+  border: 1px solid var(--panel-border);
   background: var(--panel);
   color: var(--text);
 }
@@ -271,8 +290,8 @@ body {
   flex: 1;
   padding: 0.6rem;
   border-radius: 6px;
-  border: 1px solid #3f4250;
-  background: #1e1f26;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
   color: var(--text);
 }
 
@@ -355,8 +374,8 @@ body {
 }
 
 .source-option {
-  background: #1e1f26;
-  border: 1px solid #3f4250;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
   border-radius: 8px;
   padding: 0.5rem;
   color: var(--text);
@@ -377,7 +396,7 @@ body {
   padding: 0.5rem 0.9rem;
   border: none;
   border-radius: 6px;
-  background: #3f4250;
+  background: var(--panel-border);
   color: var(--text);
   cursor: pointer;
 }

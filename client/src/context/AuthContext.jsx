@@ -39,13 +39,24 @@ export function AuthProvider({ children }) {
     setUser(data.user);
   }, []);
 
-  const register = useCallback(async (username, email, password) => {
+  const register = useCallback(async (username, email, password, inviteCode) => {
     const data = await apiRequest('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      // inviteCode fica de fora do corpo quando vazio (undefined não vira
+      // chave no JSON) - o servidor só exige o campo se INVITE_ONLY=true
+      // (ver registerSchema em auth.routes.js).
+      body: JSON.stringify({ username, email, password, inviteCode: inviteCode || undefined }),
     });
     setAccessToken(data.accessToken);
     setUser(data.user);
+  }, []);
+
+  // Mescla campos no `user` em memória sem bater no backend - usado depois
+  // de um PATCH bem-sucedido em /api/users/me (ProfilePage.jsx) para o
+  // username exibido no resto do app (ex.: cabeçalho de RoomsPage.jsx)
+  // acompanhar a mudança sem precisar de F5 nem de um novo /auth/refresh.
+  const updateUser = useCallback((patch) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
   const logout = useCallback(async () => {
@@ -68,8 +79,8 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout }),
-    [user, loading, login, register, logout]
+    () => ({ user, loading, login, register, logout, updateUser }),
+    [user, loading, login, register, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

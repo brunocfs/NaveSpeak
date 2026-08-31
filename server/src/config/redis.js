@@ -61,7 +61,8 @@ export async function resetEphemeralPresenceOnBoot() {
 // atomicidade entre ler/adicionar/remover socketIds, por isso usamos Lua.
 
 // KEYS[1] = presence:{roomId}
-// ARGV[1] = userId, ARGV[2] = socketId, ARGV[3] = username
+// ARGV[1] = userId, ARGV[2] = socketId, ARGV[3] = username, ARGV[4] = avatarPath
+// (opcional - string vazia ou omitido = sem foto cadastrada).
 redis.defineCommand('presenceAdd', {
   numberOfKeys: 1,
   lua: `
@@ -69,6 +70,7 @@ redis.defineCommand('presenceAdd', {
     local field = ARGV[1]
     local socketId = ARGV[2]
     local username = ARGV[3]
+    local avatarPath = ARGV[4] or ''
     local raw = redis.call('HGET', key, field)
     local entry
     if raw then
@@ -84,6 +86,7 @@ redis.defineCommand('presenceAdd', {
       table.insert(entry.socketIds, socketId)
     end
     entry.username = username
+    entry.avatarPath = avatarPath
     redis.call('HSET', key, field, cjson.encode(entry))
     return 1
   `,

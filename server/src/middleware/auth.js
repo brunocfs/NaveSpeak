@@ -18,7 +18,15 @@ export async function requireAuth(req, res, next) {
     const user = await findUserByPublicId(payload.sub);
     if (!user) return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
 
-    req.user = { id: user.publicId, internalId: user.id, username: user.username };
+    req.user = {
+      id: user.publicId,
+      internalId: user.id,
+      username: user.username,
+      discriminator: user.discriminator,
+      status: user.status,
+      avatarPath: user.avatarPath,
+      isAdmin: user.isAdmin,
+    };
     return next();
   } catch {
     return res.status(401).json({ error: 'Sessão inválida ou expirada.' });

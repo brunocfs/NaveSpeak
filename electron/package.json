@@ -11,13 +11,13 @@
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "electron": "^43.4.0",
+    "electron": "43.4.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.navespeak.app",
     "productName": "NaveSpeak",
-    "files": ["main.js", "preload.js"],
+    "files": ["main.js", "preload.js", "package.json"],
     "directories": {
       "output": "dist"
     }

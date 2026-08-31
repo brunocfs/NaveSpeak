@@ -8,6 +8,8 @@ import { registerPresenceHandlers } from './presence.handler.js';
 import { registerChatHandlers } from './chat.handler.js';
 import { registerMediasoupHandlers } from './mediasoup.handler.js';
 import { registerOnlineHandlers } from './online.handler.js';
+import { registerDmHandlers } from './dm.handler.js';
+import { registerCallHandlers } from './calls.handler.js';
 
 export function attachSockets(httpServer) {
   const io = new Server(httpServer, {
@@ -54,7 +56,13 @@ export function attachSockets(httpServer) {
       if (!user) return next(new Error('unauthorized'));
       // `id` = public_id (UUID) exposto ao cliente; `internalId` = PK BIGINT
       // usada só em FKs/joins no banco.
-      socket.data.user = { id: user.publicId, internalId: user.id, username: user.username };
+      socket.data.user = {
+        id: user.publicId,
+        internalId: user.id,
+        username: user.username,
+        status: user.status,
+        avatarPath: user.avatarPath,
+      };
       return next();
     } catch {
       return next(new Error('unauthorized'));
@@ -66,6 +74,8 @@ export function attachSockets(httpServer) {
     registerPresenceHandlers(io, socket);
     registerChatHandlers(io, socket);
     registerMediasoupHandlers(io, socket);
+    registerDmHandlers(io, socket);
+    registerCallHandlers(io, socket);
   });
 
   return io;

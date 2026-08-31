@@ -65,7 +65,7 @@ export default function LoginPage() {
                 htmlFor="identifier"
                 className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300"
               >
-                Usuário ou email
+                Usuário#tag ou email
               </label>
               <input
                 id="identifier"
@@ -74,7 +74,7 @@ export default function LoginPage() {
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 required
-                placeholder="Digite seu usuário ou email"
+                placeholder="usuario#12345 ou email"
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
               />
             </div>

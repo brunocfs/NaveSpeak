@@ -1,7 +1,9 @@
-import { isRoomMember } from "../db/rooms.repo.js";
+import { isRoomMember, findRoomById } from "../db/rooms.repo.js";
 import { findChannelById } from "../db/channels.repo.js";
 import { createMessage } from "../db/messages.repo.js";
 import { redis } from "../config/redis.js";
+import { listRoleIdsForUser, getUserPermissionBitmask } from "../db/roles.repo.js";
+import { canAccessChannel } from "../utils/permissions.js";
 import {
   channelIdParamSchema,
   messageContentSchema,
@@ -58,13 +60,31 @@ export function registerChatHandlers(io, socket) {
     const member = await isRoomMember(channel.server_id, user.internalId);
     if (!member) return ack({ error: "Você não é membro desse servidor." });
 
+    const room = await findRoomById(channel.server_id);
+    const [bitmask, roleIds] = await Promise.all([
+      getUserPermissionBitmask(channel.server_id, user.internalId),
+      listRoleIdsForUser(channel.server_id, user.internalId),
+    ]);
+    const canSend = canAccessChannel({ channel, room, user, bitmask, roleIds, action: "send" });
+    if (!canSend) return ack({ error: "Você não tem permissão para enviar mensagens neste canal." });
+
     try {
       const message = await createMessage({
         channelId: channelId,
         userId: user.internalId,
         content: contentResult.data,
       });
-      io.to(channelId).emit("chat:message", message);
+      // Emite tanto para a room do CANAL (quem tem ele aberto agora, ver
+      // presence.handler.js/channel:join) quanto para a room do SERVIDOR
+      // (channel.server_id - todo socket já entra nela sozinho ao conectar,
+      // ver online.handler.js) - é o que permite notificação desktop de
+      // mensagem em canal que a pessoa não está olhando no momento
+      // (NotificationContext.jsx), sem precisar "espiar" todo canal de todo
+      // servidor sozinho. socket.io deduplica: quem está nas duas rooms
+      // recebe o evento uma vez só. `serverId` vai junto no payload (a
+      // mensagem em si não carrega isso) para o clique da notificação saber
+      // pra qual /rooms/:roomId navegar.
+      io.to(channelId).to(channel.server_id).emit("chat:message", { ...message, serverId: channel.server_id });
       return ack({ ok: true, message });
     } catch (err) {
       console.error(err);

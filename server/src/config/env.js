@@ -41,6 +41,36 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true'),
+
+  // ---- Cadastro (registro/invite-only) ----
+  // true = POST /auth/register exige um convite válido (ver
+  // routes/invites.routes.js e routes/auth.routes.js); false = cadastro
+  // público liberado, convite é ignorado mesmo se enviado.
+  INVITE_ONLY: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Origem usada para montar o link de convite (ex.: no email enviado por
+  // utils/mailer.js): "<APP_BASE_URL>/invite/<code>". Cai em CORS_ORIGIN
+  // quando vazio - mesma origem que o client já usa em desenvolvimento, e a
+  // única origem válida em produção (client servido pelo próprio Express).
+  APP_BASE_URL: z.string().optional().default(''),
+
+  // ---- SMTP (convite por email, utils/mailer.js) ----
+  // Todos opcionais: sem SMTP_HOST configurado, o envio de email cai em
+  // fallback (loga o link no console do servidor em vez de falhar) - o
+  // convite continua sendo criado e utilizável pelo link normalmente, só o
+  // envio automático por email fica indisponível até configurar isto.
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASSWORD: z.string().optional().default(''),
+  // Endereço "De:" nos emails de convite - cai em SMTP_USER quando vazio.
+  SMTP_FROM: z.string().optional().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);

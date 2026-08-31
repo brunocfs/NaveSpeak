@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
+import { markChannelRead } from "../api/messages.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import MessageInput from "./MessageInput.jsx";
+import Avatar from "./Avatar.jsx";
 
 export default function ChatPanel({ channelId }) {
   const { user } = useAuth();
@@ -35,6 +37,13 @@ export default function ChatPanel({ channelId }) {
     };
   }, [channelId]);
 
+  // Canal aberto: zera o cursor de leitura ao entrar - o badge de não lidas
+  // (RoomPage.jsx) some para este canal mesmo depois de um F5. Chamado de
+  // novo abaixo a cada mensagem nova recebida, com o canal ainda aberto.
+  useEffect(() => {
+    markChannelRead(channelId).catch(() => {});
+  }, [channelId]);
+
   useEffect(() => {
     const socket = getSocket();
 
@@ -44,6 +53,7 @@ export default function ChatPanel({ channelId }) {
       // então uma mensagem maliciosa não vira HTML/script executável aqui.
       if (message.channel_id !== channelId) return;
       setMessages((prev) => [...prev, message]);
+      markChannelRead(channelId).catch(() => {});
     }
 
     socket.on("chat:message", handleIncoming);
@@ -69,22 +79,32 @@ export default function ChatPanel({ channelId }) {
         {loading && <p className="hint">Carregando mensagens...</p>}
         {error && <p className="error-text">{error}</p>}
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={message.user_id === user?.id ? "message own" : "message"}
-          >
-            <div>
-              <span className="message-author">{message.username}</span>
-              <span
-                className={`mt-1 px-1 text-xs
-                     "text-right text-slate-500 dark:text-slate-400"
-                    
-                }`}
-              >
-                {formatMessageTime(message.created_at)}
-              </span>
+          <div key={message.id} className="flex items-start gap-3">
+            <Avatar
+              avatarPath={message.avatarPath}
+              username={message.username}
+              size="sm"
+              className="mt-0.5"
+            />
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span
+                  className={`text-sm font-semibold ${
+                    message.user_id === user?.id
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-slate-900 dark:text-white"
+                  }`}
+                >
+                  {message.username}
+                </span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {formatMessageTime(message.created_at)}
+                </span>
+              </div>
+              <p className="break-words text-sm text-slate-700 dark:text-slate-200">
+                {message.content}
+              </p>
             </div>
-            <span className="message-content">{message.content}</span>
           </div>
         ))}
         <div ref={bottomRef} />

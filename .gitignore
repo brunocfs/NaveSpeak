@@ -5,9 +5,12 @@ node_modules/
 dist/
 build/
 electron/dist/
+# Avatares enviados por usuário (server/src/routes/users.routes.js) - arquivo
+# gerado em runtime, não conteúdo do repositório.
+server/uploads/
 *.log
 .DS_Store
-
+CLAUDE.md
 # Estado interno do harness Claude Code (ex.: lock de agendamento), não é
 # conteúdo do projeto.
 .claude/

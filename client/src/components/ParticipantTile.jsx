@@ -1,14 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MicOff, Pin, PinOff } from 'lucide-react';
 import { useSpeaking } from '../hooks/useSpeaking.js';
-
-function initials(name = '') {
-  const trimmed = name.trim();
-  if (!trimmed) return '?';
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import Avatar from './Avatar.jsx';
 
 // Um "quadradinho" da chamada, no estilo Discord: representa UMA pessoa (com
 // câmera ligada ou avatar com iniciais) OU uma tela compartilhada - nunca os
@@ -18,6 +11,7 @@ function initials(name = '') {
 // de "está falando".
 export default function ParticipantTile({
   username,
+  avatarPath = null,
   videoStream = null,
   micStream = null,
   micMuted = false,
@@ -67,9 +61,15 @@ export default function ParticipantTile({
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-700">
-          <span className="flex size-14 items-center justify-center rounded-full bg-slate-600 text-lg font-semibold text-slate-100">
-            {initials(username)}
-          </span>
+          {/* Foto de perfil como estado visual padrão de quem está sem
+              câmera/tela compartilhada - some assim que qualquer mídia de
+              vídeo entra (hasVideo acima), sem precisar de outro estado. */}
+          <Avatar
+            avatarPath={avatarPath}
+            username={username}
+            size="xl"
+            className="!bg-slate-600 !text-slate-100"
+          />
         </div>
       )}
 

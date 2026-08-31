@@ -1,28 +1,45 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useMediaSession } from '../context/MediaSessionContext.jsx';
+import { useCall } from '../context/CallContext.jsx';
 import ParticipantTile from './ParticipantTile.jsx';
-import { useWindowPopout } from '../hooks/useWindowPopout.js';
+import AddCallParticipant from './AddCallParticipant.jsx';
 
-// Recebe o hook useMediasoup já instanciado pelo RoomPage (em vez de criar o
-// seu próprio), assim outros componentes compartilham a mesma conexão/estado
-// em vez de abrir transports duplicados. channelId é o canal de voz alvo
-// (usado para iniciar a chamada); participants é o roster de quem está na
-// chamada (voiceRosters[channelId] no RoomPage) - é a fonte de verdade de
-// "quem mostrar" no grid, independente de já termos recebido o producer de
-// mídia dessa pessoa ou não (evita gente "sumir" do grid por causa de uma
-// corrida entre o roster via socket e o consumo do producer via WebRTC).
-export default function VoicePanel({ media, channelId, participants = [] }) {
+// Montado UMA VEZ, globalmente (App.jsx, junto de VoiceStatusBar) - não mais
+// instanciado por RoomPage. Lê tudo (remoteStreams, roster, popout) direto
+// de useMediaSession(), então não depende de nenhum estado dono de RoomPage:
+// a chamada e a janela de popout continuam de pé mesmo se o usuário sair da
+// tela da sala (era exatamente essa dependência que fazia o popout fechar
+// sozinho ao voltar pra tela inicial).
+//
+// Como não fica mais posicionado dentro do layout de RoomPage, ele SEMPRE se
+// porta (createPortal) para um alvo: a janela de popout, se aberta, senão o
+// `panelAnchor` que a tela atual registrou via media.setPanelAnchor (hoje só
+// RoomPage registra um, quando é o canal de voz ativo).
+//
+// Sem popout aberto e sem tela exibindo o painel embutido - é exatamente o
+// caso de uma CHAMADA PRIVADA (nenhuma tela registra panelAnchor pra ela, só
+// RoomPage registra e só para o canal de voz de um servidor) - o painel vira
+// FLUTUANTE: um card fixo no canto da tela, portado direto pro <body>, pra
+// câmera/tela compartilhada sempre terem onde aparecer, não importa a tela
+// atual. Áudio nunca dependeu disso (mediasoup entrega o stream sozinho),
+// mas vídeo sem nenhum <video> montado em algum lugar não tem como aparecer.
+// Minimizável (setMinimized) pra não obrigar o card a ficar sempre aberto.
+export default function VoicePanel() {
   const { user } = useAuth();
+  const media = useMediaSession();
+  const { isCall, activeRoster } = useCall();
   const {
     connected,
     muted,
     remoteStreams,
     error,
-    joinVoice,
     leaveVoice,
     toggleMute,
+    audioLocked,
+    mediaLocked,
     deafened,
     toggleDeafen,
     cameraOn,
@@ -31,12 +48,24 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
     stopCamera,
     sharingScreen,
     localScreenStream,
+    voiceRoster: participants,
+    panelAnchor,
+    popout,
+    openPopout,
+    closePopout,
   } = media;
 
-  const { popout, open: openPopout, close: closePopout } = useWindowPopout();
   // Chave do tile fixado ("spotlight") - 'user:<id>' ou 'screen:<id>'.
   const [pinnedKey, setPinnedKey] = useState(null);
   const prevScreenKeysRef = useRef(new Set());
+
+  // Só usado no modo flutuante (ver mais abaixo) - reseta a cada nova
+  // conexão pra uma chamada anterior minimizada não deixar a próxima já
+  // minimizada de cara.
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => {
+    if (connected) setMinimized(false);
+  }, [connected]);
 
   // Um tile por PESSOA (câmera se estiver ligada, senão avatar com iniciais)
   // - nunca um por stream, para não duplicar quem está só com o mic ligado.
@@ -47,6 +76,7 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
         key: 'user:self',
         kind: 'person',
         username: `${user.username} (você)`,
+        avatarPath: user.avatarPath,
         isLocal: true,
         micMuted: muted,
         videoStream: cameraOn ? localCameraStream : null,
@@ -65,6 +95,7 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
         key: `user:${p.userId}`,
         kind: 'person',
         username: p.username,
+        avatarPath: p.avatarPath,
         isLocal: false,
         micMuted: micEntry?.paused ?? false,
         videoStream: cameraEntry?.stream ?? null,
@@ -128,6 +159,28 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
     else openPopout({ width: 480, height: 680, title: 'Voz - NaveSpeak' });
   }
 
+  if (!connected) return null;
+
+  // Alvo de renderização: a janela de popout se estiver aberta (sobrepõe a
+  // tela atual), senão o container que a tela atual registrou como âncora do
+  // painel embutido. Sem nenhum dos dois - caso de uma chamada privada, ou
+  // de navegar pra fora de RoomPage durante uma chamada de sala - vira
+  // flutuante (ver comentário no topo do arquivo).
+  const target = popout ? popout.document.body : panelAnchor;
+  const floating = !target;
+
+  if (floating && minimized) {
+    return createPortal(
+      <button
+        onClick={() => setMinimized(false)}
+        className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
+      >
+        🔊 Mostrar chamada ({allTiles.length})
+      </button>,
+      document.body
+    );
+  }
+
   const pinnedTile = allTiles.find((t) => t.key === pinnedKey) ?? null;
   const restTiles = pinnedTile ? allTiles.filter((t) => t.key !== pinnedKey) : allTiles;
 
@@ -135,55 +188,59 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
     <div className="flex h-full flex-col">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Voz{connected ? ` · ${allTiles.length} na chamada` : ''}
+          Voz · {allTiles.length} na chamada
         </h3>
 
         <div className="flex flex-wrap items-center gap-2">
-          {!connected ? (
+          {isCall && <AddCallParticipant roster={activeRoster} />}
+          <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => joinVoice(channelId)}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+              onClick={toggleMute}
+              disabled={muted && audioLocked}
+              title={muted && audioLocked ? 'Um moderador bloqueou seu áudio neste canal' : undefined}
+              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Entrar na voz
+              {muted ? (audioLocked ? '🔒 Mutado por moderador' : 'Ativar mic') : 'Silenciar'}
             </button>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={toggleMute}
-                className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
-              >
-                {muted ? 'Ativar mic' : 'Silenciar'}
-              </button>
-              <button
-                onClick={cameraOn ? stopCamera : shareCamera}
-                className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
-              >
-                {cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
-              </button>
-              <button
-                onClick={toggleDeafen}
-                className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
-              >
-                {deafened ? 'Ouvir todos' : 'Silenciar todos'}
-              </button>
-              <button
-                onClick={leaveVoice}
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
-              >
-                Sair da voz
-              </button>
-            </div>
-          )}
-
-          {connected && (
             <button
-              onClick={togglePopout}
-              title={popout ? 'Encaixar de volta' : 'Abrir em uma nova janela'}
-              className={`rounded-lg p-2 text-white transition ${
-                popout ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'
-              }`}
+              onClick={cameraOn ? stopCamera : shareCamera}
+              disabled={!cameraOn && mediaLocked}
+              title={!cameraOn && mediaLocked ? 'Um moderador bloqueou sua mídia neste canal' : undefined}
+              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <ExternalLink className="size-4" />
+              {cameraOn ? 'Desligar câmera' : mediaLocked ? '🔒 Mídia bloqueada' : 'Ligar câmera'}
+            </button>
+            <button
+              onClick={toggleDeafen}
+              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
+            >
+              {deafened ? 'Ouvir todos' : 'Silenciar todos'}
+            </button>
+            <button
+              onClick={leaveVoice}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Sair da voz
+            </button>
+          </div>
+
+          <button
+            onClick={togglePopout}
+            title={popout ? 'Encaixar de volta' : 'Abrir em uma nova janela'}
+            className={`rounded-lg p-2 text-white transition ${
+              popout ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'
+            }`}
+          >
+            <ExternalLink className="size-4" />
+          </button>
+
+          {floating && (
+            <button
+              onClick={() => setMinimized(true)}
+              title="Minimizar"
+              className="rounded-lg bg-slate-700 p-2 text-white transition hover:bg-slate-600"
+            >
+              <ChevronDown className="size-4" />
             </button>
           )}
         </div>
@@ -191,54 +248,55 @@ export default function VoicePanel({ media, channelId, participants = [] }) {
 
       {error && <p className="error-text">{error}</p>}
 
-      {connected && (
-        <div className="min-h-0 flex-1 overflow-auto">
-          {pinnedTile ? (
-            <div className="flex h-full min-h-[22rem] flex-col gap-3 md:flex-row">
-              <div className="min-h-0 flex-1">
-                <ParticipantTile
-                  {...pinnedTile}
-                  pinned
-                  deafened={deafened}
-                  onTogglePin={() => togglePin(pinnedTile.key)}
-                  className="!aspect-auto h-full min-h-[22rem]"
-                />
+      <div className="min-h-0 flex-1 overflow-auto">
+        {pinnedTile ? (
+          <div className="flex h-full min-h-[22rem] flex-col gap-3 md:flex-row">
+            <div className="min-h-0 flex-1">
+              <ParticipantTile
+                {...pinnedTile}
+                pinned
+                deafened={deafened}
+                onTogglePin={() => togglePin(pinnedTile.key)}
+                className="!aspect-auto h-full min-h-[22rem]"
+              />
+            </div>
+            {restTiles.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto md:w-44 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
+                {restTiles.map((t) => (
+                  <ParticipantTile
+                    key={t.key}
+                    {...t}
+                    deafened={deafened}
+                    onTogglePin={() => togglePin(t.key)}
+                    className="w-40 shrink-0 md:w-full"
+                  />
+                ))}
               </div>
-              {restTiles.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto md:w-44 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
-                  {restTiles.map((t) => (
-                    <ParticipantTile
-                      key={t.key}
-                      {...t}
-                      deafened={deafened}
-                      onTogglePin={() => togglePin(t.key)}
-                      className="w-40 shrink-0 md:w-full"
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {allTiles.map((t) => (
-                <ParticipantTile
-                  key={t.key}
-                  {...t}
-                  deafened={deafened}
-                  onTogglePin={() => togglePin(t.key)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {allTiles.map((t) => (
+              <ParticipantTile
+                key={t.key}
+                {...t}
+                deafened={deafened}
+                onTogglePin={() => togglePin(t.key)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 
-  // Quando destacado, o mesmo conteúdo (mesma árvore React, mesmos
-  // MediaStreams ao vivo) é portado para a janela independente em vez de
-  // duplicado - fechar a janela (pelo nosso botão ou pelo X nativo dela) a
-  // devolve pro lugar original automaticamente.
-  if (popout) return createPortal(content, popout.document.body);
-  return content;
+  if (floating) {
+    return createPortal(
+      <div className="fixed bottom-24 right-4 z-20 flex h-[28rem] w-[26rem] max-w-[calc(100vw-2rem)] flex-col rounded-2xl bg-white p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+        {content}
+      </div>,
+      document.body
+    );
+  }
+  return createPortal(content, target);
 }

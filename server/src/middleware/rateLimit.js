@@ -1,5 +1,5 @@
-import rateLimit from 'express-rate-limit';
-import { redis } from '../config/redis.js';
+import rateLimit from "express-rate-limit";
+import { redis } from "../config/redis.js";
 
 // Store de rate limit compartilhado no Redis - assim o limite é consistente
 // entre várias instâncias do servidor (não por-instância como o store padrão
@@ -20,7 +20,7 @@ class RedisRateLimitStore {
     const [hits, pttl] = await multi.exec();
     const totalHits = Number(hits?.[1] ?? 0);
     // Se a chave ainda não tinha TTL (primeiro hit), define a janela.
-    if (typeof pttl?.[1] !== 'number' || pttl[1] <= 0) {
+    if (typeof pttl?.[1] !== "number" || pttl[1] <= 0) {
       await redis.pexpire(key, this.windowMs);
     }
     const resetTime = new Date(Date.now() + this.windowMs);
@@ -51,7 +51,7 @@ export const authRateLimiter = rateLimit({
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Muitas tentativas. Tente novamente em alguns minutos.' },
+  message: { error: "Muitas tentativas. Tente novamente em alguns minutos." },
   // Se o store (Redis) falhar, deixa a requisição passar em vez de quebrar o login.
   passOnStoreError: true,
   store,
