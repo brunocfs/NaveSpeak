@@ -30,6 +30,15 @@ export function useWindowPopout() {
       win.document.head.appendChild(node.cloneNode(true));
     });
     if (title) win.document.title = title;
+    // Tema (classe .dark na <html> + color-scheme) - sem isso a <html> da
+    // popout nasce sem NENHUMA classe de tema, então as variáveis --bg/etc.
+    // (ver styles/index.css) caem sempre no valor CLARO (custom-variant
+    // `dark` só ativa dentro de `.dark, .dark *`) não importa o tema ativo
+    // no app - fundo sempre claro/branco, tema errado. O useEffect abaixo
+    // mantém isso sincronizado se o usuário trocar de tema com a popout
+    // já aberta.
+    win.document.documentElement.className = document.documentElement.className;
+    win.document.documentElement.style.colorScheme = document.documentElement.style.colorScheme;
     win.document.documentElement.style.height = '100%';
     Object.assign(win.document.body.style, {
       height: '100%',
@@ -69,6 +78,23 @@ export function useWindowPopout() {
   // Se o componente dono desmontar com a janela ainda aberta (ex.: saiu da
   // voz), fecha junto - nunca deixa uma janela "órfã" sem conteúdo vivo.
   useEffect(() => () => popout?.close(), [popout]);
+
+  // Mantém o tema da popout em dia com o da janela principal enquanto ela
+  // estiver aberta - PreferencesContext troca a classe .dark só na <html>
+  // do documento principal (não sabe que existe uma popout), então sem
+  // isso trocar de tema com a popout já aberta deixaria ela presa no tema
+  // de quando foi aberta.
+  useEffect(() => {
+    if (!popout) return undefined;
+    const mainHtml = document.documentElement;
+    function syncTheme() {
+      popout.document.documentElement.className = mainHtml.className;
+      popout.document.documentElement.style.colorScheme = mainHtml.style.colorScheme;
+    }
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(mainHtml, { attributes: true, attributeFilter: ['class', 'style'] });
+    return () => observer.disconnect();
+  }, [popout]);
 
   return { popout, open, close };
 }

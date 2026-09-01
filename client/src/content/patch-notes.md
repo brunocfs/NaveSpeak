@@ -20,6 +20,23 @@ Reportem qualquer detalhe que possa ser melhorado.
 
 Aproveitem para conhecer a proposta do NaveSpeak.
 
+# Novidades da versão 0.3.0
+
+## Chamadas de voz e vídeo
+
+- Painel de voz agora com dois modos de layout de vídeo, escolha salva por você: **Grade** (padrão) e **Livre**.
+- Modo Grade: grid 100% automático - calcula sozinho colunas/linhas pra deixar cada participante o maior possível mantendo a proporção, e se reorganiza sozinho a cada pessoa que entra/sai (2 pessoas = lado a lado; 3 = 2 em cima + 1 embaixo; 4 = 2x2; e assim por diante). Vale tanto com o painel embutido na sala quanto na janela separada.
+- Modo Livre: mesmo grid automático, mas com resize manual - arraste o canto inferior direito de qualquer mídia pra redimensioná-la (a proporção é sempre preservada, nunca distorce). (Bugs conhecidos e melhorias ainda sendo aplicadas!)
+- Fixar (pin) agora aceita vários participantes/telas ao mesmo tempo, todos ganhando destaque juntos.
+- Botão novo pra esconder do grid quem está sem câmera/tela ligada (só microfone) - quem fixou ou está compartilhando tela nunca some.
+- Corrigido: minimizar o painel flutuante cortava o áudio da chamada inteira (agora só esconde a janela, o áudio continua).
+- Corrigido: abrir a chamada em uma janela separada não respeitava o tema (fundo sempre claro).
+- Painel principal agora avisa quando a chamada está aberta em outra janela, com botão pra trazer de volta.
+
+## Servidores
+
+- Barra de membros do servidor agora pode ser ocultada/expandida - ocultar libera mais espaço pro chat/voz.
+
 # Novidades da versão 0.2.0
 
 ## Servidores

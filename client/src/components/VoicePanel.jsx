@@ -1,11 +1,13 @@
-import { createPortal } from 'react-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, ChevronDown } from 'lucide-react';
-import { useAuth } from '../context/AuthContext.jsx';
-import { useMediaSession } from '../context/MediaSessionContext.jsx';
-import { useCall } from '../context/CallContext.jsx';
-import ParticipantTile from './ParticipantTile.jsx';
-import AddCallParticipant from './AddCallParticipant.jsx';
+import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useMediaSession } from "../context/MediaSessionContext.jsx";
+import { useCall } from "../context/CallContext.jsx";
+import VideoLayoutManager from "./VideoLayoutManager.jsx";
+import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
+import AddCallParticipant from "./AddCallParticipant.jsx";
+import { usePreferences } from "../context/PreferencesContext.jsx";
 
 // Montado UMA VEZ, globalmente (App.jsx, junto de VoiceStatusBar) - não mais
 // instanciado por RoomPage. Lê tudo (remoteStreams, roster, popout) direto
@@ -32,6 +34,12 @@ export default function VoicePanel() {
   const media = useMediaSession();
   const { isCall, activeRoster } = useCall();
   const {
+    videoLayoutMode,
+    setVideoLayoutMode,
+    hideParticipantsWithoutMedia,
+    toggleHideParticipantsWithoutMedia,
+  } = usePreferences();
+  const {
     connected,
     muted,
     remoteStreams,
@@ -55,8 +63,10 @@ export default function VoicePanel() {
     closePopout,
   } = media;
 
-  // Chave do tile fixado ("spotlight") - 'user:<id>' ou 'screen:<id>'.
-  const [pinnedKey, setPinnedKey] = useState(null);
+  // Chaves dos tiles fixados ("spotlight") - 'user:<id>' ou 'screen:<id>'.
+  // Set em vez de uma chave só: dá pra fixar vários participantes ao mesmo
+  // tempo (cada um ganha a região prioritária do VideoLayoutManager).
+  const [pinnedKeys, setPinnedKeys] = useState(() => new Set());
   const prevScreenKeysRef = useRef(new Set());
 
   // Só usado no modo flutuante (ver mais abaixo) - reseta a cada nova
@@ -73,8 +83,8 @@ export default function VoicePanel() {
     const tiles = [];
     if (user) {
       tiles.push({
-        key: 'user:self',
-        kind: 'person',
+        key: "user:self",
+        kind: "person",
         username: `${user.username} (você)`,
         avatarPath: user.avatarPath,
         isLocal: true,
@@ -86,14 +96,14 @@ export default function VoicePanel() {
     for (const p of participants) {
       if (p.userId === user?.id) continue;
       const micEntry = remoteStreams.find(
-        (s) => s.userId === p.userId && s.appData?.source === 'mic'
+        (s) => s.userId === p.userId && s.appData?.source === "mic",
       );
       const cameraEntry = remoteStreams.find(
-        (s) => s.userId === p.userId && s.appData?.source === 'camera'
+        (s) => s.userId === p.userId && s.appData?.source === "camera",
       );
       tiles.push({
         key: `user:${p.userId}`,
-        kind: 'person',
+        kind: "person",
         username: p.username,
         avatarPath: p.avatarPath,
         isLocal: false,
@@ -112,18 +122,18 @@ export default function VoicePanel() {
     const tiles = [];
     if (sharingScreen) {
       tiles.push({
-        key: 'screen:self',
-        kind: 'screen',
+        key: "screen:self",
+        kind: "screen",
         username: `${user?.username} (sua tela)`,
         isLocal: true,
         videoStream: localScreenStream,
       });
     }
     for (const s of remoteStreams) {
-      if (s.appData?.source !== 'screen') continue;
+      if (s.appData?.source !== "screen") continue;
       tiles.push({
         key: `screen:${s.userId}`,
-        kind: 'screen',
+        kind: "screen",
         username: `${s.username} (tela)`,
         isLocal: false,
         videoStream: s.stream,
@@ -132,31 +142,64 @@ export default function VoicePanel() {
     return tiles;
   }, [remoteStreams, sharingScreen, localScreenStream, user]);
 
-  const allTiles = useMemo(() => [...screenTiles, ...personTiles], [screenTiles, personTiles]);
+  const allTiles = useMemo(
+    () => [...screenTiles, ...personTiles],
+    [screenTiles, personTiles],
+  );
+
+  // Lista que de fato vai pro grid - com "esconder sem mídia" ligado, tira
+  // quem só tem avatar (sem câmera/tela, kind='person' sem videoStream);
+  // quem só tem o mic aberto continua sendo OUVIDO normalmente (o áudio não
+  // depende do tile aparecer), só não ocupa quadradinho visual. Telas
+  // compartilhadas sempre têm mídia, nunca somem por esse filtro. Um
+  // participante FIXADO nunca some mesmo sem mídia - o usuário pediu
+  // destaque nele de propósito, esconder seria contraintuitivo.
+  const visibleTiles = useMemo(() => {
+    if (!hideParticipantsWithoutMedia) return allTiles;
+    return allTiles.filter(
+      (t) => t.videoStream || pinnedKeys.has(t.key),
+    );
+  }, [allTiles, hideParticipantsWithoutMedia, pinnedKeys]);
 
   // Fixa automaticamente a primeira tela compartilhada nova que aparecer, se
   // nada mais já estiver fixado - assim quem está na chamada vê a tela em
-  // destaque na hora, sem precisar clicar em fixar.
+  // destaque na hora, sem precisar clicar em fixar. Só dispara com o Set
+  // vazio: se alguém já fixou algo (ou várias pessoas), uma tela nova entrar
+  // não deve roubar/mudar o que já tá em destaque.
   useEffect(() => {
     const currentKeys = new Set(screenTiles.map((t) => t.key));
-    const newKey = [...currentKeys].find((k) => !prevScreenKeysRef.current.has(k));
+    const newKey = [...currentKeys].find(
+      (k) => !prevScreenKeysRef.current.has(k),
+    );
     prevScreenKeysRef.current = currentKeys;
-    if (newKey && !pinnedKey) setPinnedKey(newKey);
-  }, [screenTiles, pinnedKey]);
+    if (newKey) {
+      setPinnedKeys((prev) => (prev.size === 0 ? new Set([newKey]) : prev));
+    }
+  }, [screenTiles]);
 
   // Se quem/o-que estava fixado sumir (saiu da chamada, parou de
-  // compartilhar), desafixa - nunca trava numa fixação morta.
+  // compartilhar), desafixa só aquela chave - nunca trava numa fixação morta,
+  // mas não mexe nas outras fixações ainda válidas.
   useEffect(() => {
-    if (pinnedKey && !allTiles.some((t) => t.key === pinnedKey)) setPinnedKey(null);
-  }, [allTiles, pinnedKey]);
+    setPinnedKeys((prev) => {
+      const liveKeys = new Set(allTiles.map((t) => t.key));
+      const next = new Set([...prev].filter((k) => liveKeys.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allTiles]);
 
   function togglePin(key) {
-    setPinnedKey((prev) => (prev === key ? null : key));
+    setPinnedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   function togglePopout() {
     if (popout) closePopout();
-    else openPopout({ width: 480, height: 680, title: 'Voz - NaveSpeak' });
+    else openPopout({ width: 480, height: 680, title: "Voz - NaveSpeak" });
   }
 
   if (!connected) return null;
@@ -169,21 +212,6 @@ export default function VoicePanel() {
   const target = popout ? popout.document.body : panelAnchor;
   const floating = !target;
 
-  if (floating && minimized) {
-    return createPortal(
-      <button
-        onClick={() => setMinimized(false)}
-        className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
-      >
-        🔊 Mostrar chamada ({allTiles.length})
-      </button>,
-      document.body
-    );
-  }
-
-  const pinnedTile = allTiles.find((t) => t.key === pinnedKey) ?? null;
-  const restTiles = pinnedTile ? allTiles.filter((t) => t.key !== pinnedKey) : allTiles;
-
   const content = (
     <div className="flex h-full flex-col">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -193,28 +221,95 @@ export default function VoicePanel() {
 
         <div className="flex flex-wrap items-center gap-2">
           {isCall && <AddCallParticipant roster={activeRoster} />}
+
+          {/* Modo do layout de vídeo: "Grade" (SimpleVideoGrid - tamanho
+              fixo, só CSS, sem resize) ou "Livre" (VideoLayoutManager -
+              grid automático + resize manual por tile). Preferência
+              persistida (PreferencesContext), vale pra qualquer chamada. */}
+          <div className="flex rounded-lg bg-slate-700 p-0.5 text-sm">
+            <button
+              onClick={() => setVideoLayoutMode("grid")}
+              title="Grade fixa, sem resize manual"
+              className={`rounded-md px-2.5 py-1 transition ${
+                videoLayoutMode === "grid"
+                  ? "bg-slate-500 text-white"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Grade
+            </button>
+            <button
+              onClick={() => setVideoLayoutMode("free")}
+              title="Grid automático + resize manual por tile"
+              className={`rounded-md px-2.5 py-1 transition ${
+                videoLayoutMode === "free"
+                  ? "bg-slate-500 text-white"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Livre
+            </button>
+          </div>
+
+          <button
+            onClick={toggleHideParticipantsWithoutMedia}
+            title={
+              hideParticipantsWithoutMedia
+                ? "Mostrar quem está sem câmera/tela (só avatar)"
+                : "Esconder quem está sem câmera/tela (só avatar)"
+            }
+            aria-pressed={hideParticipantsWithoutMedia}
+            className={`rounded-lg p-2 text-white transition ${
+              hideParticipantsWithoutMedia
+                ? "bg-blue-600 hover:bg-blue-500"
+                : "bg-slate-700 hover:bg-slate-600"
+            }`}
+          >
+            {hideParticipantsWithoutMedia ? (
+              <EyeOff className="size-4" />
+            ) : (
+              <Eye className="size-4" />
+            )}
+          </button>
+
           <div className="flex flex-wrap gap-2">
             <button
               onClick={toggleMute}
               disabled={muted && audioLocked}
-              title={muted && audioLocked ? 'Um moderador bloqueou seu áudio neste canal' : undefined}
+              title={
+                muted && audioLocked
+                  ? "Um moderador bloqueou seu áudio neste canal"
+                  : undefined
+              }
               className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {muted ? (audioLocked ? '🔒 Mutado por moderador' : 'Ativar mic') : 'Silenciar'}
+              {muted
+                ? audioLocked
+                  ? "🔒 Mutado por moderador"
+                  : "Ativar mic"
+                : "Silenciar"}
             </button>
             <button
               onClick={cameraOn ? stopCamera : shareCamera}
               disabled={!cameraOn && mediaLocked}
-              title={!cameraOn && mediaLocked ? 'Um moderador bloqueou sua mídia neste canal' : undefined}
+              title={
+                !cameraOn && mediaLocked
+                  ? "Um moderador bloqueou sua mídia neste canal"
+                  : undefined
+              }
               className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {cameraOn ? 'Desligar câmera' : mediaLocked ? '🔒 Mídia bloqueada' : 'Ligar câmera'}
+              {cameraOn
+                ? "Desligar câmera"
+                : mediaLocked
+                  ? "🔒 Mídia bloqueada"
+                  : "Ligar câmera"}
             </button>
             <button
               onClick={toggleDeafen}
               className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
             >
-              {deafened ? 'Ouvir todos' : 'Silenciar todos'}
+              {deafened ? "Ouvir todos" : "Silenciar todos"}
             </button>
             <button
               onClick={leaveVoice}
@@ -226,9 +321,11 @@ export default function VoicePanel() {
 
           <button
             onClick={togglePopout}
-            title={popout ? 'Encaixar de volta' : 'Abrir em uma nova janela'}
+            title={popout ? "Encaixar de volta" : "Abrir em uma nova janela"}
             className={`rounded-lg p-2 text-white transition ${
-              popout ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 hover:bg-slate-600'
+              popout
+                ? "bg-blue-600 hover:bg-blue-500"
+                : "bg-slate-700 hover:bg-slate-600"
             }`}
           >
             <ExternalLink className="size-4" />
@@ -249,53 +346,51 @@ export default function VoicePanel() {
       {error && <p className="error-text">{error}</p>}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {pinnedTile ? (
-          <div className="flex h-full min-h-[22rem] flex-col gap-3 md:flex-row">
-            <div className="min-h-0 flex-1">
-              <ParticipantTile
-                {...pinnedTile}
-                pinned
-                deafened={deafened}
-                onTogglePin={() => togglePin(pinnedTile.key)}
-                className="!aspect-auto h-full min-h-[22rem]"
-              />
-            </div>
-            {restTiles.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto md:w-44 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
-                {restTiles.map((t) => (
-                  <ParticipantTile
-                    key={t.key}
-                    {...t}
-                    deafened={deafened}
-                    onTogglePin={() => togglePin(t.key)}
-                    className="w-40 shrink-0 md:w-full"
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+        {videoLayoutMode === "free" ? (
+          <VideoLayoutManager
+            tiles={visibleTiles}
+            pinnedKeys={pinnedKeys}
+            onTogglePin={togglePin}
+            deafened={deafened}
+          />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {allTiles.map((t) => (
-              <ParticipantTile
-                key={t.key}
-                {...t}
-                deafened={deafened}
-                onTogglePin={() => togglePin(t.key)}
-              />
-            ))}
-          </div>
+          <SimpleVideoGrid
+            tiles={visibleTiles}
+            pinnedKeys={pinnedKeys}
+            onTogglePin={togglePin}
+            deafened={deafened}
+          />
         )}
       </div>
     </div>
   );
 
   if (floating) {
+    // Minimizado NUNCA desmonta `content` - só esconde via CSS (`hidden`).
+    // Desmontar destruía todo <audio>/<video> dos participantes remotos
+    // (eles vivem dentro de ParticipantTile, que só existe dentro de
+    // `content`), cortando o áudio da chamada inteira até desminimizar -
+    // <audio>/<video> continuam tocando normalmente com display:none, então
+    // esconder em vez de desmontar resolve sem perder nada.
     return createPortal(
-      <div className="fixed bottom-24 right-4 z-20 flex h-[28rem] w-[26rem] max-w-[calc(100vw-2rem)] flex-col rounded-2xl bg-white p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-        {content}
-      </div>,
-      document.body
+      <>
+        {minimized && (
+          <button
+            onClick={() => setMinimized(false)}
+            className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
+          >
+            🔊 Mostrar chamada ({allTiles.length})
+          </button>
+        )}
+        <div
+          className={`fixed bottom-24 right-4 z-20 flex max-w-[calc(100vw-2rem)] flex-col rounded-2xl bg-slate-900 p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 ${
+            minimized ? "hidden" : ""
+          }`}
+        >
+          {content}
+        </div>
+      </>,
+      document.body,
     );
   }
   return createPortal(content, target);

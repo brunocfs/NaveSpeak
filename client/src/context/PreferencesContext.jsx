@@ -15,6 +15,22 @@ const DEFAULT_PREFERENCES = {
   // shareCamera - ver api/media.js getStreamWithFallback).
   micDeviceId: null,
   cameraDeviceId: null,
+  // Barra de membros do servidor (RoomPage) - visível por padrão; ocultar
+  // libera a coluna pro painel de chat/voz crescer. Persistido junto do
+  // resto (mesma mecânica), então a escolha vale pra qualquer servidor, não
+  // só o atual.
+  membersSidebarVisible: true,
+  // Layout de vídeo do painel de voz (VoicePanel/VideoLayoutManager):
+  // 'grid' = grade simples, tamanho fixo por tile, só 1 fixado por vez
+  // (o comportamento clássico, sem resize manual - ver SimpleVideoGrid.jsx);
+  // 'free' = grid automático + resize manual por tile + múltiplos fixados
+  // ao mesmo tempo (VideoLayoutManager.jsx). 'grid' como padrão: é o modo
+  // sem o resize/pin ainda instável em popout.
+  videoLayoutMode: 'grid',
+  // Esconde do grid quem tá sem câmera/tela ligada (só o avatar) - quem tem
+  // só o mic aberto continua ouvido normalmente, só não ocupa um quadradinho
+  // visual. Fixado (pin) sempre aparece mesmo sem mídia, ver VoicePanel.jsx.
+  hideParticipantsWithoutMedia: false,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -75,6 +91,9 @@ export function PreferencesProvider({ children }) {
       notificationsEnabled: preferences.notificationsEnabled,
       micDeviceId: preferences.micDeviceId,
       cameraDeviceId: preferences.cameraDeviceId,
+      membersSidebarVisible: preferences.membersSidebarVisible,
+      videoLayoutMode: preferences.videoLayoutMode,
+      hideParticipantsWithoutMedia: preferences.hideParticipantsWithoutMedia,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -83,6 +102,14 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, notificationsEnabled })),
       setMicDeviceId: (micDeviceId) => setPreferences((prev) => ({ ...prev, micDeviceId })),
       setCameraDeviceId: (cameraDeviceId) => setPreferences((prev) => ({ ...prev, cameraDeviceId })),
+      toggleMembersSidebar: () =>
+        setPreferences((prev) => ({ ...prev, membersSidebarVisible: !prev.membersSidebarVisible })),
+      setVideoLayoutMode: (videoLayoutMode) => setPreferences((prev) => ({ ...prev, videoLayoutMode })),
+      toggleHideParticipantsWithoutMedia: () =>
+        setPreferences((prev) => ({
+          ...prev,
+          hideParticipantsWithoutMedia: !prev.hideParticipantsWithoutMedia,
+        })),
     }),
     [preferences]
   );
