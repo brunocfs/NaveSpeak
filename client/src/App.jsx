@@ -9,6 +9,7 @@ import ProtectedRoute from './components/ProtectedRoute.jsx';
 import VoiceStatusBar from './components/VoiceStatusBar.jsx';
 import VoicePanel from './components/VoicePanel.jsx';
 import CallInviteBanner from './components/CallInviteBanner.jsx';
+import UpdateAvailableBanner from './components/UpdateAvailableBanner.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import RoomsPage from './pages/RoomsPage.jsx';
@@ -104,6 +105,7 @@ export default function App() {
             <VoiceStatusBar />
             <VoicePanel />
             <CallInviteBanner />
+            <UpdateAvailableBanner />
           </NotificationProvider>
         </CallProvider>
       </MediaSessionProvider>

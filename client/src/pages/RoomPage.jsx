@@ -34,7 +34,12 @@ export default function RoomPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const { setActiveChannel } = useNotifications();
-  const { membersSidebarVisible, toggleMembersSidebar } = usePreferences();
+  const {
+    membersSidebarVisible,
+    toggleMembersSidebar,
+    getUserVolume,
+    setUserVolume,
+  } = usePreferences();
   const [room, setRoom] = useState(null);
   const [members, setMembers] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -671,6 +676,15 @@ export default function RoomPage() {
                               deafened={deafened}
                               cameraOn={cameraOn}
                               sharingScreen={sharingScreen}
+                              volumeControl={
+                                isSelf
+                                  ? null
+                                  : {
+                                      value: getUserVolume(p.userId),
+                                      onChange: (v) =>
+                                        setUserVolume(p.userId, v),
+                                    }
+                              }
                               moderation={
                                 anyVoiceModeration
                                   ? {

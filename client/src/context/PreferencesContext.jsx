@@ -31,6 +31,24 @@ const DEFAULT_PREFERENCES = {
   // só o mic aberto continua ouvido normalmente, só não ocupa um quadradinho
   // visual. Fixado (pin) sempre aparece mesmo sem mídia, ver VoicePanel.jsx.
   hideParticipantsWithoutMedia: false,
+  // Volume individual por usuário (0-200, padrão 100; acima de 100% é boost
+  // de ganho real via Web Audio, ver RemoteAudioPlayers.jsx) - só a REPRODUÇÃO
+  // local, não afeta o que os outros ouvem. Sem permissão nenhuma: qualquer
+  // um ajusta o volume de qualquer outro participante, é só uma preferência
+  // de audição própria (mesma ideia do Discord). Chave = userId, ausente ==
+  // 100 (ver getUserVolume abaixo). Fica junto do resto em localStorage, sob
+  // o mesmo controle de tema/idioma, então vale pra qualquer servidor/canal.
+  userVolumes: {},
+  // Supressor de ruído do PRÓPRIO microfone (Preferências > Áudio) - aplicado
+  // ao entrar na voz (joinVoice em MediaSessionContext.jsx), igual
+  // micDeviceId: trocar no meio de uma chamada só vale da próxima vez que
+  // entrar. 'native' = noiseSuppression do WebRTC (só liga/desliga, é o
+  // padrão de sempre); 'rnnoise' = RNNoise via WASM (audio/rnnoise.js),
+  // aberto e mais eficaz em ruído não-estacionário; 'off' = nenhum.
+  noiseSuppressionMode: "native",
+  // 0-100, só usado no modo 'rnnoise' - mix dry/wet entre o áudio cru e o
+  // processado (100 = só processado). Ver createRnnoiseStream.
+  noiseSuppressionLevel: 100,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -94,6 +112,10 @@ export function PreferencesProvider({ children }) {
       membersSidebarVisible: preferences.membersSidebarVisible,
       videoLayoutMode: preferences.videoLayoutMode,
       hideParticipantsWithoutMedia: preferences.hideParticipantsWithoutMedia,
+      userVolumes: preferences.userVolumes,
+      getUserVolume: (userId) => preferences.userVolumes[userId] ?? 100,
+      noiseSuppressionMode: preferences.noiseSuppressionMode,
+      noiseSuppressionLevel: preferences.noiseSuppressionLevel,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -110,6 +132,15 @@ export function PreferencesProvider({ children }) {
           ...prev,
           hideParticipantsWithoutMedia: !prev.hideParticipantsWithoutMedia,
         })),
+      setUserVolume: (userId, volume) =>
+        setPreferences((prev) => ({
+          ...prev,
+          userVolumes: { ...prev.userVolumes, [userId]: volume },
+        })),
+      setNoiseSuppressionMode: (noiseSuppressionMode) =>
+        setPreferences((prev) => ({ ...prev, noiseSuppressionMode })),
+      setNoiseSuppressionLevel: (noiseSuppressionLevel) =>
+        setPreferences((prev) => ({ ...prev, noiseSuppressionLevel })),
     }),
     [preferences]
   );

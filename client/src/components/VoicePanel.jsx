@@ -39,6 +39,7 @@ export default function VoicePanel() {
     setVideoLayoutMode,
     hideParticipantsWithoutMedia,
     toggleHideParticipantsWithoutMedia,
+    getUserVolume,
   } = usePreferences();
   const {
     connected,
@@ -105,6 +106,7 @@ export default function VoicePanel() {
       tiles.push({
         key: `user:${p.userId}`,
         kind: "person",
+        userId: p.userId,
         username: p.username,
         avatarPath: p.avatarPath,
         isLocal: false,
@@ -349,7 +351,11 @@ export default function VoicePanel() {
       {/* Sempre com personTiles CHEIO (nunca visibleTiles) - o áudio de
           ninguém pode depender do filtro "esconder sem câmera/tela" nem de
           qual tile está fixado, ver RemoteAudioPlayers.jsx. */}
-      <RemoteAudioPlayers tiles={personTiles} deafened={deafened} />
+      <RemoteAudioPlayers
+        tiles={personTiles}
+        deafened={deafened}
+        getUserVolume={getUserVolume}
+      />
 
       <div className="min-h-0 flex-1 overflow-auto">
         {videoLayoutMode === "free" ? (

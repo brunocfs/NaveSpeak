@@ -28,7 +28,15 @@ export default function PreferencesModal() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(null);
   const preferences = usePreferences();
-  const { theme, language, notificationsEnabled, micDeviceId, cameraDeviceId } = preferences;
+  const {
+    theme,
+    language,
+    notificationsEnabled,
+    micDeviceId,
+    cameraDeviceId,
+    noiseSuppressionMode,
+    noiseSuppressionLevel,
+  } = preferences;
 
   // Dispositivos de mídia (aba "Dispositivos") - lista separada do `draft`
   // porque não é uma preferência em si, só o catálogo pra popular os
@@ -75,7 +83,15 @@ export default function PreferencesModal() {
   }, [open]);
 
   function handleOpen() {
-    setDraft({ theme, language, notificationsEnabled, micDeviceId, cameraDeviceId });
+    setDraft({
+      theme,
+      language,
+      notificationsEnabled,
+      micDeviceId,
+      cameraDeviceId,
+      noiseSuppressionMode,
+      noiseSuppressionLevel,
+    });
     setOpen(true);
     refreshDevices();
   }
@@ -91,6 +107,8 @@ export default function PreferencesModal() {
     preferences.setNotificationsEnabled(draft.notificationsEnabled);
     preferences.setMicDeviceId(draft.micDeviceId || null);
     preferences.setCameraDeviceId(draft.cameraDeviceId || null);
+    preferences.setNoiseSuppressionMode(draft.noiseSuppressionMode);
+    preferences.setNoiseSuppressionLevel(draft.noiseSuppressionLevel);
     handleClose();
   }
 
@@ -329,6 +347,70 @@ export default function PreferencesModal() {
                   <p className="text-xs text-slate-400 dark:text-slate-500">
                     Se o dispositivo escolhido não estiver mais disponível na hora da chamada, o padrão do
                     sistema é usado automaticamente.
+                  </p>
+                </div>
+
+                {/* Supressor de ruído do próprio microfone - 'native' é o
+                    noiseSuppression padrão do WebRTC (só liga/desliga);
+                    'rnnoise' processa via RNNoise (WASM, open source) com
+                    nível ajustável; ver api/media.js e audio/rnnoise.js. */}
+                <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Supressor de ruído
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: "off", label: "Desligado" },
+                      { value: "native", label: "Nativo" },
+                      { value: "rnnoise", label: "RNNoise" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => ({ ...prev, noiseSuppressionMode: opt.value }))
+                        }
+                        aria-pressed={draft.noiseSuppressionMode === opt.value}
+                        className={`rounded-xl border px-2 py-2 text-xs font-medium transition ${
+                          draft.noiseSuppressionMode === opt.value
+                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300"
+                            : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {draft.noiseSuppressionMode === "rnnoise" && (
+                    <label className="block">
+                      <span className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Nível
+                        <span>{draft.noiseSuppressionLevel}%</span>
+                      </span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={draft.noiseSuppressionLevel}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            noiseSuppressionLevel: Number(e.target.value),
+                          }))
+                        }
+                        className="mt-1 w-full accent-blue-600"
+                      />
+                    </label>
+                  )}
+
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    Só reduz ruído no SEU microfone - não afeta o que você ouve dos outros. Trocar de
+                    modo vale a partir da próxima vez que você entrar num canal de voz.
+                    {draft.noiseSuppressionMode === "rnnoise" &&
+                      " RNNoise (open source, xiph/rnnoise) roda no seu navegador via WASM - segura melhor ruído de fundo (teclado, conversa, ventilador) do que o supressor nativo; nível baixo mantém mais do áudio original, alto prioriza o corte de ruído."}
                   </p>
                 </div>
               </div>

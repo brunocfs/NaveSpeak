@@ -9,6 +9,7 @@ import {
 } from '../api/media.js';
 import { useWindowPopout } from '../hooks/useWindowPopout.js';
 import { usePreferences } from './PreferencesContext.jsx';
+import { createRnnoiseStream } from '../audio/rnnoise.js';
 
 function emitAsync(socket, event, payload) {
   return new Promise((resolve, reject) => {
@@ -96,6 +97,12 @@ export function MediaSessionProvider({ children }) {
   const sendTransportRef = useRef(null);
   const recvTransportRef = useRef(null);
   const localStreamRef = useRef(null);
+  // Controlador do grafo Web Audio do RNNoise (audio/rnnoise.js) quando
+  // noiseSuppressionMode === 'rnnoise' - null nos outros modos. Guardado à
+  // parte de localStreamRef porque a stream "crua" continua sendo o dono da
+  // captura de verdade (é ela que precisa ser parada ao sair da voz); esta é
+  // só o grafo derivado que produz a track processada enviada de verdade.
+  const denoiserRef = useRef(null);
   const micProducerRef = useRef(null);
   const screenProducerRef = useRef(null);
   const cameraProducerRef = useRef(null);
@@ -120,7 +127,8 @@ export function MediaSessionProvider({ children }) {
   // reaproveitada aqui ao entrar na voz (mic) e ao ligar a câmera. null =
   // padrão do sistema. O fallback de dispositivo removido acontece dentro
   // de requestMicStream/requestCameraStream (api/media.js).
-  const { micDeviceId, cameraDeviceId } = usePreferences();
+  const { micDeviceId, cameraDeviceId, noiseSuppressionMode, noiseSuppressionLevel } =
+    usePreferences();
 
   const addRemoteStream = useCallback((entry) => {
     setRemoteStreams((prev) => [...prev.filter((s) => s.producerId !== entry.producerId), entry]);
@@ -319,6 +327,8 @@ export function MediaSessionProvider({ children }) {
       closePopout();
       setVoiceRoster([]);
 
+      denoiserRef.current?.destroy();
+      denoiserRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       micProducerRef.current = null;
@@ -433,12 +443,29 @@ export function MediaSessionProvider({ children }) {
         recvTransportRef.current = recvTransport;
 
         assertMediaDevicesAvailable();
-        const { stream, fellBack } = await requestMicStream(micDeviceId);
+        const { stream, fellBack } = await requestMicStream(micDeviceId, { noiseSuppressionMode });
         if (fellBack) {
           setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
         }
         localStreamRef.current = stream;
-        const [audioTrack] = stream.getAudioTracks();
+        let audioTrack = stream.getAudioTracks()[0];
+
+        // Modo 'rnnoise': a captura acima já entra com noiseSuppression
+        // nativo DESLIGADO (ver media.js#micAudioConstraints) - o
+        // processamento de verdade é este grafo WASM à parte. Falha aqui
+        // (ex.: AudioWorklet indisponível) não pode derrubar a entrada na
+        // voz - segue com a track crua, só avisa.
+        if (noiseSuppressionMode === 'rnnoise') {
+          try {
+            const denoiser = await createRnnoiseStream(stream, { level: noiseSuppressionLevel });
+            denoiserRef.current = denoiser;
+            audioTrack = denoiser.stream.getAudioTracks()[0];
+          } catch (err) {
+            console.error(err);
+            setError('Não foi possível ativar o supressor de ruído RNNoise - entrando com o microfone sem esse processamento.');
+          }
+        }
+
         const micProducer = await sendTransport.produce({ track: audioTrack, appData: { source: 'mic' } });
         micProducerRef.current = micProducer;
 
@@ -456,12 +483,22 @@ export function MediaSessionProvider({ children }) {
         await leaveVoice();
       }
     },
-    [socket, consumeProducer, leaveVoice, micDeviceId]
+    [socket, consumeProducer, leaveVoice, micDeviceId, noiseSuppressionMode, noiseSuppressionLevel]
   );
 
   useEffect(() => {
     joinVoiceRef.current = joinVoice;
   }, [joinVoice]);
+
+  // O nível do RNNoise (diferente do modo) é reaplicado AO VIVO no grafo já
+  // rodando, sem precisar reentrar na voz - é só um gain.value (mix dry/wet,
+  // ver createRnnoiseStream), tão barato quanto o volume individual por
+  // participante (RemoteAudioPlayers.jsx). Mudar o MODO, por outro lado, só
+  // vale da próxima entrada (mexe em como o mic foi capturado, mesmo padrão
+  // de micDeviceId).
+  useEffect(() => {
+    denoiserRef.current?.setLevel(noiseSuppressionLevel);
+  }, [noiseSuppressionLevel]);
 
   const toggleMute = useCallback(async () => {
     const producer = micProducerRef.current;

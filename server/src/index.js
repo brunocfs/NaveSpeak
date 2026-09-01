@@ -56,6 +56,20 @@ app.use(cookieParser());
 // "/rooms/:roomId" (HTML) quando ambas passam a ser servidas pela mesma
 // origem em produção.
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+// Versão do build do client atualmente servido - lida do package.json a
+// CADA request (nunca cacheada, arquivo pequeno) pra sempre refletir o que
+// tá de pé de verdade, mesmo sem reiniciar o processo entre um
+// `npm run build:client` e o próximo. É o que UpdateAvailableBanner.jsx
+// (client) usa pra saber que existe uma versão mais nova que a que já tá
+// rodando na aba/janela aberta - ver comentário lá.
+app.get('/api/version', (req, res) => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(clientDistDir, '..', 'package.json'), 'utf8'));
+    res.set('Cache-Control', 'no-store').json({ version: pkg.version });
+  } catch {
+    res.status(503).json({ version: null });
+  }
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomsRoutes);
 app.use('/api/rooms/:roomId/channels', channelsRoutes);
@@ -119,9 +133,30 @@ app.get('/download', (req, res) => {
 // fallback para index.html é o que permite o React Router lidar com rotas
 // como /rooms/:roomId no navegador (refresh de página não vira 404).
 if (env.NODE_ENV === 'production') {
-  app.use(express.static(clientDistDir));
+  // Cache-Control explícito - sem isso o express.static manda só
+  // `max-age=0` (fraco: alguns navegadores/Electron ainda servem do cache
+  // local num reload normal em vez de revalidar, daí precisar de
+  // Shift+F5 pra pegar build novo). index.html NUNCA pode vir do cache -
+  // é ele que aponta pro nome (com hash) do JS/CSS atual, tem que ser
+  // sempre buscado fresco. Os arquivos dentro de /assets JÁ têm o hash do
+  // conteúdo no nome (Vite) - um build novo gera nomes novos, então cachear
+  // esses PRA SEMPRE é 100% seguro (nunca fica stale, é literalmente uma
+  // URL diferente quando o conteúdo muda) e livra banda/latência à toa.
+  app.use(
+    express.static(clientDistDir, {
+      setHeaders(res, filePath) {
+        if (path.basename(filePath) === 'index.html') {
+          res.setHeader('Cache-Control', 'no-store');
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    })
+  );
   app.get(/^\/(?!api\/).*/, (req, res) => {
-    res.sendFile(path.join(clientDistDir, 'index.html'));
+    res.sendFile(path.join(clientDistDir, 'index.html'), {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   });
 }
 

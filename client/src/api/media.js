@@ -91,11 +91,29 @@ async function getStreamWithFallback(constraints, fallbackConstraints) {
 
 // Usado por joinVoice (MediaSessionContext) ao entrar na voz - reaproveita
 // o microfone salvo em Preferências, com fallback para o padrão do sistema.
-export async function requestMicStream(deviceId) {
+//
+// `noiseSuppressionMode` (Preferências > Áudio, ver PreferencesContext) só
+// decide o constraint NATIVO `noiseSuppression` do WebRTC:
+// - 'native': liga o supressor nativo do navegador (comportamento de sempre).
+// - 'off'/'rnnoise': desliga - no modo 'rnnoise' o processamento de verdade
+//   acontece depois, via WASM (ver audio/rnnoise.js), e rodar os dois juntos
+//   só arriscaria artefato (um supressor "limpando" o que o outro já mexeu).
+// echoCancellation/autoGainControl ficam sempre ligados - não são o alvo
+// deste controle e desligá-los não tem bom motivo de UX aqui.
+function micAudioConstraints(deviceId, noiseSuppressionMode) {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    echoCancellation: true,
+    autoGainControl: true,
+    noiseSuppression: noiseSuppressionMode === "native",
+  };
+}
+
+export async function requestMicStream(deviceId, { noiseSuppressionMode = "native" } = {}) {
   assertMediaDevicesAvailable();
   return getStreamWithFallback(
-    { audio: deviceId ? { deviceId: { exact: deviceId } } : true },
-    { audio: true }
+    { audio: micAudioConstraints(deviceId, noiseSuppressionMode) },
+    { audio: micAudioConstraints(null, noiseSuppressionMode) }
   );
 }
 

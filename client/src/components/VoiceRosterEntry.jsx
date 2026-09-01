@@ -7,6 +7,7 @@ import {
   HeadphoneOff,
   Camera,
   MonitorUp,
+  Volume2,
 } from "lucide-react";
 // Uma linha da lista de participantes de um canal de voz na sidebar de
 // RoomPage.jsx. Extraída num componente à parte porque useSpeaking() é um
@@ -23,10 +24,16 @@ import {
 // usuário LOGADO e mostrava o mesmo ícone (ex.: mutado) em toda linha do
 // roster, não só na do usuário que de fato mutou.
 //
-// `moderation` (opcional) é quem liga o menu de moderação (mutar/desligar
-// mídia/desconectar/mover) - RoomPage só passa ele quando o usuário logado
-// tem QUALQUER uma das permissões relevantes e este participante não é ele
-// mesmo (ver permissionKeysFor/hasPermission).
+// `moderation` (opcional) é quem liga as ações de moderação do menu
+// (mutar/desligar mídia/desconectar/mover) - RoomPage só passa ele quando o
+// usuário logado tem QUALQUER uma das permissões relevantes e este
+// participante não é ele mesmo (ver permissionKeysFor/hasPermission).
+//
+// `volumeControl` (opcional) é o slider de volume INDIVIDUAL - sem permissão
+// nenhuma, RoomPage passa pra QUALQUER participante que não seja o próprio
+// usuário logado (é só preferência de audição local, não afeta ninguém mais,
+// ver RemoteAudioPlayers.jsx/PreferencesContext). Sozinho já é suficiente
+// pra abrir o menu ⋮, mesmo sem nenhuma permissão de moderação.
 export default function VoiceRosterEntry({
   username,
   avatarPath,
@@ -36,6 +43,7 @@ export default function VoiceRosterEntry({
   cameraOn,
   sharingScreen,
   moderation,
+  volumeControl,
 }) {
   const speaking = useSpeaking(micStream);
   return (
@@ -77,13 +85,30 @@ export default function VoiceRosterEntry({
         </div>
       ) : null}
 
-      {moderation && (
+      {(moderation || volumeControl) && (
         <details className="group relative ml-auto shrink-0">
           <summary className="cursor-pointer list-none rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100">
             ⋮
           </summary>
           <div className="absolute right-0 z-10 mt-1 w-56 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800">
-            {moderation.canMute && (
+            {volumeControl && (
+              <label className="block px-2 py-1">
+                <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                  <Volume2 className="size-3.5 shrink-0" />
+                  Volume ({volumeControl.value}%)
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  step="5"
+                  value={volumeControl.value}
+                  onChange={(e) => volumeControl.onChange(Number(e.target.value))}
+                  className="mt-1 w-full accent-emerald-500"
+                />
+              </label>
+            )}
+            {moderation?.canMute && (
               <>
                 <button
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
@@ -105,7 +130,7 @@ export default function VoiceRosterEntry({
                 </button>
               </>
             )}
-            {moderation.canDisableMedia && (
+            {moderation?.canDisableMedia && (
               <>
                 <button
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
@@ -127,7 +152,7 @@ export default function VoiceRosterEntry({
                 </button>
               </>
             )}
-            {moderation.canMove && moderation.voiceChannels?.length > 0 && (
+            {moderation?.canMove && moderation.voiceChannels?.length > 0 && (
               <label className="block px-2 py-1">
                 Mover para...
                 <select
@@ -148,7 +173,7 @@ export default function VoiceRosterEntry({
                 </select>
               </label>
             )}
-            {moderation.canDisconnect && (
+            {moderation?.canDisconnect && (
               <button
                 className="block w-full rounded px-2 py-1 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
                 onClick={moderation.onDisconnect}
