@@ -759,15 +759,40 @@ nova é só:
 
 1. Suba a versão em `electron/package.json` (`"version"`).
 2. `npm run build:electron` (gera o instalador + `latest.yml` em `electron/dist/`).
-3. Copie os DOIS arquivos pra `/opt/navespeak/server/updates/` na VPS (scp/rsync) -
-   `latest.yml` é o manifesto que o `electron-updater` lê pra saber se existe
-   algo mais novo que a versão instalada; sem ele o feed fica "vazio" e
-   ninguém recebe a atualização.
+3. Copie os DOIS arquivos pra `server/updates/` e publique.
+
+`server/updates/` é conteúdo VERSIONADO do repositório (não gitignorado,
+`.exe` via **Git LFS** - ver `.gitattributes`) de propósito: publicar update
+vira `git add`/`commit`/`push` daqui, `git pull` na VPS - só precisa de
+HTTPS pro GitHub, nunca de SSH/scp pra própria VPS (útil quando a porta SSH
+tá bloqueada/atrás de firewall, como já aconteceu). `latest.yml` é o
+manifesto que o `electron-updater` lê pra saber se existe algo mais novo
+que a versão instalada; sem ele o feed fica "vazio" e ninguém recebe update.
 
 ```bash
-scp electron/dist/*.exe electron/dist/latest.yml \
-  deploy@<host-da-vps>:/opt/navespeak/server/updates/
+# copia os artefatos do build pra dentro do repo
+cp electron/dist/NaveSpeak-Setup-*.exe electron/dist/latest.yml server/updates/
+git add server/updates/
+git commit -m "chore: publica NaveSpeak vX.Y.Z"
+git push
 ```
+
+Na VPS (via console web se SSH não funcionar - ver seção de troubleshooting
+de firewall/porta SSH mais acima):
+
+```bash
+# UMA VEZ só, se ainda não tiver git-lfs instalado:
+sudo apt install git-lfs && git lfs install
+
+cd /opt/navespeak/NaveSpeak
+git pull    # sem git-lfs instalado, isso traz só um arquivo-ponteiro de
+            # texto no lugar do .exe de verdade, NÃO o binário - a rota
+            # /updates serviria um arquivo quebrado silenciosamente.
+```
+
+Se a VPS tiver SSH acessível, `scp`/`rsync` continua funcionando igual (não
+precisa estar no git pra isso), mas o fluxo git+LFS acima é o que não
+depende de porta nenhuma além de HTTPS de saída.
 
 O app checa update ao abrir e depois de hora em hora enquanto fica aberto
 (`main.js`); baixa em background e pergunta pro usuário se quer reiniciar na

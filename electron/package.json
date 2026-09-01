@@ -29,6 +29,9 @@
     "directories": {
       "output": "dist"
     },
+    "win": {
+      "target": "nsis"
+    },
     "publish": {
       "provider": "generic",
       "url": "https://navespeak.tech/updates"

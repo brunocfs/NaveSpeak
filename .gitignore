@@ -10,11 +10,14 @@ electron/electron.md
 # Avatares enviados por usuário (server/src/routes/users.routes.js) - arquivo
 # gerado em runtime, não conteúdo do repositório.
 server/uploads/
-# Artefatos de release do Electron (instalador + latest.yml, gerados por
-# `npm run build:electron` e copiados aqui manualmente) - feed de
-# auto-update servido em /updates (server/src/index.js), não conteúdo do
-# repositório.
-server/updates/
+# server/updates/ (instalador + latest.yml do Electron) NÃO é gitignorado -
+# é conteúdo versionado de propósito: publicar update = commitar aqui +
+# `git pull` na VPS (sem precisar de SSH/scp pra ela, só HTTPS pro GitHub,
+# que costuma estar liberado mesmo quando a porta SSH não está). O .exe é
+# rastreado via Git LFS (ver .gitattributes) pra não inchar o histórico do
+# git a cada release - a VPS PRECISA ter `git-lfs` instalado (`git lfs
+# install` uma vez), senão `git pull` só traz um arquivo-ponteiro de texto,
+# não o binário de verdade. Ver deploy.md seção 20.
 *.log
 .DS_Store
 CLAUDE.md
