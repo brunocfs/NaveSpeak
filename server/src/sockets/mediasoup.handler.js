@@ -10,7 +10,7 @@ import {
   removePeer,
   listOtherProducers,
 } from '../mediasoup/rooms.js';
-import { addVoicePresence, removeVoicePresence, listVoicePresence } from './voicePresence.js';
+import { addVoicePresence, removeVoicePresence, listVoicePresence, setVoiceMediaState } from './voicePresence.js';
 import { isCallChannel, handleCallLeave } from './calls.handler.js';
 import { isCallParticipant, setStatus as setCallStatus } from './callsStore.js';
 import { getUserPermissionBitmask, listRoleIdsForUser } from '../db/roles.repo.js';
@@ -108,6 +108,16 @@ async function authorizeModeration(user, channelId, flag) {
 // Ids de socket, dentro da sala mediasoup de um canal, que pertencem a um
 // determinado usuário (public_id) - um usuário pode ter mais de uma
 // aba/dispositivo conectado na mesma chamada.
+// Mapeia appData.source do producer de vídeo pro campo correspondente do
+// estado de mídia do roster (ver voicePresence.js) - 'mic' não entra aqui,
+// esse é tratado à parte (é o único que pausa/resume em vez de nascer/morrer
+// junto com o producer).
+function mediaFieldForSource(source) {
+  if (source === 'camera') return 'cameraOn';
+  if (source === 'screen') return 'sharingScreen';
+  return null;
+}
+
 function findPeerSocketIds(channelId, targetUserId) {
   const room = getRoom(channelId);
   if (!room) return [];
@@ -277,7 +287,22 @@ export function registerMediasoupHandlers(io, socket) {
         username: user.username,
         kind: producer.kind,
         appData: producer.appData,
+        paused: producer.paused,
       });
+
+      // Estado de mídia do roster (voice:update) - câmera/tela nascem junto
+      // com o producer (ao contrário do mic, que nasce e só pausa depois),
+      // então já entram como ligadas aqui. Áudio só entra aqui se já nasceu
+      // travado acima; o toggle normal de mute passa por
+      // media:setProducerPaused, não por aqui.
+      const mediaField = kind === 'video' ? mediaFieldForSource(appData?.source) : null;
+      if (mediaField || (kind === 'audio' && producer.paused)) {
+        await setVoiceMediaState(channelId, user.id, {
+          ...(mediaField ? { [mediaField]: true } : {}),
+          ...(kind === 'audio' && producer.paused ? { micMuted: true } : {}),
+        });
+        await broadcastVoicePresence(io, channelId, socket.data.voiceServerId);
+      }
 
       return ack({ id: producer.id });
     } catch (err) {
@@ -346,6 +371,11 @@ export function registerMediasoupHandlers(io, socket) {
     else await producer.resume();
 
     socket.to(voiceRoomOf(channelId)).emit('media:producerStateChanged', { producerId, paused: Boolean(paused) });
+
+    if (producer.kind === 'audio') {
+      await setVoiceMediaState(channelId, user.id, { micMuted: Boolean(paused) });
+      await broadcastVoicePresence(io, channelId, socket.data.voiceServerId);
+    }
     return ack({ ok: true });
   });
 
@@ -355,10 +385,33 @@ export function registerMediasoupHandlers(io, socket) {
     const producer = peer?.producers.get(producerId);
     if (!producer) return ack({ error: 'Transmissão não encontrada.' });
 
+    const mediaField = producer.kind === 'video' ? mediaFieldForSource(producer.appData?.source) : null;
     producer.close();
     peer.producers.delete(producerId);
     io.to(voiceRoomOf(channelId)).emit('media:producerClosed', { producerId });
+
+    if (mediaField) {
+      await setVoiceMediaState(channelId, user.id, { [mediaField]: false });
+      await broadcastVoicePresence(io, channelId, socket.data.voiceServerId);
+    }
     return ack({ ok: true });
+  });
+
+  // "Silenciar todos" (deafen): não é um producer (não tem o que pausar/
+  // fechar), é só "eu não quero ouvir ninguém" do lado de quem ensurdece -
+  // mas igual mic/câmera/tela, o resto do servidor precisa ver o ícone no
+  // roster (RoomPage.jsx via voice:update), não só o próprio usuário. Sem
+  // ack proposital (ver toggleDeafen em MediaSessionContext.jsx - fire-and-
+  // forget, o toggle local já aconteceu e não há como "falhar" de um jeito
+  // que precise desfazer).
+  socket.on('media:setDeafened', async ({ channelId, deafened } = {}) => {
+    const parsed = mediaChannelIdSchema.safeParse(channelId);
+    if (!parsed.success) return;
+    const peer = getPeer(parsed.data, socket.id);
+    if (!peer) return;
+
+    await setVoiceMediaState(parsed.data, user.id, { deafened: Boolean(deafened) });
+    await broadcastVoicePresence(io, parsed.data, socket.data.voiceServerId);
   });
 
   socket.on('media:leave', async (channelId, callback) => {
@@ -411,6 +464,9 @@ export function registerMediasoupHandlers(io, socket) {
       }
     }
 
+    await setVoiceMediaState(parsedChannel.data, parsedTarget.data, { micMuted: Boolean(muted) });
+    await broadcastVoicePresence(io, parsedChannel.data, auth.channel.server_id);
+
     io.to(`user:${parsedTarget.data}`).emit('voice:audioModerated', {
       channelId: parsedChannel.data,
       muted: Boolean(muted),
@@ -443,6 +499,13 @@ export function registerMediasoupHandlers(io, socket) {
           io.to(voiceRoomOf(parsedChannel.data)).emit('media:producerClosed', { producerId });
         }
       }
+      // Desligou os dois de uma vez (o producer que não existia já estava
+      // false, setVoiceMediaState só sobrescreve o que é passado).
+      await setVoiceMediaState(parsedChannel.data, parsedTarget.data, {
+        cameraOn: false,
+        sharingScreen: false,
+      });
+      await broadcastVoicePresence(io, parsedChannel.data, auth.channel.server_id);
     }
 
     io.to(`user:${parsedTarget.data}`).emit('voice:mediaModerated', {

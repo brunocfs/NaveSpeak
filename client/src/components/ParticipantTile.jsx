@@ -6,9 +6,11 @@ import Avatar from "./Avatar.jsx";
 // Um "quadradinho" da chamada, no estilo Discord: representa UMA pessoa (com
 // câmera ligada ou avatar com iniciais) OU uma tela compartilhada - nunca os
 // dois juntos no mesmo tile (uma tela compartilhada é sempre um tile à parte,
-// rotulado com o nome de quem está compartilhando). kind='person' também toca
-// o áudio do microfone dessa pessoa (se houver stream) e desenha o anel verde
-// de "está falando".
+// rotulado com o nome de quem está compartilhando). kind='person' desenha o
+// anel roxo de "está falando" a partir de `micStream` - a REPRODUÇÃO do áudio
+// em si não mora aqui (ver RemoteAudioPlayers.jsx): este tile pode desmontar
+// (ex.: "esconder quem está sem câmera/tela" em VoicePanel.jsx) sem cortar o
+// som de ninguém.
 export default function ParticipantTile({
   username,
   avatarPath = null,
@@ -24,7 +26,6 @@ export default function ParticipantTile({
   style,
 }) {
   const videoRef = useRef(null);
-  const audioRef = useRef(null);
   const speaking = useSpeaking(kind === "person" ? micStream : null);
 
   useEffect(() => {
@@ -34,13 +35,6 @@ export default function ParticipantTile({
     el.play?.().catch(() => {});
   }, [videoStream]);
 
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el || !micStream) return;
-    el.srcObject = micStream;
-    el.play?.().catch(() => {});
-  }, [micStream]);
-
   // Reprodução local sempre muda (não ecoar o próprio mic/câmera); a de
   // qualquer participante remoto some com "silenciar todos" (deafen) ativo.
   const playbackMuted = isLocal || deafened;
@@ -49,7 +43,7 @@ export default function ParticipantTile({
   return (
     <div
       className={`group relative aspect-video w-full items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-2 transition ${
-        speaking ? "ring-purple-500" : "ring-transparent"
+        speaking ? "ring-green-500" : "ring-transparent"
       } ${className}`}
       style={style}
     >
@@ -59,7 +53,15 @@ export default function ParticipantTile({
           autoPlay
           playsInline
           muted={playbackMuted}
-          className={`h-full w-full ${kind === "screen" ? "object-contain bg-black" : "object-cover"}`}
+          // Espelha só a PRÓPRIA câmera (efeito "espelho", como o resto do
+          // mercado - Discord/Meet/Zoom fazem igual): é só um flip visual
+          // deste elemento <video>, a track que sai pro sendTransport nunca
+          // é tocada, então quem recebe continua vendo do jeito normal.
+          // Nunca aplica em tela compartilhada (kind='screen') - inverter a
+          // própria tela ficaria ilegível.
+          className={`h-full w-full ${kind === "screen" ? "object-contain bg-black" : "object-cover"} ${
+            isLocal && kind === "person" ? "-scale-x-100" : ""
+          }`}
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-700">
@@ -73,10 +75,6 @@ export default function ParticipantTile({
             className="!bg-slate-600 !text-slate-100"
           />
         </div>
-      )}
-
-      {kind === "person" && micStream && (
-        <audio ref={audioRef} autoPlay playsInline muted={playbackMuted} />
       )}
 
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">

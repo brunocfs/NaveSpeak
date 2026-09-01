@@ -639,12 +639,38 @@ export default function RoomPage() {
 
                           const isSelf = p.userId === user?.id;
 
+                          // Estado de mic/câmera/tela/ensurdecido é por
+                          // participante, não global - antes VoiceRosterEntry
+                          // lia direto de useMediaSession() (o estado do
+                          // PRÓPRIO usuário logado) e mostrava o mesmo ícone
+                          // em toda linha do roster. Pra si mesmo, o estado
+                          // local optimista já é a fonte de verdade (atualiza
+                          // no clique, sem esperar round-trip). Pros demais,
+                          // vem pronto do servidor em
+                          // `p.micMuted`/`cameraOn`/`sharingScreen`/`deafened`
+                          // (voice:update, ver voicePresence.js) - por isso
+                          // aparece pra QUALQUER usuário do servidor, mesmo
+                          // sem estar conectado a este canal de voz, e já
+                          // chega correto pra quem entra depois de alguém já
+                          // mutado (não depende mais de remoteStreams, que só
+                          // existe pra quem está na chamada).
+                          const micMuted = isSelf ? media.muted : Boolean(p.micMuted);
+                          const cameraOn = isSelf ? media.cameraOn : Boolean(p.cameraOn);
+                          const sharingScreen = isSelf
+                            ? media.sharingScreen
+                            : Boolean(p.sharingScreen);
+                          const deafened = isSelf ? media.deafened : Boolean(p.deafened);
+
                           return (
                             <VoiceRosterEntry
                               key={p.userId}
                               username={p.username}
                               avatarPath={p.avatarPath}
                               micStream={micStream}
+                              micMuted={micMuted}
+                              deafened={deafened}
+                              cameraOn={cameraOn}
+                              sharingScreen={sharingScreen}
                               moderation={
                                 anyVoiceModeration
                                   ? {

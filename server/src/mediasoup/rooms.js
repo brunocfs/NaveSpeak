@@ -65,7 +65,14 @@ export function listOtherProducers(roomId, socketId) {
   for (const [peerSocketId, peer] of room.peers.entries()) {
     if (peerSocketId === socketId) continue;
     for (const producer of peer.producers.values()) {
-      list.push({ producerId: producer.id, userId: peer.userId, username: peer.username, kind: producer.kind, appData: producer.appData });
+      list.push({
+        producerId: producer.id,
+        userId: peer.userId,
+        username: peer.username,
+        kind: producer.kind,
+        appData: producer.appData,
+        paused: producer.paused,
+      });
     }
   }
   return list;

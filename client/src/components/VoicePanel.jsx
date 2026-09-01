@@ -6,6 +6,7 @@ import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
 import VideoLayoutManager from "./VideoLayoutManager.jsx";
 import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
+import RemoteAudioPlayers from "./RemoteAudioPlayers.jsx";
 import AddCallParticipant from "./AddCallParticipant.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 
@@ -345,6 +346,11 @@ export default function VoicePanel() {
 
       {error && <p className="error-text">{error}</p>}
 
+      {/* Sempre com personTiles CHEIO (nunca visibleTiles) - o áudio de
+          ninguém pode depender do filtro "esconder sem câmera/tela" nem de
+          qual tile está fixado, ver RemoteAudioPlayers.jsx. */}
+      <RemoteAudioPlayers tiles={personTiles} deafened={deafened} />
+
       <div className="min-h-0 flex-1 overflow-auto">
         {videoLayoutMode === "free" ? (
           <VideoLayoutManager
@@ -383,7 +389,14 @@ export default function VoicePanel() {
           </button>
         )}
         <div
-          className={`fixed bottom-24 right-4 z-20 flex max-w-[calc(100vw-2rem)] flex-col rounded-2xl bg-slate-900 p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 ${
+          // max-h + overflow-hidden: sem isso, uma chamada com muita gente
+          // fazia esse card crescer do tamanho do grid inteiro (sem limite),
+          // estourando pra fora da tela (pra cima, já que ele é ancorado
+          // embaixo com `fixed bottom-24`) ao desminimizar. Com o teto aqui,
+          // é o `overflow-auto` que já existia dentro de `content` (na área
+          // do grid) que passa a rolar de verdade em vez de nunca ser
+          // acionado (só rola quando o pai tem altura definida).
+          className={`fixed bottom-24 right-4 z-20 flex max-h-[calc(100vh-7rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-slate-900 p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 ${
             minimized ? "hidden" : ""
           }`}
         >

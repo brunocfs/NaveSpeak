@@ -119,7 +119,7 @@ export function MediaSessionProvider({ children }) {
   }, []);
 
   const consumeProducer = useCallback(
-    async ({ producerId, userId, username, kind, appData }) => {
+    async ({ producerId, userId, username, kind, appData, paused }) => {
       if (!recvTransportRef.current || !deviceRef.current) return;
       try {
         const data = await emitAsync(socket, 'media:consume', {
@@ -141,7 +141,12 @@ export function MediaSessionProvider({ children }) {
         });
 
         const stream = new MediaStream([consumer.track]);
-        addRemoteStream({ producerId, userId, username, kind, appData, stream, paused: false });
+        // `paused` vem de quem chamou (listOtherProducers no media:join, ou
+        // o payload de media:newProducer) - reflete o estado REAL do
+        // producer no momento em que passamos a consumi-lo, não um "nasce
+        // sempre tocando" hardcoded. Sem isso, entrar num canal com alguém
+        // já mutado mostrava o mic dele como ativo até o próximo toggle.
+        addRemoteStream({ producerId, userId, username, kind, appData, stream, paused: Boolean(paused) });
       } catch (err) {
         console.error('Falha ao consumir mídia remota:', err.message);
       }
@@ -443,16 +448,25 @@ export function MediaSessionProvider({ children }) {
   // mudo por escolha do usuário, para não reativá-lo à toa ao desligar o
   // deafen). O silenciamento do áudio recebido em si acontece na UI
   // (ParticipantTile), que consulta `deafened`.
+  //
+  // media:setDeafened avisa o servidor (fire-and-forget, sem ack - não é uma
+  // ação que possa falhar de um jeito que precise desfazer o toggle local)
+  // pra que o resto do servidor veja o ícone no roster (RoomPage.jsx lê
+  // `p.deafened`, ver voicePresence.js) - antes isso era um estado 100%
+  // local, então só o PRÓPRIO usuário via seu ícone de ensurdecido.
   const toggleDeafen = useCallback(async () => {
+    const channelId = channelIdRef.current;
     if (!deafened) {
       wasMutedBeforeDeafenRef.current = muted;
       if (!muted) await toggleMute();
       setDeafened(true);
+      if (channelId) socket.emit('media:setDeafened', { channelId, deafened: true });
     } else {
       setDeafened(false);
       if (!wasMutedBeforeDeafenRef.current && muted) await toggleMute();
+      if (channelId) socket.emit('media:setDeafened', { channelId, deafened: false });
     }
-  }, [deafened, muted, toggleMute]);
+  }, [deafened, muted, toggleMute, socket]);
 
   const closeProducer = useCallback(
     async (producer) => {
