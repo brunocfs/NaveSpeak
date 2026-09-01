@@ -73,6 +73,18 @@ export function MediaSessionProvider({ children }) {
   // usuário antes do deafen (guardado em wasMutedBeforeDeafenRef).
   const [deafened, setDeafened] = useState(false);
   const wasMutedBeforeDeafenRef = useRef(false);
+  // Espelham `muted`/`deafened` sempre atualizados, pra handleReconnect (mais
+  // abaixo) ler o valor ATUAL sem precisar re-registrar os listeners de
+  // socket a cada toggle (ele vive num useEffect com deps fixas, então uma
+  // closure normal capturaria o valor do primeiro render pra sempre).
+  const mutedRef = useRef(false);
+  const deafenedRef = useRef(false);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+  useEffect(() => {
+    deafenedRef.current = deafened;
+  }, [deafened]);
   // Travas de moderação (voice:moderateMute/voice:moderateMedia mode:'lock',
   // ver server/src/sockets/mediasoup.handler.js) sobre o PRÓPRIO usuário no
   // canal de voz atual - enquanto true, o próprio usuário não consegue
@@ -183,8 +195,40 @@ export function MediaSessionProvider({ children }) {
     async function handleReconnect() {
       const channelId = channelIdRef.current;
       if (!channelId) return;
+      // Captura ANTES de leaveVoiceRef - leaveVoice (chamado logo abaixo,
+      // mesmo com keepMeta) sempre reseta muted/deafened pra false, porque
+      // ele também serve pra sair de vez da chamada. joinVoice, por sua vez,
+      // sempre cria o producer de mic NOVO e destravado. Sem recapturar e
+      // reaplicar aqui, qualquer queda de rede (ou reinício do servidor, que
+      // também derruba o socket) reconectava o usuário sempre destravado -
+      // o mic voltava a transmitir de verdade e o ícone de ensurdecido
+      // sumia pros outros, mesmo que ele tivesse mutado/ensurdecido de
+      // propósito antes de cair.
+      const wasMuted = mutedRef.current;
+      const wasDeafened = deafenedRef.current;
       await leaveVoiceRef.current({ keepMeta: true });
       await joinVoiceRef.current(channelId);
+
+      if (wasMuted || wasDeafened) {
+        const producer = micProducerRef.current;
+        if (producer) {
+          try {
+            await emitAsync(socket, 'media:setProducerPaused', {
+              channelId,
+              producerId: producer.id,
+              paused: true,
+            });
+            producer.pause();
+          } catch (err) {
+            console.error('Falha ao reaplicar mute após reconexão:', err.message);
+          }
+        }
+        setMuted(true);
+      }
+      if (wasDeafened) {
+        setDeafened(true);
+        socket.emit('media:setDeafened', { channelId, deafened: true });
+      }
     }
 
     // Desconexão explícita do socket (hoje só acontece via disconnectSocket()
