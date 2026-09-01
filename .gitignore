@@ -11,6 +11,8 @@ server/uploads/
 *.log
 .DS_Store
 CLAUDE.md
+deploy.md
 # Estado interno do harness Claude Code (ex.: lock de agendamento), não é
 # conteúdo do projeto.
 .claude/
+

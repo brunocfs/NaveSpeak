@@ -5,6 +5,7 @@ domínio próprio. Cobre do provisionamento do zero até a rotina de
 atualização. Todos os comandos assumem **Ubuntu 24.04 LTS**.
 
 > Convenções usadas neste guia:
+>
 > - `deploy@vps` → comando rodado como o usuário de deploy (não-root).
 > - `root@vps` → comando que precisa root (só na fase de provisionamento/hardening).
 > - `SEU_DOMINIO` → o domínio real apontando pro IP da VPS (registro `A`).
@@ -335,14 +336,14 @@ Crie `/opt/navespeak/ecosystem.config.cjs`:
 module.exports = {
   apps: [
     {
-      name: 'navespeak',
-      cwd: '/opt/navespeak/server',
-      script: 'src/index.js',
-      interpreter: 'node',
-      instances: 1,          // NUNCA 'max'/cluster - ver justificativa acima
-      exec_mode: 'fork',
-      env: { NODE_ENV: 'production' },
-      max_memory_restart: '1G',
+      name: "navespeak",
+      cwd: "/opt/navespeak/server",
+      script: "src/index.js",
+      interpreter: "node",
+      instances: 1, // NUNCA 'max'/cluster - ver justificativa acima
+      exec_mode: "fork",
+      env: { NODE_ENV: "production" },
+      max_memory_restart: "1G",
     },
   ],
 };
@@ -459,14 +460,14 @@ Por quê:
   (chat, presença, sinalização de voz/tela ficam conectados o tempo todo).
   O Apache também consegue, via `mod_proxy_wstunnel` + `mod_proxy_http`, mas
   é módulo extra pra habilitar sem nenhum ganho aqui.
-- Nginx tende a ter overhead menor sob muitas conexões *long-lived*
+- Nginx tende a ter overhead menor sob muitas conexões _long-lived_
   simultâneas (exatamente o padrão de uma sala de voz/chat com vários
   usuários conectados o tempo todo) — arquitetura orientada a eventos vs. o
   modelo tradicional de processos/threads do Apache (mod_prefork/mpm_event
   reduz isso, mas ainda é mais configuração para igualar o comportamento
   padrão do Nginx).
 
-Quando *usar* Apache faria sentido (não é o caso aqui, mas para referência
+Quando _usar_ Apache faria sentido (não é o caso aqui, mas para referência
 futura): você já tem um parque de aplicações legadas rodando em Apache
 (outros vhosts, `.htaccess` herdado de outro sistema), ou a equipe já domina
 Apache profundamente e prefere não introduzir uma segunda ferramenta. Nenhum
@@ -501,15 +502,15 @@ Com HTTPS ativo na frente:
 
 ## 14. Firewall e portas expostas
 
-| Porta | Serviço | Exposição |
-|---|---|---|
-| 2222 (ou 22) | SSH | **Pública**, só chave |
-| 80/tcp | Nginx (redirect HTTPS) | **Pública** |
-| 443/tcp | Nginx (TLS) | **Pública** — único ponto de entrada HTTP(S) |
-| 40000–40100/udp+tcp | mediasoup (mídia WebRTC) | **Pública** — obrigatório, não passa por proxy |
-| 4100 (ou o `PORT` escolhido) | Node/Express | **Interna** — só `127.0.0.1`, nunca no firewall |
-| 5432 | PostgreSQL | **Interna** — só `127.0.0.1`, nunca no firewall |
-| 6379 | Redis | **Interna** — só `127.0.0.1`, nunca no firewall |
+| Porta                        | Serviço                  | Exposição                                       |
+| ---------------------------- | ------------------------ | ----------------------------------------------- |
+| 2222 (ou 22)                 | SSH                      | **Pública**, só chave                           |
+| 80/tcp                       | Nginx (redirect HTTPS)   | **Pública**                                     |
+| 443/tcp                      | Nginx (TLS)              | **Pública** — único ponto de entrada HTTP(S)    |
+| 40000–40100/udp+tcp          | mediasoup (mídia WebRTC) | **Pública** — obrigatório, não passa por proxy  |
+| 4100 (ou o `PORT` escolhido) | Node/Express             | **Interna** — só `127.0.0.1`, nunca no firewall |
+| 5432                         | PostgreSQL               | **Interna** — só `127.0.0.1`, nunca no firewall |
+| 6379                         | Redis                    | **Interna** — só `127.0.0.1`, nunca no firewall |
 
 Como proteger a aplicação sem expor a porta do Node diretamente: o Node só
 precisa aceitar conexões vindas do próprio Nginx, que já está na mesma
@@ -603,9 +604,10 @@ Nginx já rotaciona via `logrotate` padrão do Ubuntu
 */5 * * * * curl -sf https://SEU_DOMINIO/api/health > /dev/null || echo "NaveSpeak down" | mail -s "Alerta" seu-email@exemplo.com
 ```
 
-  Ou um serviço externo de uptime (UptimeRobot, Better Uptime, etc.) apontado
-  pra mesma URL — mais simples que manter um cron de alerta por e-mail, e
-  também detecta a VPS inteira ficar inacessível.
+Ou um serviço externo de uptime (UptimeRobot, Better Uptime, etc.) apontado
+pra mesma URL — mais simples que manter um cron de alerta por e-mail, e
+também detecta a VPS inteira ficar inacessível.
+
 - Não é necessário Prometheus/Grafana para este porte de aplicação — considere
   só se o volume de usuários crescer muito e você precisar de métricas
   históricas mais ricas.
@@ -639,7 +641,8 @@ chmod +x /opt/navespeak/scripts/backup.sh
 **Envie os backups para fora da VPS** (outro host, object storage tipo S3/
 Backblaze, etc. via `rclone`/`aws s3 cp`) — um backup que só existe na mesma
 máquina não protege contra perda do VPS inteiro. Retenção sugerida: 7 diários
-+ 4 semanais no destino externo.
+
+- 4 semanais no destino externo.
 
 ---
 
@@ -708,16 +711,16 @@ imprevisível.
 
 ## 19. Stack final recomendada
 
-| Camada | Escolha |
-|---|---|
-| SO | Ubuntu 24.04 LTS |
-| Runtime | Node.js 20 LTS (NodeSource) |
-| Processo | PM2, modo `fork`, 1 instância (alternativa: `systemd` unit) |
-| Proxy reverso | **Nginx** (não Apache) |
-| TLS | Let's Encrypt via Certbot, plugin Nginx |
-| Banco de dados | PostgreSQL 16, usuário de aplicação com privilégio mínimo |
-| Cache/rate limit/presença | Redis 7, `bind 127.0.0.1` + `requirepass` |
-| Firewall | `ufw` (22/2222, 80, 443, 40000-40100 udp+tcp públicas; resto interno) |
-| WebRTC | mediasoup, portas UDP/TCP 40000-40100 públicas, `MEDIASOUP_ANNOUNCED_IP` = IP público da VPS |
-| Backup | `pg_dump` + `uploads/` + `.env` cifrado, diário, enviado para fora da VPS |
-| Monitoramento | `pm2 monit`/`pm2 status` + healthcheck em `/api/health` |
+| Camada                    | Escolha                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| SO                        | Ubuntu 24.04 LTS                                                                             |
+| Runtime                   | Node.js 20 LTS (NodeSource)                                                                  |
+| Processo                  | PM2, modo `fork`, 1 instância (alternativa: `systemd` unit)                                  |
+| Proxy reverso             | **Nginx** (não Apache)                                                                       |
+| TLS                       | Let's Encrypt via Certbot, plugin Nginx                                                      |
+| Banco de dados            | PostgreSQL 16, usuário de aplicação com privilégio mínimo                                    |
+| Cache/rate limit/presença | Redis 7, `bind 127.0.0.1` + `requirepass`                                                    |
+| Firewall                  | `ufw` (22/2222, 80, 443, 40000-40100 udp+tcp públicas; resto interno)                        |
+| WebRTC                    | mediasoup, portas UDP/TCP 40000-40100 públicas, `MEDIASOUP_ANNOUNCED_IP` = IP público da VPS |
+| Backup                    | `pg_dump` + `uploads/` + `.env` cifrado, diário, enviado para fora da VPS                    |
+| Monitoramento             | `pm2 monit`/`pm2 status` + healthcheck em `/api/health`                                      |

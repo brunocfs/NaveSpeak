@@ -39,5 +39,7 @@ Aproveitem para conhecer a proposta do NaveSpeak.
 
 - Possibilidade de abaixar o volume individualmente.
 - Melhoria e correções da emissão de notificações.
+- Melhoria nos paineis de chat/voz dos servidores e conversas privadas.
+- Possibilidade de envio de mensagens para um usuário sem estár na lista de amigos.
 
 Encontrou um problema ou tem uma ideia? Use o botão **Reportar** na tela inicial.

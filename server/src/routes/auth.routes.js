@@ -37,7 +37,7 @@ import {
 const router = Router();
 
 const REFRESH_COOKIE = 'refresh_token';
-const REFRESH_COOKIE_PATH = '/auth';
+const REFRESH_COOKIE_PATH = '/api/auth';
 
 // Regras de username/email/senha vivem em validation/schemas.js - reusadas
 // aqui e na edição de perfil (users.routes.js), uma única fonte de verdade.
