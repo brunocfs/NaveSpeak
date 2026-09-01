@@ -5,13 +5,21 @@ node_modules/
 dist/
 build/
 electron/dist/
+electron/electron.md
+
 # Avatares enviados por usuário (server/src/routes/users.routes.js) - arquivo
 # gerado em runtime, não conteúdo do repositório.
 server/uploads/
+# Artefatos de release do Electron (instalador + latest.yml, gerados por
+# `npm run build:electron` e copiados aqui manualmente) - feed de
+# auto-update servido em /updates (server/src/index.js), não conteúdo do
+# repositório.
+server/updates/
 *.log
 .DS_Store
 CLAUDE.md
 deploy.md
+electron.md
 # Estado interno do harness Claude Code (ex.: lock de agendamento), não é
 # conteúdo do projeto.
 .claude/

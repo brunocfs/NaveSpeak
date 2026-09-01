@@ -13,6 +13,7 @@ import StatusSelector from "../components/StatusSelector.jsx";
 import PreferencesModal from "../components/PreferencesModal.jsx";
 import WelcomeModal from "../components/WelcomeModal.jsx";
 import Avatar from "../components/Avatar.jsx";
+import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import logo from "../assets/nvspk.svg";
 import logoDark from "../assets/nvspk-dark.svg";
 export default function RoomsPage() {
@@ -186,6 +187,8 @@ export default function RoomsPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <DownloadAppLink />
+
             <Link
               to="/profile"
               className="hidden items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 sm:flex dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"

@@ -1,14 +1,16 @@
 {
   "name": "navespeak-electron",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder"
   },
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "43.4.0",
@@ -17,9 +19,27 @@
   "build": {
     "appId": "com.navespeak.app",
     "productName": "NaveSpeak",
-    "files": ["main.js", "preload.js", "package.json"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "assets/**"
+    ],
+    "icon": "assets/icon.ico",
     "directories": {
       "output": "dist"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://navespeak.tech/updates"
+    },
+    "nsis": {
+      "artifactName": "NaveSpeak-Setup-${version}.exe",
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

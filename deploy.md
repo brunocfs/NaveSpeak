@@ -314,6 +314,7 @@ escrita para o processo Node:
 
 ```bash
 mkdir -p /opt/navespeak/server/uploads
+mkdir -p /opt/navespeak/server/updates   # feed de auto-update do Electron, seção 20
 ```
 
 ---
@@ -724,3 +725,51 @@ imprevisível.
 | WebRTC                    | mediasoup, portas UDP/TCP 40000-40100 públicas, `MEDIASOUP_ANNOUNCED_IP` = IP público da VPS |
 | Backup                    | `pg_dump` + `uploads/` + `.env` cifrado, diário, enviado para fora da VPS                    |
 | Monitoramento             | `pm2 monit`/`pm2 status` + healthcheck em `/api/health`                                      |
+
+---
+
+## 20. Cliente desktop (Electron): build, distribuição e auto-update
+
+O Electron é só uma casca nativa em volta da mesma UI web (carrega `SERVER_URL`
+direto, ver comentário em `electron/main.js`) - **a UI React nunca precisa
+disso**, ela atualiza sozinha a cada load porque é servida fresca pelo mesmo
+server (seção 9). Isto aqui só é necessário quando `main.js`/`preload.js`
+mudam de verdade (permissão nova, IPC novo, etc.) e o binário instalado na
+máquina do usuário precisa acompanhar.
+
+### Distribuição inicial
+
+Sem loja pública (grupo fechado na VPN) - build o instalador NSIS e distribua
+o link por fora (chat do grupo, pasta compartilhada):
+
+```bash
+npm run build:electron   # gera electron/dist/NaveSpeak Setup <versão>.exe + latest.yml
+```
+
+Sem certificado de assinatura de código, o Windows SmartScreen avisa
+"publisher desconhecido" na primeira instalação manual - normal pra grupo de
+teste, resolve com um certificado (EV ou padrão) se o público crescer.
+
+### Publicar uma atualização
+
+O app já instalado busca updates sozinho (`electron-updater`, provider
+`generic` apontando pra `${SERVER_URL}/updates` - mesmo servidor, sem
+precisar configurar host separado nem GitHub Releases). Publicar uma versão
+nova é só:
+
+1. Suba a versão em `electron/package.json` (`"version"`).
+2. `npm run build:electron` (gera o instalador + `latest.yml` em `electron/dist/`).
+3. Copie os DOIS arquivos pra `/opt/navespeak/server/updates/` na VPS (scp/rsync) -
+   `latest.yml` é o manifesto que o `electron-updater` lê pra saber se existe
+   algo mais novo que a versão instalada; sem ele o feed fica "vazio" e
+   ninguém recebe a atualização.
+
+```bash
+scp electron/dist/*.exe electron/dist/latest.yml \
+  deploy@<host-da-vps>:/opt/navespeak/server/updates/
+```
+
+O app checa update ao abrir e depois de hora em hora enquanto fica aberto
+(`main.js`); baixa em background e pergunta pro usuário se quer reiniciar na
+hora ou deixar aplicar sozinho no próximo fechar. Sem instalador novo pra
+baixar manualmente, sem reinstalar do zero.

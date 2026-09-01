@@ -13,6 +13,7 @@
     "dev:client": "npm run dev --workspace client",
     "dev:electron": "npm run dev --workspace electron",
     "build:client": "npm run build --workspace client",
+    "build:electron": "npm run build --workspace electron",
     "migrate": "npm run migrate --workspace server"
   },
   "dependencies": {

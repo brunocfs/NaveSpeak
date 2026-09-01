@@ -26,6 +26,7 @@ import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
+import DownloadAppLink from "../components/DownloadAppLink.jsx";
 
 export default function RoomPage() {
   const { roomId } = useParams();
@@ -484,6 +485,8 @@ export default function RoomPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <DownloadAppLink />
+
             <span
               title="Código de convite"
               className="rounded-xl bg-slate-200 px-3 py-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:text-slate-200"

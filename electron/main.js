@@ -10,7 +10,9 @@ const {
   shell,
   session,
   powerMonitor,
+  dialog,
 } = require("electron");
+const { autoUpdater } = require("electron-updater");
 // path explícito (relativo a __dirname, não ao cwd) - cwd varia dependendo
 // de como o .exe foi lançado (atalho do Menu Iniciar, duplo-clique,
 // terminal), então dotenv.config() sem path acha o .env "por sorte" só às
@@ -29,12 +31,58 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 // é o ÚNICO lugar que decide qual server o app fala - nunca precisa mexer no
 // client pra apontar pra outro host.
 //
-// Default = o server do grupo na VPN (mesmo IP hoje usado por todo mundo).
-// Quem roda o server na PRÓPRIA máquina (dev/teste local) sobrescreve via
-// electron/.env (gitignored, não distribuído):
+// Default = o server de produção (navespeak.tech, HTTPS). Quem roda o
+// server na PRÓPRIA máquina (dev/teste local) sobrescreve via electron/.env
+// (gitignored, não distribuído, não vai dentro do .exe empacotado - só vale
+// pra quem builda/roda localmente com esse arquivo presente):
 //   NAVESPEAK_SERVER_URL=http://localhost:4100
-const SERVER_URL = process.env.NAVESPEAK_SERVER_URL || "http://26.67.223.20:4100";
+const SERVER_URL = process.env.NAVESPEAK_SERVER_URL || "https://navespeak.tech";
 const SERVER_ORIGIN = new URL(SERVER_URL).origin;
+
+// Atualização automática do SHELL nativo (main.js/preload.js/instalador em
+// si) - a UI React já se atualiza sozinha a cada load (comentário acima:
+// é servida fresca pelo mesmo server), então isso aqui NUNCA é necessário
+// pra mudança de tela/feature comum, só quando o main.js/preload.js muda
+// de verdade (permissão nova, IPC novo etc.) e precisa de um binário novo
+// rodando na máquina do usuário.
+//
+// provider "generic" = qualquer pasta servida por HTTP simples - aponta pro
+// MESMO server NaveSpeak, rota estática /updates (server/src/index.js),
+// então segue o mesmo NAVESPEAK_SERVER_URL de cima automaticamente (troca o
+// server, troca de onde busca update junto, sem configurar duas vezes).
+// Publicar uma versão nova: `npm run build:electron` (gera o instalador +
+// latest.yml em electron/dist/) e copiar os dois pra server/updates/ - ver
+// deploy.md.
+autoUpdater.setFeedURL({ provider: "generic", url: `${SERVER_URL}/updates` });
+autoUpdater.autoDownload = true;
+
+// autoUpdater é um EventEmitter - 'error' sem listener LANÇA e mata o
+// processo main. Falha de update (server fora do ar, pasta /updates vazia
+// ainda, sem rede) nunca pode derrubar o app por causa disso.
+autoUpdater.on("error", (err) => {
+  console.error("[autoUpdater]", err?.message || err);
+});
+
+// Baixado - pergunta pra reiniciar na hora ou deixa aplicar sozinho no
+// próximo fechar do app (comportamento padrão do autoUpdater pro instalador
+// NSIS, não precisa de mais nada aqui pra isso acontecer).
+autoUpdater.on("update-downloaded", (info) => {
+  if (!mainWindow) return;
+  dialog
+    .showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["Reiniciar agora", "Depois"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Atualização disponível",
+      message: `NaveSpeak ${info.version} baixado.`,
+      detail:
+        "Reinicie para aplicar agora, ou continue usando - ela entra sozinha da próxima vez que o app fechar.",
+    })
+    .then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall();
+    });
+});
 
 // Sem isso, notificação desktop (Notification API, disparada do renderer -
 // ver client/src/context/NotificationContext.jsx) aparece no Windows sob o
@@ -207,6 +255,11 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // Ícone da janela/taskbar - sem isso cai no ícone padrão do Electron
+    // (o "e" genérico). .ico (Windows quer esse formato pra taskbar/alt-tab
+    // ficarem nítidos em qualquer tamanho) gerado a partir do mesmo logo
+    // usado no favicon web (client/public/favicon.svg) - ver electron/assets/.
+    icon: path.join(__dirname, "assets", "icon.ico"),
     webPreferences: baseWebPreferences(),
   });
 
@@ -282,6 +335,16 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  // isPackaged: só roda contra update de verdade no .exe instalado - em dev
+  // (`npm run dev --workspace electron`) não tem instalador NSIS pra
+  // aplicar nada, só gera ruído/erro de rede sem propósito.
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates().catch(() => {});
+    // Recheca de hora em hora enquanto o app fica aberto - quem nunca fecha
+    // o app não ficaria preso numa versão velha pra sempre.
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 60 * 60 * 1000);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

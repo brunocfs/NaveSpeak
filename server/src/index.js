@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
@@ -25,6 +26,7 @@ import { resetEphemeralPresenceOnBoot } from './config/redis.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDistDir = path.join(__dirname, '..', '..', 'client', 'dist');
 const uploadsDir = path.join(__dirname, '..', 'uploads');
+const updatesDir = path.join(__dirname, '..', 'updates');
 
 const app = express();
 
@@ -81,6 +83,35 @@ app.use(
   },
   express.static(uploadsDir)
 );
+
+// Feed de auto-update do app Electron (electron/main.js, autoUpdater
+// provider "generic") - pasta estática com o(s) instalador(es) + latest.yml
+// que o electron-builder gera (`npm run build:electron`, ver deploy.md).
+// Fora de /api pelo mesmo motivo de /uploads: arquivo estático, não JSON, e
+// o electron-updater espera exatamente esse formato de resposta (GET
+// direto no arquivo, sem nenhum wrapper). Gitignored - artefato de build,
+// não conteúdo do repositório.
+app.use('/updates', express.static(updatesDir));
+
+// Link "Download App" (TopBar do client, só aparece fora do Electron) -
+// redireciona pro instalador MAIS RECENTE sem o client precisar saber nome
+// de arquivo/versão (troca sozinho a cada release): lê o `path:` de
+// latest.yml, o MESMO manifesto que o electron-updater já consome pra
+// checar update (electron/main.js) - nunca fica desatualizado dos dois
+// lados por acidente, é uma fonte só.
+app.get('/download', (req, res) => {
+  try {
+    const yml = fs.readFileSync(path.join(updatesDir, 'latest.yml'), 'utf8');
+    const filename = yml.match(/^path:\s*['"]?([^'"\n]+)['"]?\s*$/m)?.[1]?.trim();
+    if (!filename) throw new Error('latest.yml sem campo "path"');
+    res.redirect(`/updates/${encodeURIComponent(filename)}`);
+  } catch {
+    // Servidor novo, ainda sem nenhuma versão publicada em server/updates/
+    // (ver deploy.md seção 20) - erro claro em vez de 404 genérico do
+    // express.static.
+    res.status(404).send('Nenhuma versão publicada ainda.');
+  }
+});
 
 // Em produção, o próprio Express serve o bundle do client (gerado por
 // `npm run build:client`) - assim a versão web roda inteira a partir de uma
