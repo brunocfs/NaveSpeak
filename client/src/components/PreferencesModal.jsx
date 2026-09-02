@@ -8,6 +8,7 @@ import {
   requestMicStream,
 } from "../api/media.js";
 import { useMicLevel } from "../hooks/useMicLevel.js";
+import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
 
 // Faixa de dB do medidor/slider de sensibilidade - -70 (bem sensível, capta
 // até sussurro/ruído baixo de sala) a -10 (só voz alta bem perto do mic).
@@ -58,6 +59,13 @@ function MicLevelMeter({ previewStream, thresholdDb }) {
 // não aceita null/undefined como value de <option> de forma confiável.
 const SYSTEM_DEFAULT = "";
 
+// window.naveSpeak.pushToTalk só existe dentro do app Electron (ver
+// electron/preload.js) - fora dele é sempre undefined. Só pra ajustar o
+// texto de ajuda abaixo, a lógica de verdade do hook global vive em
+// MediaSessionContext.jsx.
+const hasGlobalPushToTalk =
+  typeof window !== "undefined" && Boolean(window.naveSpeak?.pushToTalk);
+
 // Abas do modal - mesmo padrão visual de ServerSettingsModal.jsx (sidebar à
 // esquerda + conteúdo rolável à direita), pra não inventar uma segunda
 // convenção de "modal com abas" no app. "Geral" = preferências sem relação
@@ -99,6 +107,8 @@ export default function PreferencesModal() {
     noiseSuppressionLevel,
     micGateEnabled,
     micGateThresholdDb,
+    pushToTalkEnabled,
+    pushToTalkKey,
   } = preferences;
 
   // Teste de microfone (sensibilidade) - stream à parte do `draft`, só existe
@@ -110,6 +120,26 @@ export default function PreferencesModal() {
   // MicLevelMeter abaixo, não aqui - ver o comentário dele.
   const [previewStream, setPreviewStream] = useState(null);
   const [previewError, setPreviewError] = useState(null);
+
+  // Captura da tecla de push-to-talk - liga ao clicar em "Atribuir tecla" e
+  // desliga sozinha assim que a próxima tecla é pressionada (ou com Esc,
+  // que cancela sem trocar a atribuição atual). `capture: true` +
+  // preventDefault pra tecla capturada não disparar o efeito colateral
+  // normal dela (ex.: Tab tirando o foco do botão, Espaço re-clicando).
+  const [capturingKey, setCapturingKey] = useState(false);
+
+  useEffect(() => {
+    if (!capturingKey) return;
+    function handleKeyDown(e) {
+      e.preventDefault();
+      setCapturingKey(false);
+      if (e.code === "Escape") return;
+      setDraft((prev) => ({ ...prev, pushToTalkKey: e.code }));
+    }
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [capturingKey]);
 
   function stopPreview() {
     setPreviewStream((stream) => {
@@ -204,6 +234,8 @@ export default function PreferencesModal() {
       noiseSuppressionLevel,
       micGateEnabled,
       micGateThresholdDb,
+      pushToTalkEnabled,
+      pushToTalkKey,
     });
     setTab(TABS[0].id);
     setOpen(true);
@@ -213,6 +245,7 @@ export default function PreferencesModal() {
   function handleClose() {
     stopPreview();
     setPreviewError(null);
+    setCapturingKey(false);
     setOpen(false);
     setDraft(null);
   }
@@ -227,6 +260,8 @@ export default function PreferencesModal() {
     preferences.setNoiseSuppressionLevel(draft.noiseSuppressionLevel);
     preferences.setMicGateEnabled(draft.micGateEnabled);
     preferences.setMicGateThresholdDb(draft.micGateThresholdDb);
+    preferences.setPushToTalkEnabled(draft.pushToTalkEnabled);
+    preferences.setPushToTalkKey(draft.pushToTalkKey);
     handleClose();
   }
 
@@ -740,6 +775,69 @@ export default function PreferencesModal() {
                               Trocar o limiar (ou ligar/desligar) só vale a
                               partir da próxima vez que você entrar num canal de
                               voz.
+                            </p>
+                          </div>
+
+                          {/* Push-to-talk - diferente do supressor/sensibilidade
+                    acima, vale AO VIVO (não só na próxima entrada na voz):
+                    liga/desliga e troca de tecla se aplicam na hora, mesmo
+                    já dentro de uma chamada (ver efeitos em
+                    MediaSessionContext.jsx). */}
+                          <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                            <label className="flex cursor-pointer items-center justify-between gap-3">
+                              <span>
+                                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  Push-to-talk
+                                </span>
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Mic só transmite enquanto a tecla abaixo
+                                  estiver pressionada
+                                </span>
+                              </span>
+                              <span className="relative inline-flex shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={draft.pushToTalkEnabled}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      pushToTalkEnabled: e.target.checked,
+                                    }))
+                                  }
+                                  className="peer sr-only"
+                                />
+                                <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                              </span>
+                            </label>
+
+                            {draft.pushToTalkEnabled && (
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                                  Tecla:{" "}
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                    {capturingKey
+                                      ? "Pressione uma tecla..."
+                                      : (formatKeyLabel(draft.pushToTalkKey) ??
+                                        "nenhuma")}
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCapturingKey(true)}
+                                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                  {capturingKey ? "Esc para cancelar" : "Atribuir tecla"}
+                                </button>
+                              </div>
+                            )}
+
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                              {draft.pushToTalkEnabled && !draft.pushToTalkKey
+                                ? "Sem tecla atribuída, o mic fica sempre mudo em canais de voz - atribua uma antes de sair daqui."
+                                : "Enquanto ligado, o mic começa mudo em qualquer canal de voz e só transmite com a tecla segurada. Mutar manualmente continua funcionando por cima, mesmo segurando a tecla."}
+                              {hasGlobalPushToTalk &&
+                                " No app desktop a tecla funciona mesmo com a janela sem foco/minimizada."}
                             </p>
                           </div>
                         </>

@@ -639,16 +639,19 @@ export default function RoomPage() {
                           // só o que os OUTROS mandam, ninguém consome de volta o
                           // próprio producer) - usa `media.localMicStream` (a
                           // stream crua capturada em joinVoice) em vez disso.
-                          // `null` enquanto mutado: mutar só pausa o producer (a
-                          // track crua local continua captando áudio), sem isso
-                          // o anel acenderia falando com ninguém ouvindo - outro
-                          // participante mutado já vem sem áudio no consumer
-                          // pausado, nunca precisou desse cuidado extra.
+                          // `null` enquanto não transmitindo (mutado, travado
+                          // por moderador, ou push-to-talk com a tecla solta -
+                          // ver media.micTransmitting em MediaSessionContext.jsx):
+                          // esses casos só pausam o producer (a track crua local
+                          // continua captando áudio), sem isso o anel acenderia
+                          // falando com ninguém ouvindo - outro participante
+                          // mutado já vem sem áudio no consumer pausado, nunca
+                          // precisou desse cuidado extra.
                           const micStream =
                             media.voiceChannelId !== c.id
                               ? null
                               : isSelf
-                                ? (media.muted ? null : media.localMicStream)
+                                ? (media.micTransmitting ? media.localMicStream : null)
                                 : (media.remoteStreams.find(
                                     (s) =>
                                       s.userId === p.userId &&
@@ -670,7 +673,7 @@ export default function RoomPage() {
                           // chega correto pra quem entra depois de alguém já
                           // mutado (não depende mais de remoteStreams, que só
                           // existe pra quem está na chamada).
-                          const micMuted = isSelf ? media.muted : Boolean(p.micMuted);
+                          const micMuted = isSelf ? !media.micTransmitting : Boolean(p.micMuted);
                           const cameraOn = isSelf ? media.cameraOn : Boolean(p.cameraOn);
                           const sharingScreen = isSelf
                             ? media.sharingScreen

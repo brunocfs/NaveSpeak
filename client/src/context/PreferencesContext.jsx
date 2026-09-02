@@ -68,6 +68,20 @@ const DEFAULT_PREFERENCES = {
   // a -10 (só voz alta) no slider de Preferências, com medidor ao vivo
   // (hooks/useMicLevel.js) pra calibrar vendo o próprio nível.
   micGateThresholdDb: -50,
+  // Push-to-talk (Preferências > Áudio e Vídeo) - `false` por padrão
+  // (opt-in), mesmo raciocínio do micGateEnabled: é uma feature que MUDA o
+  // comportamento normal do mic (passa a exigir segurar uma tecla pra
+  // transmitir) e ninguém deveria ganhar isso sem escolher. Aplicado ao
+  // vivo (não só na próxima entrada na voz) - ver useEffect de
+  // armar/desarmar em MediaSessionContext.jsx.
+  pushToTalkEnabled: false,
+  // `KeyboardEvent.code` da tecla atribuída (ex.: "KeyV"), não `.key` -
+  // `.code` identifica a posição física da tecla, independente de
+  // layout/idioma do teclado ou de Shift estar pressionado (`.key` de "v"
+  // vira "V" com Shift, seria preciso tratar as duas). `null` = nenhuma
+  // tecla atribuída ainda (push-to-talk fica sem efeito mesmo se
+  // `pushToTalkEnabled`, ver MediaSessionContext.jsx).
+  pushToTalkKey: null,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -137,6 +151,8 @@ export function PreferencesProvider({ children }) {
       noiseSuppressionLevel: preferences.noiseSuppressionLevel,
       micGateEnabled: preferences.micGateEnabled,
       micGateThresholdDb: preferences.micGateThresholdDb,
+      pushToTalkEnabled: preferences.pushToTalkEnabled,
+      pushToTalkKey: preferences.pushToTalkKey,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -166,6 +182,10 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, micGateEnabled })),
       setMicGateThresholdDb: (micGateThresholdDb) =>
         setPreferences((prev) => ({ ...prev, micGateThresholdDb })),
+      setPushToTalkEnabled: (pushToTalkEnabled) =>
+        setPreferences((prev) => ({ ...prev, pushToTalkEnabled })),
+      setPushToTalkKey: (pushToTalkKey) =>
+        setPreferences((prev) => ({ ...prev, pushToTalkKey })),
     }),
     [preferences]
   );

@@ -59,6 +59,7 @@ export default function VoicePanel() {
     sharingScreen,
     localScreenStream,
     localMicStream,
+    micTransmitting,
     voiceRoster: participants,
     panelAnchor,
     popout,
@@ -91,18 +92,22 @@ export default function VoicePanel() {
         username: `${user.username} (você)`,
         avatarPath: user.avatarPath,
         isLocal: true,
-        micMuted: muted,
+        // `micTransmitting` já cobre mute manual + trava de moderador +
+        // push-to-talk (tecla solta = não transmitindo) - ver
+        // MediaSessionContext.jsx.
+        micMuted: !micTransmitting,
         videoStream: cameraOn ? localCameraStream : null,
         // Stream crua do próprio mic (MediaSessionContext) - só pro anel de
         // "falando" (useSpeaking em ParticipantTile); ParticipantTile já
         // silencia a REPRODUÇÃO de tiles locais (`isLocal || deafened`), não
-        // tem risco de ecoar o próprio áudio. `null` enquanto mutado: mutar
-        // só pausa o producer (a track crua local continua captando áudio
-        // normalmente), sem isso o anel acenderia falando mesmo com
-        // ninguém ouvindo - diferente de outro participante mutado, cujo
-        // consumer pausado já vem sem áudio (useSpeaking nunca acende
-        // sozinho).
-        micStream: muted ? null : localMicStream,
+        // tem risco de ecoar o próprio áudio. `null` enquanto não
+        // transmitindo (mutado, travado, ou push-to-talk com a tecla
+        // solta): mutar/PTT só pausam o producer (a track crua local
+        // continua captando áudio normalmente), sem isso o anel acenderia
+        // falando mesmo com ninguém ouvindo - diferente de outro
+        // participante mutado, cujo consumer pausado já vem sem áudio
+        // (useSpeaking nunca acende sozinho).
+        micStream: micTransmitting ? localMicStream : null,
       });
     }
     for (const p of participants) {
@@ -126,7 +131,15 @@ export default function VoicePanel() {
       });
     }
     return tiles;
-  }, [participants, remoteStreams, user, muted, cameraOn, localCameraStream, localMicStream]);
+  }, [
+    participants,
+    remoteStreams,
+    user,
+    micTransmitting,
+    cameraOn,
+    localCameraStream,
+    localMicStream,
+  ]);
 
   // Um tile por TELA compartilhada, sempre à parte do tile da pessoa (no
   // Discord, quem compartilha tela aparece com dois quadradinhos: o dela e o

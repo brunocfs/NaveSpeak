@@ -68,10 +68,19 @@ export default function VoiceStatusBar() {
         onClick={() => media.toggleMute()}
         title={media.muted ? "Ativar microfone" : "Silenciar microfone"}
         className={`rounded-xl px-3 py-3 cursor-pointer transition ${
-          media.muted ? "bg-red-600 hover:bg-red-500" : "bg-gray-600 hover:bg-gray-500"
+          // Cor segue `micTransmitting` (mute manual + trava + push-to-talk
+          // juntos), não só `muted` - com push-to-talk ligado o botão
+          // continua alternando o mute MANUAL (onClick), mas o vermelho
+          // precisa refletir se o mic está mesmo transmitindo agora, senão
+          // ficaria cinza (parece ativo) com a tecla de PTT solta.
+          media.micTransmitting ? "bg-gray-600 hover:bg-gray-500" : "bg-red-600 hover:bg-red-500"
         }`}
       >
-        {media.muted ? <MicOff className="size-5 text-white" /> : <Mic className="size-5 text-white" />}
+        {media.micTransmitting ? (
+          <Mic className="size-5 text-white" />
+        ) : (
+          <MicOff className="size-5 text-white" />
+        )}
       </button>
       <button
         onClick={() => media.toggleDeafen()}

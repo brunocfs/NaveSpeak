@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "electron": "43.4.0",
@@ -29,6 +30,9 @@
     "directories": {
       "output": "dist"
     },
+    "asarUnpack": [
+      "**/node_modules/uiohook-napi/**"
+    ],
     "win": {
       "target": "nsis"
     },

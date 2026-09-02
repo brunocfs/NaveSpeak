@@ -13,6 +13,30 @@ import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
 
+// Push-to-talk: ignora o próprio código da tecla quando o foco está num
+// campo de texto (chat, busca etc.) - sem isso, atribuir uma tecla comum
+// (ex.: "V") faria qualquer letra digitada também abrir/fechar o mic
+// enquanto a pessoa escreve.
+function isEditableTarget(target) {
+  if (!target) return false;
+  return (
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.isContentEditable
+  );
+}
+
+// window.naveSpeak.pushToTalk só existe dentro do app Electron (exposto por
+// electron/preload.js) - fora dele (navegador comum) é sempre undefined.
+// Quando existe, dá pra segurar/soltar a tecla via hook global do processo
+// main (electron/main.js, uiohook-napi), que funciona mesmo com a janela
+// sem foco/minimizada - o listener de keydown/keyup do PRÓPRIO navegador
+// (usado de qualquer forma, ver efeito abaixo) só recebe eventos com a
+// janela em foco, limitação do Chromium/qualquer navegador, não tem como
+// contornar de dentro do renderer sozinho.
+const hasGlobalPushToTalk =
+  typeof window !== 'undefined' && Boolean(window.naveSpeak?.pushToTalk);
+
 function emitAsync(socket, event, payload) {
   return new Promise((resolve, reject) => {
     socket.emit(event, payload, (response) => {
@@ -107,6 +131,16 @@ export function MediaSessionProvider({ children }) {
   // reverter sozinho (toggleMute/shareCamera/shareScreen abaixo recusam).
   const [audioLocked, setAudioLocked] = useState(false);
   const [mediaLocked, setMediaLocked] = useState(false);
+  const audioLockedRef = useRef(false);
+  useEffect(() => {
+    audioLockedRef.current = audioLocked;
+  }, [audioLocked]);
+  // Push-to-talk: true enquanto a tecla atribuída está pressionada (ver
+  // efeito de keydown/keyup mais abaixo). Independente de `muted` - é uma
+  // camada por CIMA do mute manual, nunca o substitui (mutar manualmente
+  // continua bloqueando transmissão mesmo com a tecla segurada).
+  const [pttActive, setPttActive] = useState(false);
+  const pttActiveRef = useRef(false);
 
   const deviceRef = useRef(null);
   const sendTransportRef = useRef(null);
@@ -160,6 +194,8 @@ export function MediaSessionProvider({ children }) {
     noiseSuppressionLevel,
     micGateEnabled,
     micGateThresholdDb,
+    pushToTalkEnabled,
+    pushToTalkKey,
   } = usePreferences();
 
   const addRemoteStream = useCallback((entry) => {
@@ -583,9 +619,34 @@ export function MediaSessionProvider({ children }) {
     denoiserRef.current?.setLevel(noiseSuppressionLevel);
   }, [noiseSuppressionLevel]);
 
+  // Pausa/retoma o producer de mic de verdade (local + servidor) - função
+  // única usada tanto pelo mute manual (toggleMute) quanto pelo push-to-talk
+  // (efeitos abaixo), para as duas fontes nunca aplicarem o pause direto por
+  // conta própria e brigarem sobre o estado real do producer. Não mexe em
+  // `muted` - quem chama decide se isso também é uma troca de mute manual.
+  const applyProducerPause = useCallback(
+    async (paused) => {
+      const producer = micProducerRef.current;
+      if (!producer) return false;
+      try {
+        await emitAsync(socket, 'media:setProducerPaused', {
+          channelId: channelIdRef.current,
+          producerId: producer.id,
+          paused,
+        });
+        if (paused) producer.pause();
+        else producer.resume();
+        return true;
+      } catch (err) {
+        console.error(err);
+        return false;
+      }
+    },
+    [socket]
+  );
+
   const toggleMute = useCallback(async () => {
-    const producer = micProducerRef.current;
-    if (!producer) return;
+    if (!micProducerRef.current) return;
     const nextMuted = !muted;
     // Áudio travado por um moderador: só ele reverte (voice:moderateMute
     // mode:'lock' de novo) - o próprio usuário pode se mutar à vontade, só
@@ -594,19 +655,112 @@ export function MediaSessionProvider({ children }) {
       setError('Um moderador bloqueou seu áudio neste canal.');
       return;
     }
-    try {
-      await emitAsync(socket, 'media:setProducerPaused', {
-        channelId: channelIdRef.current,
-        producerId: producer.id,
-        paused: nextMuted,
-      });
-      if (nextMuted) producer.pause();
-      else producer.resume();
-      setMuted(nextMuted);
-    } catch (err) {
-      console.error(err);
+    // Com push-to-talk ligado, desmutar manualmente não deve religar a
+    // transmissão sozinho - só tira o mute manual da frente; a tecla
+    // continua mandando (some devolve o controle pro push-to-talk, que por
+    // padrão fica mudo até a tecla ser pressionada de novo).
+    const shouldTransmit = !nextMuted && (!pushToTalkEnabled || pttActiveRef.current);
+    const ok = await applyProducerPause(!shouldTransmit);
+    if (ok) setMuted(nextMuted);
+  }, [muted, audioLocked, pushToTalkEnabled, applyProducerPause]);
+
+  // Push-to-talk inteiro num efeito só (arma/desarma + segurar tecla) DE
+  // PROPÓSITO, não dois efeitos separados: com dois efeitos, desligar
+  // pushToTalkEnabled com a tecla ainda segurada rodava a limpeza dos DOIS
+  // fora de ordem - o de "arma/desarma" resumia o producer, mas em seguida
+  // a limpeza do efeito de tecla via `pttActiveRef` ainda true e pausava de
+  // novo (achando que era um "soltar tecla" comum), deixando o mic mudo de
+  // verdade enquanto a UI (baseada em `pushToTalkEnabled=false`) já mostrava
+  // como transmitindo. Um efeito só, uma limpeza só, sem essa corrida.
+  //
+  // Só ativo com push-to-talk ligado E chamada conectada (independe de já
+  // ter tecla atribuída - sem tecla, simplesmente não há handler que
+  // desmute, o mic fica mudo por padrão até o usuário atribuir uma).
+  useEffect(() => {
+    if (!connected || !pushToTalkEnabled) return;
+    // Liga: mic começa mudo por padrão - só a tecla desmuta. Não mexe se já
+    // estiver mutado manualmente ou travado por moderador (nada de "padrão
+    // de push-to-talk" a aplicar por cima disso).
+    if (!mutedRef.current && !audioLockedRef.current) applyProducerPause(true);
+
+    function release() {
+      if (!pttActiveRef.current) return;
+      pttActiveRef.current = false;
+      setPttActive(false);
+      if (!mutedRef.current && !audioLockedRef.current) applyProducerPause(true);
     }
-  }, [muted, audioLocked, socket]);
+    // `target` aqui é `document.activeElement` tanto pro keydown de verdade
+    // (janela em foco) quanto pro pulso do hook global (Electron, janela
+    // OU sem foco) - decide se ignora por estar digitando num campo de
+    // texto SEM depender de foco de janela, porque isso cobre os dois
+    // casos de uma vez: digitando com o app em foco, e "estava digitando e
+    // trocou de janela sem tirar o foco do campo" (o campo continua sendo
+    // `document.activeElement` mesmo com a janela do app em segundo plano).
+    function press(target) {
+      if (!pushToTalkKey || pttActiveRef.current) return;
+      if (isEditableTarget(target)) return;
+      pttActiveRef.current = true;
+      setPttActive(true);
+      if (!mutedRef.current && !audioLockedRef.current) applyProducerPause(false);
+    }
+    function handleKeyDown(e) {
+      if (e.code === pushToTalkKey && !e.repeat) press(e.target);
+    }
+    function handleKeyUp(e) {
+      if (e.code === pushToTalkKey) release();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    // Fallback SÓ pra quando não há hook global (navegador comum, fora do
+    // Electron): solta sozinho se a janela perder foco (alt-tab etc.), já
+    // que sem o hook o keyup nunca chegaria e o mic ficaria "preso"
+    // transmitindo. Com o hook global (abaixo) o keyup de VERDADE chega
+    // mesmo sem foco - soltar aqui também derrubaria o mic assim que o
+    // usuário trocasse de janela segurando a tecla, o oposto do que
+    // push-to-talk deveria fazer.
+    if (!hasGlobalPushToTalk) window.addEventListener('blur', release);
+
+    let unsubscribeGlobalKeyDown;
+    let unsubscribeGlobalKeyUp;
+    if (hasGlobalPushToTalk) {
+      // `supported` reflete se o processo main conseguiu mesmo ligar o hook
+      // pra essa tecla (uiohook indisponível na plataforma, ou tecla sem
+      // tradução pro hook global - ver DOM_CODE_TO_UIOHOOK_KEY em
+      // electron/main.js) - logado pra dar pra diagnosticar pelo DevTools
+      // (Ctrl+Shift+I) sem precisar instrumentar nada na hora.
+      window.naveSpeak.pushToTalk
+        .setWatchedKey(pushToTalkKey)
+        .then((supported) => {
+          console.log(
+            `[push-to-talk] hook global ${supported ? 'ativo' : 'indisponível'} para "${pushToTalkKey}" - fora do foco só funciona se "ativo".`
+          );
+        })
+        .catch((err) => console.error('[push-to-talk] Falha ao armar o hook global:', err));
+      unsubscribeGlobalKeyDown = window.naveSpeak.pushToTalk.onKeyDown(() =>
+        press(document.activeElement)
+      );
+      unsubscribeGlobalKeyUp = window.naveSpeak.pushToTalk.onKeyUp(release);
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      if (!hasGlobalPushToTalk) window.removeEventListener('blur', release);
+      if (hasGlobalPushToTalk) {
+        window.naveSpeak.pushToTalk.setWatchedKey(null);
+        unsubscribeGlobalKeyDown?.();
+        unsubscribeGlobalKeyUp?.();
+      }
+      // Desliga (PTT desativado, desconectou, ou trocou a tecla): sempre
+      // devolve o mic ao comportamento normal (transmite direto, só mute
+      // manual/trava barram) - nunca deixa preso mudo por causa de um
+      // "segurar" cujo efeito não existe mais.
+      pttActiveRef.current = false;
+      setPttActive(false);
+      if (!mutedRef.current && !audioLockedRef.current) applyProducerPause(false);
+    };
+  }, [connected, pushToTalkEnabled, pushToTalkKey, applyProducerPause]);
 
   // Ao ensurdecer, força o próprio mic mudo (lembrando se ele já estava
   // mudo por escolha do usuário, para não reativá-lo à toa ao desligar o
@@ -791,6 +945,13 @@ export function MediaSessionProvider({ children }) {
     [socket]
   );
 
+  // Se o mic está REALMENTE transmitindo agora - além de `muted`/`audioLocked`,
+  // com push-to-talk ligado só é true enquanto a tecla está pressionada
+  // (`pttActive`). Centralizado aqui pra VoicePanel/RoomPage não duplicarem
+  // essa conta pra decidir o anel de "falando"/ícone do PRÓPRIO usuário.
+  const micTransmitting =
+    connected && !muted && !audioLocked && (!pushToTalkEnabled || pttActive);
+
   const value = useMemo(
     () => ({
       connected,
@@ -829,6 +990,8 @@ export function MediaSessionProvider({ children }) {
       moderateMedia,
       moderateDisconnect,
       moderateMove,
+      pushToTalkActive: pttActive,
+      micTransmitting,
     }),
     [
       connected,
@@ -863,6 +1026,8 @@ export function MediaSessionProvider({ children }) {
       moderateMedia,
       moderateDisconnect,
       moderateMove,
+      pttActive,
+      micTransmitting,
     ]
   );
 

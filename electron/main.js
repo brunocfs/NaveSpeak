@@ -13,6 +13,181 @@ const {
   dialog,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
+
+// Push-to-talk global (funciona com a janela sem foco/minimizada) - keydown/
+// keyup do navegador (ver MediaSessionContext.jsx) só chega enquanto a
+// JANELA está em foco, é limitação do próprio navegador/Chromium, não dá
+// pra contornar dentro do renderer. uiohook-napi é um hook de teclado no
+// nível do SO (roda aqui no processo main, que tem acesso nativo), then
+// entrega os eventos reais de tecla pressionada/solta não importa qual
+// janela (ou nenhuma) esteja em foco - é assim que Discord/Mumble também
+// resolvem isso.
+//
+// `try/catch` no require: a plataforma pode não ter um binário nativo
+// pré-compilado disponível (ver prebuilds/ do pacote) - nesse caso o
+// push-to-talk simplesmente não funciona fora do foco da janela (o
+// listener normal de keydown/keyup do renderer continua funcionando com a
+// janela em foco, sem regressão), em vez de travar o app inteiro.
+let uIOhook = null;
+let UiohookKey = null;
+try {
+  ({ uIOhook, UiohookKey } = require("uiohook-napi"));
+} catch (err) {
+  console.error("[push-to-talk] uiohook-napi indisponível nesta plataforma:", err.message);
+}
+
+// Traduz `KeyboardEvent.code` do DOM (o que o renderer guarda em
+// Preferências, ver client/src/context/PreferencesContext.jsx) para o
+// keycode numérico do uiohook - os dois não usam o mesmo vocabulário. Só
+// precisa de uma direção (DOM -> uiohook): o processo main só precisa saber
+// QUAL tecla nativa vigiar; nunca manda de volta pro renderer nada além de
+// "a tecla vigiada foi pressionada/solta" (ver setWatchedKey/listeners
+// abaixo) - o main NUNCA repassa teclas arbitrárias pro renderer, só pulsos
+// da única tecla configurada, pra isso nunca virar um keylogger genérico.
+const DOM_CODE_TO_UIOHOOK_KEY = {};
+if (UiohookKey) {
+  Object.assign(DOM_CODE_TO_UIOHOOK_KEY, {
+    Space: UiohookKey.Space,
+    Tab: UiohookKey.Tab,
+    Backspace: UiohookKey.Backspace,
+    Enter: UiohookKey.Enter,
+    CapsLock: UiohookKey.CapsLock,
+    Escape: UiohookKey.Escape,
+    PageUp: UiohookKey.PageUp,
+    PageDown: UiohookKey.PageDown,
+    End: UiohookKey.End,
+    Home: UiohookKey.Home,
+    ArrowLeft: UiohookKey.ArrowLeft,
+    ArrowUp: UiohookKey.ArrowUp,
+    ArrowRight: UiohookKey.ArrowRight,
+    ArrowDown: UiohookKey.ArrowDown,
+    Insert: UiohookKey.Insert,
+    Delete: UiohookKey.Delete,
+    Semicolon: UiohookKey.Semicolon,
+    Equal: UiohookKey.Equal,
+    Comma: UiohookKey.Comma,
+    Minus: UiohookKey.Minus,
+    Period: UiohookKey.Period,
+    Slash: UiohookKey.Slash,
+    Backquote: UiohookKey.Backquote,
+    BracketLeft: UiohookKey.BracketLeft,
+    Backslash: UiohookKey.Backslash,
+    BracketRight: UiohookKey.BracketRight,
+    Quote: UiohookKey.Quote,
+    // uiohook só distingue lado em Ctrl/Alt/Shift/Meta direitos - o
+    // esquerdo de cada um é o nome "base" (sem sufixo), diferente do DOM
+    // que sempre nomeia os dois lados explicitamente.
+    ControlLeft: UiohookKey.Ctrl,
+    ControlRight: UiohookKey.CtrlRight,
+    AltLeft: UiohookKey.Alt,
+    AltRight: UiohookKey.AltRight,
+    ShiftLeft: UiohookKey.Shift,
+    ShiftRight: UiohookKey.ShiftRight,
+    MetaLeft: UiohookKey.Meta,
+    MetaRight: UiohookKey.MetaRight,
+    NumLock: UiohookKey.NumLock,
+    ScrollLock: UiohookKey.ScrollLock,
+    PrintScreen: UiohookKey.PrintScreen,
+    Numpad0: UiohookKey.Numpad0,
+    Numpad1: UiohookKey.Numpad1,
+    Numpad2: UiohookKey.Numpad2,
+    Numpad3: UiohookKey.Numpad3,
+    Numpad4: UiohookKey.Numpad4,
+    Numpad5: UiohookKey.Numpad5,
+    Numpad6: UiohookKey.Numpad6,
+    Numpad7: UiohookKey.Numpad7,
+    Numpad8: UiohookKey.Numpad8,
+    Numpad9: UiohookKey.Numpad9,
+    NumpadMultiply: UiohookKey.NumpadMultiply,
+    NumpadAdd: UiohookKey.NumpadAdd,
+    NumpadSubtract: UiohookKey.NumpadSubtract,
+    NumpadDecimal: UiohookKey.NumpadDecimal,
+    NumpadDivide: UiohookKey.NumpadDivide,
+  });
+  for (let i = 0; i <= 9; i++) DOM_CODE_TO_UIOHOOK_KEY[`Digit${i}`] = UiohookKey[String(i)];
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") DOM_CODE_TO_UIOHOOK_KEY[`Key${letter}`] = UiohookKey[letter];
+  for (let i = 1; i <= 24; i++) DOM_CODE_TO_UIOHOOK_KEY[`F${i}`] = UiohookKey[`F${i}`];
+}
+
+// Keycode (uiohook) atualmente vigiado, ou null = hook parado. Só existe
+// UMA tecla vigiada por vez (o app só tem um producer de mic próprio) -
+// nunca precisa de mais que isso.
+let watchedKeycode = null;
+let hookStarted = false;
+
+function stopPushToTalkHook() {
+  if (hookStarted) {
+    try {
+      uIOhook.stop();
+    } catch (err) {
+      console.error("[push-to-talk] Falha ao parar o hook global:", err.message);
+    }
+    hookStarted = false;
+  }
+  watchedKeycode = null;
+}
+
+// Chamado pelo renderer (via IPC) toda vez que o efeito de push-to-talk em
+// MediaSessionContext.jsx arma/desarma - ou seja, só roda enquanto o
+// usuário está DE VERDADE numa chamada com push-to-talk ligado (não o tempo
+// todo o app estiver aberto), minimizando o quanto o hook global fica ativo.
+// Devolve `true`/`false` pro renderer saber se a tecla escolhida tem
+// suporte fora do foco (sem suporte, o botão de segurar continua
+// funcionando normalmente, só que apenas com a janela em foco).
+function setPushToTalkWatchedKey(code) {
+  if (!uIOhook) {
+    console.warn("[push-to-talk] Pedido de vigiar tecla sem uiohook disponível - ignorado.");
+    return false;
+  }
+  if (!code) {
+    console.log("[push-to-talk] Desligando hook global (sem tecla a vigiar).");
+    stopPushToTalkHook();
+    return true;
+  }
+  const keycode = DOM_CODE_TO_UIOHOOK_KEY[code];
+  if (keycode === undefined) {
+    console.warn(`[push-to-talk] Tecla "${code}" sem tradução pro hook global - fica só com a janela em foco.`);
+    stopPushToTalkHook();
+    return false;
+  }
+  watchedKeycode = keycode;
+  if (!hookStarted) {
+    try {
+      uIOhook.start();
+      hookStarted = true;
+    } catch (err) {
+      console.error("[push-to-talk] Falha ao iniciar o hook global:", err.message);
+      watchedKeycode = null;
+      return false;
+    }
+  }
+  console.log(`[push-to-talk] Vigiando tecla "${code}" (keycode ${keycode}) globalmente.`);
+  return true;
+}
+
+if (uIOhook) {
+  // Filtra pela tecla vigiada AQUI, antes de mandar qualquer coisa pro
+  // renderer - o renderer nunca recebe qual tecla foi apertada, só um pulso
+  // "a tecla configurada mudou de estado" (ver preload.js).
+  uIOhook.on("keydown", (e) => {
+    if (watchedKeycode !== null && e.keycode === watchedKeycode) {
+      console.log("[push-to-talk] keydown da tecla vigiada");
+      mainWindow?.webContents.send("push-to-talk:keydown");
+    }
+  });
+  uIOhook.on("keyup", (e) => {
+    if (watchedKeycode !== null && e.keycode === watchedKeycode) {
+      console.log("[push-to-talk] keyup da tecla vigiada");
+      mainWindow?.webContents.send("push-to-talk:keyup");
+    }
+  });
+  // Nunca deixa a thread nativa do hook rodando depois do app fechar.
+  app.on("will-quit", stopPushToTalkHook);
+} else {
+  console.warn(
+    "[push-to-talk] uiohook-napi não carregou - push-to-talk só funciona com a janela em foco.",
+  );
+}
 // path explícito (relativo a __dirname, não ao cwd) - cwd varia dependendo
 // de como o .exe foi lançado (atalho do Menu Iniciar, duplo-clique,
 // terminal), então dotenv.config() sem path acha o .env "por sorte" só às
@@ -197,6 +372,14 @@ function baseWebPreferences() {
     nodeIntegration: false,
     sandbox: true,
     webSecurity: true,
+    // Sem isso, o Chromium desacelera o processo renderer inteiro (timers,
+    // fila de IPC) assim que a janela é minimizada/ocluída - o áudio em si
+    // (mediasoup/WebRTC roda em thread própria) sobrevive, mas o pulso de
+    // push-to-talk (ipcRenderer.on, ver preload.js) e o pause/resume do
+    // producer de mic (JS puro em MediaSessionContext.jsx) ficam presos até
+    // a janela voltar a ficar visível/em foco - exatamente o caso que
+    // push-to-talk minimizado precisa funcionar.
+    backgroundThrottling: false,
   };
 }
 
@@ -324,6 +507,11 @@ app.whenReady().then(() => {
   // janela, não só a do app) - sem isso o navegador só enxergaria eventos
   // dentro da própria página. getSystemIdleTime() devolve segundos.
   ipcMain.handle("system:idle-time", () => powerMonitor.getSystemIdleTime());
+
+  // Liga/desliga o hook global de push-to-talk (ver bloco acima) - chamado
+  // pelo renderer (MediaSessionContext.jsx) com `null`/`undefined` pra
+  // desligar. Só existe aqui, dentro de whenReady, junto dos outros handles.
+  ipcMain.handle("push-to-talk:set-watched-key", (event, code) => setPushToTalkWatchedKey(code));
 
   // Chamado ao clicar numa notificação desktop (ver NotificationContext.jsx)
   // - restaura a janela se estiver minimizada e traz pro primeiro plano.
