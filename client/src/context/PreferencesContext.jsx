@@ -31,9 +31,10 @@ const DEFAULT_PREFERENCES = {
   // só o mic aberto continua ouvido normalmente, só não ocupa um quadradinho
   // visual. Fixado (pin) sempre aparece mesmo sem mídia, ver VoicePanel.jsx.
   hideParticipantsWithoutMedia: false,
-  // Volume individual por usuário (0-200, padrão 100; acima de 100% é boost
-  // de ganho real via Web Audio, ver RemoteAudioPlayers.jsx) - só a REPRODUÇÃO
-  // local, não afeta o que os outros ouvem. Sem permissão nenhuma: qualquer
+  // Volume individual por usuário (0-100, padrão 100 - teto de `el.volume`
+  // nativo, ver RemoteAudioPlayers.jsx; sem boost acima de 100%, tentativas
+  // via Web Audio quebraram a reprodução de verdade e foram revertidas) - só
+  // a REPRODUÇÃO local, não afeta o que os outros ouvem. Sem permissão nenhuma: qualquer
   // um ajusta o volume de qualquer outro participante, é só uma preferência
   // de audição própria (mesma ideia do Discord). Chave = userId, ausente ==
   // 100 (ver getUserVolume abaixo). Fica junto do resto em localStorage, sob
@@ -44,11 +45,29 @@ const DEFAULT_PREFERENCES = {
   // micDeviceId: trocar no meio de uma chamada só vale da próxima vez que
   // entrar. 'native' = noiseSuppression do WebRTC (só liga/desliga, é o
   // padrão de sempre); 'rnnoise' = RNNoise via WASM (audio/rnnoise.js),
-  // aberto e mais eficaz em ruído não-estacionário; 'off' = nenhum.
+  // aberto e mais eficaz em ruído não-estacionário; 'gtcrn' = GTCRN via WASM
+  // (audio/gtcrn.js), rede mais nova, qualidade melhor que RNNoise nos
+  // benchmarks padrão (PESQ/STOI/DNSMOS) e ainda leve o bastante pra tempo
+  // real; 'off' = nenhum.
   noiseSuppressionMode: "native",
-  // 0-100, só usado no modo 'rnnoise' - mix dry/wet entre o áudio cru e o
-  // processado (100 = só processado). Ver createRnnoiseStream.
+  // 0-100, só usado nos modos 'rnnoise'/'gtcrn' - mix dry/wet entre o áudio
+  // cru e o processado (100 = só processado). Ver createRnnoiseStream/
+  // createGtcrnStream.
   noiseSuppressionLevel: 100,
+  // Sensibilidade do microfone (noise gate de verdade, audio/noiseGate.js) -
+  // abaixo de `micGateThresholdDb` a track enviada vira silêncio, em vez de
+  // carregar ruído de fundo constante pros outros. `false` por padrão de
+  // propósito (opt-in): é uma feature nova que MUDA o que sai do mic de
+  // quem ligar - ninguém deveria ter o comportamento do próprio microfone
+  // alterado sem escolher isso explicitamente. Aplicado ao entrar na voz,
+  // igual noiseSuppressionMode - o threshold do worklet é fixado na criação
+  // do node, não dá pra reconfigurar ao vivo (ver noiseGate.js).
+  micGateEnabled: false,
+  // dBFS RMS - -50 é um meio-termo razoável (corta silêncio/piso de sala
+  // sem exigir grito); ajustável de -70 (bem sensível, capta até sussurro)
+  // a -10 (só voz alta) no slider de Preferências, com medidor ao vivo
+  // (hooks/useMicLevel.js) pra calibrar vendo o próprio nível.
+  micGateThresholdDb: -50,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -116,6 +135,8 @@ export function PreferencesProvider({ children }) {
       getUserVolume: (userId) => preferences.userVolumes[userId] ?? 100,
       noiseSuppressionMode: preferences.noiseSuppressionMode,
       noiseSuppressionLevel: preferences.noiseSuppressionLevel,
+      micGateEnabled: preferences.micGateEnabled,
+      micGateThresholdDb: preferences.micGateThresholdDb,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -141,6 +162,10 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, noiseSuppressionMode })),
       setNoiseSuppressionLevel: (noiseSuppressionLevel) =>
         setPreferences((prev) => ({ ...prev, noiseSuppressionLevel })),
+      setMicGateEnabled: (micGateEnabled) =>
+        setPreferences((prev) => ({ ...prev, micGateEnabled })),
+      setMicGateThresholdDb: (micGateThresholdDb) =>
+        setPreferences((prev) => ({ ...prev, micGateThresholdDb })),
     }),
     [preferences]
   );

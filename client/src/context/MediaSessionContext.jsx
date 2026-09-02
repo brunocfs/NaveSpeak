@@ -10,6 +10,8 @@ import {
 import { useWindowPopout } from '../hooks/useWindowPopout.js';
 import { usePreferences } from './PreferencesContext.jsx';
 import { createRnnoiseStream } from '../audio/rnnoise.js';
+import { createGtcrnStream } from '../audio/gtcrn.js';
+import { createNoiseGateStream } from '../audio/noiseGate.js';
 
 function emitAsync(socket, event, payload) {
   return new Promise((resolve, reject) => {
@@ -68,6 +70,15 @@ export function MediaSessionProvider({ children }) {
   const [cameraOn, setCameraOn] = useState(false);
   const [localScreenStream, setLocalScreenStream] = useState(null);
   const [localCameraStream, setLocalCameraStream] = useState(null);
+  // Stream CRUA do próprio mic (a capturada em joinVoice, antes do RNNoise -
+  // ver denoiserRef abaixo) - só existe pra alimentar o anel de "falando" do
+  // PRÓPRIO usuário (useSpeaking em VoiceRosterEntry/ParticipantTile), que
+  // antes só acendia pros OUTROS participantes: `remoteStreams` (usado pra
+  // achar o micStream de cada linha do roster/tile) nunca inclui o próprio
+  // producer, ninguém consome o próprio áudio de volta. Precisa ser STATE
+  // (não só localStreamRef) porque os componentes que desenham o anel
+  // precisam re-renderizar quando a stream aparece/some (entrar/sair da voz).
+  const [localMicStream, setLocalMicStream] = useState(null);
   // "Silenciar todos" (deafen): para de reproduzir o áudio de todo mundo.
   // Ao ativar, também silencia o próprio microfone (como no Discord); ao
   // desativar, só reativa o mic se ele não estava mutado por escolha do
@@ -80,12 +91,16 @@ export function MediaSessionProvider({ children }) {
   // closure normal capturaria o valor do primeiro render pra sempre).
   const mutedRef = useRef(false);
   const deafenedRef = useRef(false);
+  const cameraOnRef = useRef(false);
   useEffect(() => {
     mutedRef.current = muted;
   }, [muted]);
   useEffect(() => {
     deafenedRef.current = deafened;
   }, [deafened]);
+  useEffect(() => {
+    cameraOnRef.current = cameraOn;
+  }, [cameraOn]);
   // Travas de moderação (voice:moderateMute/voice:moderateMedia mode:'lock',
   // ver server/src/sockets/mediasoup.handler.js) sobre o PRÓPRIO usuário no
   // canal de voz atual - enquanto true, o próprio usuário não consegue
@@ -97,12 +112,19 @@ export function MediaSessionProvider({ children }) {
   const sendTransportRef = useRef(null);
   const recvTransportRef = useRef(null);
   const localStreamRef = useRef(null);
-  // Controlador do grafo Web Audio do RNNoise (audio/rnnoise.js) quando
-  // noiseSuppressionMode === 'rnnoise' - null nos outros modos. Guardado à
-  // parte de localStreamRef porque a stream "crua" continua sendo o dono da
-  // captura de verdade (é ela que precisa ser parada ao sair da voz); esta é
-  // só o grafo derivado que produz a track processada enviada de verdade.
+  // Controlador do grafo Web Audio do supressor de ruído WASM (RNNoise ou
+  // GTCRN, ver audio/rnnoise.js e audio/gtcrn.js) quando noiseSuppressionMode
+  // é 'rnnoise'/'gtcrn' - null no 'native'/'off'. Guardado à parte de
+  // localStreamRef porque a stream "crua" continua sendo o dono da captura
+  // de verdade (é ela que precisa ser parada ao sair da voz); esta é só o
+  // grafo derivado que produz a track processada enviada de verdade.
   const denoiserRef = useRef(null);
+  // Controlador do grafo do noise gate (sensibilidade do microfone, ver
+  // audio/noiseGate.js) quando micGateEnabled - null caso contrário. Fica
+  // DEPOIS do denoiser na cadeia (denoiser limpa ruído, gate silencia o que
+  // sobrar abaixo do threshold), mas é um grafo à parte (destroy próprio) -
+  // o gate não sabe nem precisa saber se rodou algum supressor antes dele.
+  const gateRef = useRef(null);
   const micProducerRef = useRef(null);
   const screenProducerRef = useRef(null);
   const cameraProducerRef = useRef(null);
@@ -113,6 +135,10 @@ export function MediaSessionProvider({ children }) {
   // implementação certa mesmo depois de reconexões/re-renders.
   const stopScreenShareRef = useRef(() => {});
   const stopCameraRef = useRef(() => {});
+  // Idem, mas pra RELIGAR a câmera depois de uma reconexão (handleReconnect
+  // abaixo) - shareCamera só existe como useCallback mais adiante no
+  // arquivo, registrado num efeito próprio assim que definido.
+  const shareCameraRef = useRef(() => {});
   // Sempre a versão mais atual de leaveVoice/joinVoice, para o handler de
   // reconexão do socket (registrado antes delas existirem) chamar a
   // implementação certa.
@@ -127,8 +153,14 @@ export function MediaSessionProvider({ children }) {
   // reaproveitada aqui ao entrar na voz (mic) e ao ligar a câmera. null =
   // padrão do sistema. O fallback de dispositivo removido acontece dentro
   // de requestMicStream/requestCameraStream (api/media.js).
-  const { micDeviceId, cameraDeviceId, noiseSuppressionMode, noiseSuppressionLevel } =
-    usePreferences();
+  const {
+    micDeviceId,
+    cameraDeviceId,
+    noiseSuppressionMode,
+    noiseSuppressionLevel,
+    micGateEnabled,
+    micGateThresholdDb,
+  } = usePreferences();
 
   const addRemoteStream = useCallback((entry) => {
     setRemoteStreams((prev) => [...prev.filter((s) => s.producerId !== entry.producerId), entry]);
@@ -214,8 +246,24 @@ export function MediaSessionProvider({ children }) {
       // propósito antes de cair.
       const wasMuted = mutedRef.current;
       const wasDeafened = deafenedRef.current;
+      // Idem pra câmera: leaveVoice (chamado logo abaixo) sempre para a
+      // track e zera cameraOn/localCameraStream, porque também serve pra
+      // sair de vez da chamada - sem guardar aqui ANTES, uma queda de rede
+      // sempre devolvia o usuário sem câmera, mesmo que ela estivesse ligada
+      // um instante antes de cair.
+      const wasCameraOn = cameraOnRef.current;
       await leaveVoiceRef.current({ keepMeta: true });
       await joinVoiceRef.current(channelId);
+
+      // Religa a câmera DEPOIS do rejoin (precisa do sendTransport novo, que
+      // só existe a partir daqui) - pede o device salvo de novo via
+      // requestCameraStream, sem gesto novo do usuário porque o navegador já
+      // tinha concedido a permissão antes de cair. shareCamera já trata os
+      // próprios erros (moderador bloqueou mídia enquanto caído, webcam
+      // sumiu etc.) via setError - não precisa de try/catch aqui.
+      if (wasCameraOn) {
+        await shareCameraRef.current();
+      }
 
       if (wasMuted || wasDeafened) {
         const producer = micProducerRef.current;
@@ -329,8 +377,11 @@ export function MediaSessionProvider({ children }) {
 
       denoiserRef.current?.destroy();
       denoiserRef.current = null;
+      gateRef.current?.destroy();
+      gateRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
+      setLocalMicStream(null);
       micProducerRef.current = null;
       screenProducerRef.current = null;
       cameraProducerRef.current = null;
@@ -448,21 +499,44 @@ export function MediaSessionProvider({ children }) {
           setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
         }
         localStreamRef.current = stream;
+        setLocalMicStream(stream);
         let audioTrack = stream.getAudioTracks()[0];
 
-        // Modo 'rnnoise': a captura acima já entra com noiseSuppression
-        // nativo DESLIGADO (ver media.js#micAudioConstraints) - o
-        // processamento de verdade é este grafo WASM à parte. Falha aqui
-        // (ex.: AudioWorklet indisponível) não pode derrubar a entrada na
-        // voz - segue com a track crua, só avisa.
-        if (noiseSuppressionMode === 'rnnoise') {
+        // Modos 'rnnoise'/'gtcrn': a captura acima já entra com
+        // noiseSuppression nativo DESLIGADO (ver
+        // media.js#micAudioConstraints) - o processamento de verdade é este
+        // grafo WASM à parte. Falha aqui (ex.: AudioWorklet indisponível)
+        // não pode derrubar a entrada na voz - segue com a track crua, só
+        // avisa.
+        if (noiseSuppressionMode === 'rnnoise' || noiseSuppressionMode === 'gtcrn') {
           try {
-            const denoiser = await createRnnoiseStream(stream, { level: noiseSuppressionLevel });
+            const createDenoisedStream =
+              noiseSuppressionMode === 'gtcrn' ? createGtcrnStream : createRnnoiseStream;
+            const denoiser = await createDenoisedStream(stream, { level: noiseSuppressionLevel });
             denoiserRef.current = denoiser;
             audioTrack = denoiser.stream.getAudioTracks()[0];
           } catch (err) {
             console.error(err);
-            setError('Não foi possível ativar o supressor de ruído RNNoise - entrando com o microfone sem esse processamento.');
+            setError(
+              `Não foi possível ativar o supressor de ruído ${noiseSuppressionMode === 'gtcrn' ? 'GTCRN' : 'RNNoise'} - entrando com o microfone sem esse processamento.`
+            );
+          }
+        }
+
+        // Sensibilidade do microfone (noise gate) - DEPOIS do supressor de
+        // ruído acima, na track que vai mesmo pro producer (crua ou já
+        // denoised). Falha aqui também não derruba a entrada na voz, mesmo
+        // padrão do supressor.
+        if (micGateEnabled) {
+          try {
+            const gate = await createNoiseGateStream(new MediaStream([audioTrack]), {
+              thresholdDb: micGateThresholdDb,
+            });
+            gateRef.current = gate;
+            audioTrack = gate.stream.getAudioTracks()[0];
+          } catch (err) {
+            console.error(err);
+            setError('Não foi possível ativar a sensibilidade do microfone - entrando sem esse processamento.');
           }
         }
 
@@ -483,19 +557,28 @@ export function MediaSessionProvider({ children }) {
         await leaveVoice();
       }
     },
-    [socket, consumeProducer, leaveVoice, micDeviceId, noiseSuppressionMode, noiseSuppressionLevel]
+    [
+      socket,
+      consumeProducer,
+      leaveVoice,
+      micDeviceId,
+      noiseSuppressionMode,
+      noiseSuppressionLevel,
+      micGateEnabled,
+      micGateThresholdDb,
+    ]
   );
 
   useEffect(() => {
     joinVoiceRef.current = joinVoice;
   }, [joinVoice]);
 
-  // O nível do RNNoise (diferente do modo) é reaplicado AO VIVO no grafo já
-  // rodando, sem precisar reentrar na voz - é só um gain.value (mix dry/wet,
-  // ver createRnnoiseStream), tão barato quanto o volume individual por
-  // participante (RemoteAudioPlayers.jsx). Mudar o MODO, por outro lado, só
-  // vale da próxima entrada (mexe em como o mic foi capturado, mesmo padrão
-  // de micDeviceId).
+  // O nível do supressor (diferente do modo) é reaplicado AO VIVO no grafo
+  // já rodando, sem precisar reentrar na voz - é só um gain.value (mix
+  // dry/wet, ver createRnnoiseStream/createGtcrnStream), tão barato quanto o
+  // volume individual por participante (RemoteAudioPlayers.jsx). Mudar o
+  // MODO, por outro lado, só vale da próxima entrada (mexe em como o mic foi
+  // capturado, mesmo padrão de micDeviceId).
   useEffect(() => {
     denoiserRef.current?.setLevel(noiseSuppressionLevel);
   }, [noiseSuppressionLevel]);
@@ -652,6 +735,10 @@ export function MediaSessionProvider({ children }) {
     }
   }, [mediaLocked, cameraDeviceId]);
 
+  useEffect(() => {
+    shareCameraRef.current = shareCamera;
+  }, [shareCamera]);
+
   const stopCamera = useCallback(async () => {
     await closeProducer(cameraProducerRef.current);
     cameraProducerRef.current = null;
@@ -733,6 +820,7 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      localMicStream,
       sendTransportRef,
       deviceRef,
       audioLocked,
@@ -768,6 +856,7 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      localMicStream,
       audioLocked,
       mediaLocked,
       moderateMute,

@@ -628,21 +628,32 @@ export default function RoomPage() {
                       </li>
                       <ul className="flex flex-col gap-2 ml-2">
                         {(voiceRosters[c.id] ?? []).map((p) => {
+                          const isSelf = p.userId === user?.id;
+
                           // Só há stream de mic pra analisar quando ESTE usuário
                           // está conectado a ESTE canal (remoteStreams só existe
                           // pra chamada ativa, ver MediaSessionContext.jsx) - em
                           // outro canal/sem estar na call, micStream fica null e
                           // o anel simplesmente não acende (nunca falso-positivo).
+                          // Pro PRÓPRIO usuário, `remoteStreams` nunca serve (é
+                          // só o que os OUTROS mandam, ninguém consome de volta o
+                          // próprio producer) - usa `media.localMicStream` (a
+                          // stream crua capturada em joinVoice) em vez disso.
+                          // `null` enquanto mutado: mutar só pausa o producer (a
+                          // track crua local continua captando áudio), sem isso
+                          // o anel acenderia falando com ninguém ouvindo - outro
+                          // participante mutado já vem sem áudio no consumer
+                          // pausado, nunca precisou desse cuidado extra.
                           const micStream =
-                            media.voiceChannelId === c.id
-                              ? (media.remoteStreams.find(
-                                  (s) =>
-                                    s.userId === p.userId &&
-                                    s.appData?.source === "mic",
-                                )?.stream ?? null)
-                              : null;
-
-                          const isSelf = p.userId === user?.id;
+                            media.voiceChannelId !== c.id
+                              ? null
+                              : isSelf
+                                ? (media.muted ? null : media.localMicStream)
+                                : (media.remoteStreams.find(
+                                    (s) =>
+                                      s.userId === p.userId &&
+                                      s.appData?.source === "mic",
+                                  )?.stream ?? null);
 
                           // Estado de mic/câmera/tela/ensurdecido é por
                           // participante, não global - antes VoiceRosterEntry

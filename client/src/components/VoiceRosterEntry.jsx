@@ -100,7 +100,7 @@ export default function VoiceRosterEntry({
                 <input
                   type="range"
                   min="0"
-                  max="200"
+                  max="100"
                   step="5"
                   value={volumeControl.value}
                   onChange={(e) => volumeControl.onChange(Number(e.target.value))}

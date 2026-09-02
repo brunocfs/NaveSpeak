@@ -9,29 +9,21 @@ import { useEffect, useRef } from "react";
 // participantes (nunca a filtrada `visibleTiles`), então o áudio nunca
 // depende do que está visível.
 //
-// IMPORTANTE: o <audio autoPlay> é quem garante a reprodução de verdade -
-// já era assim antes do volume individual e continua sendo. Uma versão
-// anterior deste arquivo tentou tocar direto via
-// `createMediaStreamSource -> GainNode -> AudioContext.destination`, SEM
-// nenhum elemento de mídia envolvido, pra permitir boost acima de 100% -
-// isso quebrou a reprodução geral (ninguém ouvia mais ninguém): um
-// AudioContext criado "a seco" fica sujeito a uma política de autoplay bem
-// mais restrita do que a de um <audio>/<video> (que o navegador já trata
-// como mídia normal desde a primeira interação do usuário na página). O
-// `<audio>` nasce e toca; o ganho pra boost é plugado DEPOIS dele, via
-// `createMediaElementSource(el)` - o elemento continua sendo a fonte real
-// de reprodução, só o volume acima de 1.0 (100%, teto de `el.volume`) passa
-// pelo GainNode.
-//
-// `createMediaElementSource` só pode ser chamado UMA VEZ por elemento
-// `<audio>` na vida dele (2ª chamada lança InvalidStateError) - por isso o
-// grafo Web Audio é montado com deps `[]` (uma vez, no mount deste
-// componente), enquanto `el.srcObject` segue `micStream` à parte: troca de
-// stream não recria o elemento, só reatribui a fonte que ele já está
-// tocando.
+// Volume individual via `el.volume` puro - DE PROPÓSITO sem Web Audio API.
+// Duas tentativas de dar boost acima de 100% via GainNode quebraram a
+// reprodução de verdade pra todo mundo: (1) `source -> gain ->
+// AudioContext.destination`, sem nenhum <audio> envolvido, silêncio total;
+// (2) `<audio>` com stream crua + `createMediaElementSource(el)` plugado
+// depois - funcionou, mas só pode ser criado UMA VEZ por elemento (StrictMode
+// já mata isso no mount, ver histórico do arquivo); (3) `<audio>` tocando
+// uma stream JÁ processada por `source -> gain -> MediaStreamDestination`,
+// pra fugir da restrição de (2) - voltou o silêncio total de (1). Nas três,
+// qualquer AudioContext criado do zero (mesmo com `.resume()` chamado depois
+// do gesto de entrar na chamada) não conseguiu produzir som de verdade
+// neste app. `<audio>` puro é o único caminho comprovado - teto de volume
+// fica em 100% (limite nativo de `el.volume`), sem boost.
 function RemoteAudio({ micStream, muted, volume }) {
   const audioRef = useRef(null);
-  const gainRef = useRef(null);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -42,54 +34,12 @@ function RemoteAudio({ micStream, muted, volume }) {
 
   useEffect(() => {
     const el = audioRef.current;
-    if (!el) return undefined;
-
-    let audioCtx;
-    let source;
-    let gainNode;
-    try {
-      const AudioContextImpl = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContextImpl();
-      audioCtx.resume?.().catch(() => {});
-      source = audioCtx.createMediaElementSource(el);
-      gainNode = audioCtx.createGain();
-      source.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      gainRef.current = gainNode;
-    } catch {
-      // Web Audio indisponível pro boost - o <audio> sozinho já continua
-      // tocando normal (só sem ganho acima de 100%), nunca fica mudo à toa.
-      return undefined;
-    }
-
-    return () => {
-      gainRef.current = null;
-      try {
-        source.disconnect();
-        gainNode.disconnect();
-        audioCtx.close();
-      } catch {
-        // AudioContext já pode ter sido fechado - inofensivo.
-      }
-    };
-  }, []);
-
-  // Reaplicado a cada troca de volume/deafen SEM recriar o grafo (evita um
-  // corte audível no meio da fala). `muted` (deafened, "Silenciar todos")
-  // sempre vence: ganho 0 independente do volume individual escolhido. Sem
-  // o GainNode disponível (falha acima), cai no `el.volume` nativo como
-  // fallback - satura em 100%, mas nunca fica silencioso à toa.
-  useEffect(() => {
-    const clamped = Math.min(200, Math.max(0, volume)) / 100;
-    if (gainRef.current) {
-      gainRef.current.gain.value = muted ? 0 : clamped;
-    } else if (audioRef.current) {
-      audioRef.current.volume = Math.min(1, muted ? 0 : clamped);
-    }
-  }, [volume, muted]);
+    if (!el) return;
+    el.volume = Math.min(100, Math.max(0, volume)) / 100;
+  }, [volume]);
 
   if (!micStream) return null;
-  return <audio ref={audioRef} autoPlay playsInline hidden />;
+  return <audio ref={audioRef} autoPlay playsInline muted={muted} hidden />;
 }
 
 // `tiles` = personTiles (kind='person') SEM filtro de visibilidade - já vem

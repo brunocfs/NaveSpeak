@@ -58,6 +58,7 @@ export default function VoicePanel() {
     stopCamera,
     sharingScreen,
     localScreenStream,
+    localMicStream,
     voiceRoster: participants,
     panelAnchor,
     popout,
@@ -92,7 +93,16 @@ export default function VoicePanel() {
         isLocal: true,
         micMuted: muted,
         videoStream: cameraOn ? localCameraStream : null,
-        micStream: null,
+        // Stream crua do próprio mic (MediaSessionContext) - só pro anel de
+        // "falando" (useSpeaking em ParticipantTile); ParticipantTile já
+        // silencia a REPRODUÇÃO de tiles locais (`isLocal || deafened`), não
+        // tem risco de ecoar o próprio áudio. `null` enquanto mutado: mutar
+        // só pausa o producer (a track crua local continua captando áudio
+        // normalmente), sem isso o anel acenderia falando mesmo com
+        // ninguém ouvindo - diferente de outro participante mutado, cujo
+        // consumer pausado já vem sem áudio (useSpeaking nunca acende
+        // sozinho).
+        micStream: muted ? null : localMicStream,
       });
     }
     for (const p of participants) {
@@ -116,7 +126,7 @@ export default function VoicePanel() {
       });
     }
     return tiles;
-  }, [participants, remoteStreams, user, muted, cameraOn, localCameraStream]);
+  }, [participants, remoteStreams, user, muted, cameraOn, localCameraStream, localMicStream]);
 
   // Um tile por TELA compartilhada, sempre à parte do tile da pessoa (no
   // Discord, quem compartilha tela aparece com dois quadradinhos: o dela e o
