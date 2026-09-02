@@ -15,6 +15,7 @@ export default function VoiceStatusBar() {
   // Fontes de tela/janela do Electron - fora dele, getDisplayMedia já mostra
   // o seletor nativo do navegador, então isso fica sempre null.
   const [screenPickerSources, setScreenPickerSources] = useState(null);
+  const [screenPickerError, setScreenPickerError] = useState(null);
 
   if (!media.voiceChannelId) return null;
 
@@ -24,8 +25,19 @@ export default function VoiceStatusBar() {
       return;
     }
     if (isElectron()) {
-      const sources = await listScreenSources();
-      setScreenPickerSources(sources ?? []);
+      // Sem try/catch aqui antes: se o IPC (ipcMain.handle('screen:get-sources'))
+      // rejeitasse - desktopCapturer falhando por qualquer motivo do lado
+      // nativo -, a promise estourava sem handler e o clique parecia não
+      // fazer NADA (sem seletor, sem erro visível nenhum). Agora loga e
+      // mostra o motivo real em vez de falhar em silêncio.
+      setScreenPickerError(null);
+      try {
+        const sources = await listScreenSources();
+        setScreenPickerSources(sources ?? []);
+      } catch (err) {
+        console.error("[screen-share] Falha ao listar fontes de tela:", err);
+        setScreenPickerError(err.message ?? "Não foi possível listar as telas/janelas disponíveis.");
+      }
       return;
     }
     media.shareScreen();
@@ -107,6 +119,17 @@ export default function VoiceStatusBar() {
           }}
           onCancel={() => setScreenPickerSources(null)}
         />
+      )}
+
+      {screenPickerError && (
+        <div
+          className="fixed bottom-24 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-xl bg-red-600 px-4 py-2 text-sm text-white shadow-lg"
+          role="alert"
+          title="Clique para fechar"
+          onClick={() => setScreenPickerError(null)}
+        >
+          {screenPickerError}
+        </div>
       )}
     </div>
   );

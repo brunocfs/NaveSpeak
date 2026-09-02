@@ -77,6 +77,7 @@ export default function RoomPage() {
   const [voiceRosters, setVoiceRosters] = useState({});
   const [error, setError] = useState(null);
   const [screenPickerSources, setScreenPickerSources] = useState(null);
+  const [screenPickerError, setScreenPickerError] = useState(null);
   const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
   const selectedChannel =
     channels.find((c) => c.id === selectedChannelId) ?? null;
@@ -127,8 +128,24 @@ export default function RoomPage() {
       return;
     }
     if (isElectron()) {
-      const sources = await listScreenSources();
-      setScreenPickerSources(sources ?? []);
+      // `screenPickerSources` era setado aqui mas o <ScreenSourcePicker>
+      // nunca era renderizado nesta tela (só existia em VoiceStatusBar.jsx)
+      // - clicar em "Compartilhar tela" listava as fontes e ficava preso
+      // num estado sem UI nenhuma pra mostrar, sem erro nenhum (a promise
+      // resolvia normal). Ver <ScreenSourcePicker> montado abaixo, e o
+      // try/catch aqui pra caso a listagem em si falhe.
+      try {
+        const sources = await listScreenSources();
+        setScreenPickerSources(sources ?? []);
+      } catch (err) {
+        // NÃO usa `setError` daqui - esse `error` (acima) troca a tela
+        // INTEIRA da sala por uma página de erro (ver `if (error) return`
+        // logo abaixo), reservado pra falha de carregar a sala em si. Um
+        // estado próprio, só pra não deixar o clique morrer em silêncio de
+        // novo como antes.
+        console.error("[screen-share] Falha ao listar fontes de tela:", err);
+        setScreenPickerError(err.message ?? "Não foi possível listar as telas/janelas disponíveis.");
+      }
       return;
     }
     media.shareScreen();
@@ -1071,6 +1088,28 @@ export default function RoomPage() {
       {/* A barra "Na voz" (mic/câmera/tela/sair) agora é global - ver
           <VoiceStatusBar /> montada em App.jsx - para continuar visível
           mesmo quando o usuário sai desta tela sem sair da chamada. */}
+
+      {screenPickerSources && (
+        <ScreenSourcePicker
+          sources={screenPickerSources}
+          onSelect={(sourceId) => {
+            setScreenPickerSources(null);
+            media.shareScreen(sourceId);
+          }}
+          onCancel={() => setScreenPickerSources(null)}
+        />
+      )}
+
+      {screenPickerError && (
+        <div
+          className="fixed bottom-24 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-xl bg-red-600 px-4 py-2 text-sm text-white shadow-lg"
+          role="alert"
+          title="Clique para fechar"
+          onClick={() => setScreenPickerError(null)}
+        >
+          {screenPickerError}
+        </div>
+      )}
     </div>
   );
 }
