@@ -1,26 +1,48 @@
 import { useEffect, useRef } from "react";
 
-// Um grafo Web Audio por participante remoto com mic - tocando sempre,
-// INDEPENDENTE do tile dele aparecer no grid ou não. Antes o <audio> vivia
-// dentro de ParticipantTile: com "esconder quem está sem câmera/tela" ligado
+// Um <audio> por participante remoto com mic - tocando sempre, INDEPENDENTE
+// do tile dele aparecer no grid ou não. Antes o <audio> vivia dentro de
+// ParticipantTile: com "esconder quem está sem câmera/tela" ligado
 // (VoicePanel.jsx), o tile de quem só tinha o mic aberto desmontava - e junto
 // dele o <audio>, cortando o som dessa pessoa até desligar o filtro. Este
 // componente é montado UMA VEZ em VoicePanel, sempre com a lista COMPLETA de
 // participantes (nunca a filtrada `visibleTiles`), então o áudio nunca
 // depende do que está visível.
 //
-// `volume` (0-200, ver PreferencesContext#getUserVolume) é o volume de
-// reprodução INDIVIDUAL desse participante - acima de 100% precisa de
-// GANHO de verdade (createMediaStreamSource -> GainNode -> destination),
-// `<audio>.volume` sozinho satura em 1.0 (100%) e não amplifica. Mesmo
-// padrão de AudioContext por participante que useSpeaking.js já usa pro
-// anel de "falando" (aqui é um grafo à parte, só pra reprodução).
+// IMPORTANTE: o <audio autoPlay> é quem garante a reprodução de verdade -
+// já era assim antes do volume individual e continua sendo. Uma versão
+// anterior deste arquivo tentou tocar direto via
+// `createMediaStreamSource -> GainNode -> AudioContext.destination`, SEM
+// nenhum elemento de mídia envolvido, pra permitir boost acima de 100% -
+// isso quebrou a reprodução geral (ninguém ouvia mais ninguém): um
+// AudioContext criado "a seco" fica sujeito a uma política de autoplay bem
+// mais restrita do que a de um <audio>/<video> (que o navegador já trata
+// como mídia normal desde a primeira interação do usuário na página). O
+// `<audio>` nasce e toca; o ganho pra boost é plugado DEPOIS dele, via
+// `createMediaElementSource(el)` - o elemento continua sendo a fonte real
+// de reprodução, só o volume acima de 1.0 (100%, teto de `el.volume`) passa
+// pelo GainNode.
+//
+// `createMediaElementSource` só pode ser chamado UMA VEZ por elemento
+// `<audio>` na vida dele (2ª chamada lança InvalidStateError) - por isso o
+// grafo Web Audio é montado com deps `[]` (uma vez, no mount deste
+// componente), enquanto `el.srcObject` segue `micStream` à parte: troca de
+// stream não recria o elemento, só reatribui a fonte que ele já está
+// tocando.
 function RemoteAudio({ micStream, muted, volume }) {
+  const audioRef = useRef(null);
   const gainRef = useRef(null);
 
   useEffect(() => {
-    const track = micStream?.getAudioTracks?.()[0];
-    if (!track) return undefined;
+    const el = audioRef.current;
+    if (!el || !micStream) return;
+    el.srcObject = micStream;
+    el.play?.().catch(() => {});
+  }, [micStream]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return undefined;
 
     let audioCtx;
     let source;
@@ -29,14 +51,14 @@ function RemoteAudio({ micStream, muted, volume }) {
       const AudioContextImpl = window.AudioContext || window.webkitAudioContext;
       audioCtx = new AudioContextImpl();
       audioCtx.resume?.().catch(() => {});
-      source = audioCtx.createMediaStreamSource(new MediaStream([track]));
+      source = audioCtx.createMediaElementSource(el);
       gainNode = audioCtx.createGain();
       source.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       gainRef.current = gainNode;
     } catch {
-      // Web Audio indisponível - sem reprodução pra este participante em vez
-      // de quebrar o resto da chamada.
+      // Web Audio indisponível pro boost - o <audio> sozinho já continua
+      // tocando normal (só sem ganho acima de 100%), nunca fica mudo à toa.
       return undefined;
     }
 
@@ -47,20 +69,27 @@ function RemoteAudio({ micStream, muted, volume }) {
         gainNode.disconnect();
         audioCtx.close();
       } catch {
-        // AudioContext já pode ter sido fechado/track parada - inofensivo.
+        // AudioContext já pode ter sido fechado - inofensivo.
       }
     };
-  }, [micStream]);
+  }, []);
 
   // Reaplicado a cada troca de volume/deafen SEM recriar o grafo (evita um
   // corte audível no meio da fala). `muted` (deafened, "Silenciar todos")
-  // sempre vence: ganho 0 independente do volume individual escolhido.
+  // sempre vence: ganho 0 independente do volume individual escolhido. Sem
+  // o GainNode disponível (falha acima), cai no `el.volume` nativo como
+  // fallback - satura em 100%, mas nunca fica silencioso à toa.
   useEffect(() => {
-    if (!gainRef.current) return;
-    gainRef.current.gain.value = muted ? 0 : Math.min(200, Math.max(0, volume)) / 100;
+    const clamped = Math.min(200, Math.max(0, volume)) / 100;
+    if (gainRef.current) {
+      gainRef.current.gain.value = muted ? 0 : clamped;
+    } else if (audioRef.current) {
+      audioRef.current.volume = Math.min(1, muted ? 0 : clamped);
+    }
   }, [volume, muted]);
 
-  return null;
+  if (!micStream) return null;
+  return <audio ref={audioRef} autoPlay playsInline hidden />;
 }
 
 // `tiles` = personTiles (kind='person') SEM filtro de visibilidade - já vem
