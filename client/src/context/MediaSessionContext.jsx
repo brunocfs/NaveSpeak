@@ -12,6 +12,7 @@ import { usePreferences } from './PreferencesContext.jsx';
 import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
+import { playSound } from '../utils/sounds.js';
 
 // Push-to-talk: ignora o próprio código da tecla quando o foco está num
 // campo de texto (chat, busca etc.) - sem isso, atribuir uma tecla comum
@@ -59,8 +60,74 @@ const MediaSessionContext = createContext(null);
 // a aba) ou por chamada explícita a leaveVoice(). Antes disso vivia como hook
 // local em RoomPage, e cada saída da tela de sala desmontava o hook e derrubava
 // a chamada - esse era o bug.
+// Estado inicial/"sem chamada" de networkStats - mesmo objeto reaproveitado
+// em vários lugares abaixo (reset ao desconectar, antes da primeira medição).
+const EMPTY_NETWORK_STATS = { ping: null, packetLoss: null, quality: 'unknown' };
+
+// good/fair/poor a partir de RTT e perda de pacote - limiares arbitrários
+// (mesma régua informal usada por apps de chamada: <100ms é "bom", >250ms já
+// incomoda em voz). packetLoss null (sem consumer nenhum pra medir, ex.:
+// sozinho no canal) não deve derrubar a nota sozinho.
+function classifyNetworkQuality(ping, packetLoss) {
+  if (ping == null) return 'unknown';
+  if (ping <= 100 && (packetLoss == null || packetLoss <= 1)) return 'good';
+  if (ping <= 250 && (packetLoss == null || packetLoss <= 5)) return 'fair';
+  return 'poor';
+}
+
+// RTT do par de candidatos ICE selecionado - primeiro tenta achar via
+// stat 'transport' -> selectedCandidatePairId (caminho mais direto e
+// confiável), com fallback pra varrer todos os 'candidate-pair' com
+// state 'succeeded' (nem todo handler/browser expõe 'transport').
+function extractRttMs(report) {
+  let transportStat = null;
+  for (const stat of report.values()) {
+    if (stat.type === 'transport') {
+      transportStat = stat;
+      break;
+    }
+  }
+  if (transportStat?.selectedCandidatePairId) {
+    const pair = report.get(transportStat.selectedCandidatePairId);
+    if (pair && typeof pair.currentRoundTripTime === 'number') {
+      return Math.round(pair.currentRoundTripTime * 1000);
+    }
+  }
+  for (const stat of report.values()) {
+    if (stat.type === 'candidate-pair' && stat.state === 'succeeded' && typeof stat.currentRoundTripTime === 'number') {
+      return Math.round(stat.currentRoundTripTime * 1000);
+    }
+  }
+  return null;
+}
+
+// % de perda somada de todos os inbound-rtp (áudio/vídeo recebido de outros
+// participantes) - reflete o que o usuário está OUVINDO/VENDO agora, não o
+// upload dele. null quando não há nenhum inbound-rtp ainda (ex.: sozinho no
+// canal) - packetLoss "0%" ali seria enganoso (não é 0% de perda, é "nada
+// pra medir").
+function extractPacketLossPercent(report) {
+  let lost = 0;
+  let received = 0;
+  let found = false;
+  for (const stat of report.values()) {
+    if (stat.type === 'inbound-rtp') {
+      found = true;
+      lost += stat.packetsLost ?? 0;
+      received += stat.packetsReceived ?? 0;
+    }
+  }
+  if (!found || lost + received === 0) return null;
+  return Math.round((lost / (lost + received)) * 1000) / 10; // 1 casa decimal
+}
+
 export function MediaSessionProvider({ children }) {
   const [connected, setConnected] = useState(false);
+  // Ping (RTT do transport de envio) e perda de pacotes (inbound do
+  // transport de recebimento) - atualizado por polling enquanto `connected`
+  // (ver efeito perto do fim do arquivo). Consumido pelo ícone de estado da
+  // conexão em RoomPage (ConnectionStatusButton.jsx).
+  const [networkStats, setNetworkStats] = useState(EMPTY_NETWORK_STATS);
   const [voiceChannelId, setVoiceChannelId] = useState(null);
   // Metadados só de exibição (nome da sala/canal) para a barra global
   // (VoiceStatusBar) conseguir mostrar "Na voz em X" e linkar de volta pra
@@ -75,6 +142,16 @@ export function MediaSessionProvider({ children }) {
   // VoicePanel (também global, ver abaixo) montar a grade de participantes
   // sem depender de RoomPage estar montada.
   const [voiceRoster, setVoiceRoster] = useState([]);
+  // Espelha voiceRoster em ref (handleVoiceUpdate compara contra isto, não
+  // contra o state - o state só atualiza no próximo render) - usado só pra
+  // detectar join/leave/começo de compartilhamento de tela de QUALQUER
+  // participante e tocar o som certo pra todo mundo já conectado no canal,
+  // não só pra quem fez a ação (ver handleVoiceUpdate). "Inicializado" evita
+  // que o PRIMEIRO voice:update depois de entrar num canal já com gente lá
+  // seja lido como "todo mundo acabou de entrar" - vira só a fotografia
+  // inicial, sem som nenhum.
+  const voiceRosterRef = useRef([]);
+  const voiceRosterInitializedRef = useRef(false);
   // Nó DOM onde o VoicePanel embutido deve portar seu conteúdo quando NÃO
   // está destacado em popout - registrado por quem estiver exibindo a UI de
   // voz embutida no momento (hoje só RoomPage, quando é o canal de voz
@@ -258,8 +335,47 @@ export function MediaSessionProvider({ children }) {
     // Roster do canal de voz conectado - só atualiza se for o canal em que
     // estamos (o servidor manda voice:update de todo canal de voz do
     // servidor, RoomPage usa o mesmo evento pra popular a barra lateral).
+    //
+    // Também é daqui que tocam os sons de entrar/sair/compartilhar tela pra
+    // QUALQUER participante do canal (não só quem fez a ação) - o servidor
+    // manda este mesmo evento pra todo mundo na room do canal
+    // (broadcastVoicePresence em mediasoup.handler.js), então comparar o
+    // roster novo contra o anterior aqui já cobre todo mundo de uma vez.
+    // Exceção: "leaveCall" de quem SAIU não passa por aqui (o servidor tira o
+    // socket da room ANTES de disparar este broadcast, então quem saiu nunca
+    // recebe o próprio evento) - por isso leaveVoice ainda toca esse som
+    // direto, só pra si mesmo; join e shareScreen não precisam disso, o
+    // autor da ação já recebe o próprio broadcast normalmente.
     function handleVoiceUpdate(update) {
-      if (update.channelId === channelIdRef.current) setVoiceRoster(update.participants ?? []);
+      if (update.channelId !== channelIdRef.current) return;
+      const next = update.participants ?? [];
+
+      if (!voiceRosterInitializedRef.current) {
+        voiceRosterInitializedRef.current = true;
+        voiceRosterRef.current = next;
+        setVoiceRoster(next);
+        return;
+      }
+
+      const prev = voiceRosterRef.current;
+      const prevIds = new Set(prev.map((p) => p.userId));
+      const nextIds = new Set(next.map((p) => p.userId));
+
+      if (next.some((p) => !prevIds.has(p.userId))) playSound('joinCall');
+      if (prev.some((p) => !nextIds.has(p.userId))) playSound('leaveCall');
+      // "Começou" a compartilhar agora (estava false/ausente, virou true) -
+      // não repete o som pra quem já estava compartilhando antes deste update.
+      if (
+        next.some((p) => {
+          const before = prev.find((q) => q.userId === p.userId);
+          return p.sharingScreen && !before?.sharingScreen;
+        })
+      ) {
+        playSound('shareScreen');
+      }
+
+      voiceRosterRef.current = next;
+      setVoiceRoster(next);
     }
 
     // Reconexão do socket (queda de rede, ou o servidor reiniciou): o
@@ -404,12 +520,23 @@ export function MediaSessionProvider({ children }) {
     async ({ keepMeta = false } = {}) => {
       const channelId = channelIdRef.current;
       if (channelId) socket.emit('media:leave', channelId);
+      // Só toca se realmente havia uma chamada ativa - leaveVoice() também é
+      // chamado defensivamente (ex.: início de joinVoice trocando de canal)
+      // sem que o usuário estivesse conectado a nada. Diferente de
+      // joinCall/shareScreen (que tocam via handleVoiceUpdate pra todo mundo
+      // de uma vez): quem SAI não recebe o próprio voice:update de volta (o
+      // servidor tira o socket da room antes de emitir esse broadcast, ver
+      // mediasoup.handler.js) - por isso só pra si mesmo o som é disparado
+      // aqui, direto; o restante do canal ouve pelo handleVoiceUpdate normal.
+      if (channelId) playSound('leaveCall');
 
       // Sem chamada ativa não há mais o que mostrar no popout - fecha
       // explicitamente em vez de depender de VoicePanel desmontar (ele é
       // global agora, não desmonta por causa disso).
       closePopout();
       setVoiceRoster([]);
+      voiceRosterRef.current = [];
+      voiceRosterInitializedRef.current = false;
 
       denoiserRef.current?.destroy();
       denoiserRef.current = null;
@@ -585,6 +712,13 @@ export function MediaSessionProvider({ children }) {
 
         setVoiceChannelId(channelId);
         setConnected(true);
+        // Toca pra si mesmo direto - o PRIMEIRO voice:update que recebemos
+        // depois de conectar é sempre tratado como "foto inicial" por
+        // handleVoiceUpdate (pra não soar "todo mundo entrou" quando a gente
+        // entra num canal já cheio), então quem acabou de entrar nunca ouve
+        // o próprio som só pelo broadcast. O resto do canal ouve por lá
+        // normalmente (esse mesmo voice:update não é o primeiro PARA ELES).
+        playSound('joinCall');
         setAudioLocked(Boolean(joinData.audioLocked));
         setMediaLocked(Boolean(joinData.mediaLocked));
       } catch (err) {
@@ -772,15 +906,20 @@ export function MediaSessionProvider({ children }) {
   // pra que o resto do servidor veja o ícone no roster (RoomPage.jsx lê
   // `p.deafened`, ver voicePresence.js) - antes isso era um estado 100%
   // local, então só o PRÓPRIO usuário via seu ícone de ensurdecido.
+  // Nomes dos sons seguem o pedido original ("mute"/"unmute"), mas a troca é
+  // de DEAFEN (silenciar todos), não do mic - toggleMute (mic) não tem som
+  // próprio.
   const toggleDeafen = useCallback(async () => {
     const channelId = channelIdRef.current;
     if (!deafened) {
       wasMutedBeforeDeafenRef.current = muted;
       if (!muted) await toggleMute();
       setDeafened(true);
+      playSound('mute');
       if (channelId) socket.emit('media:setDeafened', { channelId, deafened: true });
     } else {
       setDeafened(false);
+      playSound('unmute');
       if (!wasMutedBeforeDeafenRef.current && muted) await toggleMute();
       if (channelId) socket.emit('media:setDeafened', { channelId, deafened: false });
     }
@@ -832,6 +971,9 @@ export function MediaSessionProvider({ children }) {
         screenProducerRef.current = producer;
         setLocalScreenStream(stream);
         setSharingScreen(true);
+        // "shareScreen" toca via handleVoiceUpdate (voice:update, mesmo
+        // motivo do comentário em joinVoice acima) - o broadcast que marca
+        // sharingScreen:true inclui quem iniciou.
       } catch (err) {
         console.error(err);
         if (err.name !== 'NotAllowedError') {
@@ -952,6 +1094,46 @@ export function MediaSessionProvider({ children }) {
   const micTransmitting =
     connected && !muted && !audioLocked && (!pushToTalkEnabled || pttActive);
 
+  // Lê as estatísticas WebRTC (getStats()) dos transports mediasoup atuais e
+  // atualiza networkStats - chamado em polling pelo efeito logo abaixo,
+  // nunca direto por quem consome o context.
+  const pollNetworkStats = useCallback(async () => {
+    const sendTransport = sendTransportRef.current;
+    if (!sendTransport) return;
+    try {
+      const sendReport = await sendTransport.getStats();
+      const ping = extractRttMs(sendReport);
+
+      // Perda de pacote vem do transport de RECEBIMENTO (o que chega dos
+      // outros participantes) - pode não existir ainda mesmo com o send
+      // conectado (ex.: entrou na voz mas ninguém mais fala/liga câmera).
+      let packetLoss = null;
+      const recvTransport = recvTransportRef.current;
+      if (recvTransport) {
+        const recvReport = await recvTransport.getStats();
+        packetLoss = extractPacketLossPercent(recvReport);
+      }
+
+      setNetworkStats({ ping, packetLoss, quality: classifyNetworkQuality(ping, packetLoss) });
+    } catch {
+      // getStats() pode falhar num instante de transição (transport
+      // fechando por reconexão) - ignora, tenta de novo no próximo tick.
+    }
+  }, []);
+
+  // Só mede enquanto há chamada ativa - ao desconectar, volta pro estado
+  // "sem dados" em vez de deixar o último número (ping de uma chamada que já
+  // acabou) exposto no ícone.
+  useEffect(() => {
+    if (!connected) {
+      setNetworkStats(EMPTY_NETWORK_STATS);
+      return;
+    }
+    pollNetworkStats();
+    const interval = setInterval(pollNetworkStats, 3000);
+    return () => clearInterval(interval);
+  }, [connected, pollNetworkStats]);
+
   const value = useMemo(
     () => ({
       connected,
@@ -992,9 +1174,11 @@ export function MediaSessionProvider({ children }) {
       moderateMove,
       pushToTalkActive: pttActive,
       micTransmitting,
+      networkStats,
     }),
     [
       connected,
+      networkStats,
       voiceChannelId,
       voiceRoomId,
       voiceMeta,

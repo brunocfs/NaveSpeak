@@ -7,7 +7,9 @@ import { canAccessChannel } from "../utils/permissions.js";
 import {
   channelIdParamSchema,
   messageContentSchema,
+  attachmentsArraySchema,
 } from "../validation/schemas.js";
+import { resolveAttachments } from "../utils/resolveAttachments.js";
 
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_MESSAGES = 15;
@@ -41,11 +43,27 @@ export function registerChatHandlers(io, socket) {
     const channelIdResult = channelIdParamSchema.safeParse(payload?.channelId);
     if (!channelIdResult.success) return ack({ error: "ID de canal inválido." });
 
-    const contentResult = messageContentSchema.safeParse(payload?.content);
-    if (!contentResult.success) {
-      return ack({
-        error: contentResult.error.issues[0]?.message ?? "Mensagem inválida.",
-      });
+    const attachmentsResult = attachmentsArraySchema.safeParse(payload?.attachments ?? []);
+    if (!attachmentsResult.success) {
+      return ack({ error: attachmentsResult.error.issues[0]?.message ?? "Anexo inválido." });
+    }
+    const hasAttachments = attachmentsResult.data.length > 0;
+
+    // Conteúdo é opcional SE houver ao menos um anexo (mensagem só com
+    // arquivo, sem texto) - senão continua obrigatório, mesma regra de
+    // sempre.
+    const rawContent = typeof payload?.content === "string" ? payload.content : "";
+    let content = "";
+    if (rawContent.trim().length > 0) {
+      const contentResult = messageContentSchema.safeParse(rawContent);
+      if (!contentResult.success) {
+        return ack({
+          error: contentResult.error.issues[0]?.message ?? "Mensagem inválida.",
+        });
+      }
+      content = contentResult.data;
+    } else if (!hasAttachments) {
+      return ack({ error: "Mensagem vazia." });
     }
 
     const channelId = channelIdResult.data;
@@ -68,11 +86,19 @@ export function registerChatHandlers(io, socket) {
     const canSend = canAccessChannel({ channel, room, user, bitmask, roleIds, action: "send" });
     if (!canSend) return ack({ error: "Você não tem permissão para enviar mensagens neste canal." });
 
+    let attachments = [];
+    if (hasAttachments) {
+      const resolved = await resolveAttachments(attachmentsResult.data);
+      if (resolved.error) return ack({ error: resolved.error });
+      attachments = resolved.attachments;
+    }
+
     try {
       const message = await createMessage({
         channelId: channelId,
         userId: user.internalId,
-        content: contentResult.data,
+        content,
+        attachments,
       });
       // Emite tanto para a room do CANAL (quem tem ele aberto agora, ver
       // presence.handler.js/channel:join) quanto para a room do SERVIDOR

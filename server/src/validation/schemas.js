@@ -240,3 +240,30 @@ export const avatarUploadSchema = z.object({
     .min(1, 'Selecione uma imagem.')
     .regex(/^data:image\/(png|jpe?g|webp|gif);base64,/, 'Formato de imagem não suportado.'),
 });
+
+// POST /api/attachments (attachments.routes.js) - upload de UM arquivo por
+// chamada. fileData é revalidado a partir dos bytes decodificados
+// (decodeAttachmentDataUrl em utils/attachmentUpload.js), nunca só pelo mime
+// que o client declara aqui.
+export const attachmentUploadBodySchema = z.object({
+  fileData: z
+    .string()
+    .min(1, 'Selecione um arquivo.')
+    .regex(/^data:[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+;base64,/, 'Arquivo inválido.'),
+  fileName: z.string().trim().min(1, 'Nome de arquivo obrigatório.').max(255, 'Nome muito longo.'),
+});
+
+// Referência a um anexo JÁ enviado (POST /api/attachments), usada no payload
+// de chat:send/dm:send. `path` é revalidado nos handlers de socket contra o
+// padrão gravado em disco (attachments/<uuid>-<nome>) e contra a existência
+// real do arquivo - isto aqui só garante o formato do payload.
+export const attachmentRefSchema = z.object({
+  path: z.string().regex(/^attachments\/[0-9a-f-]{36}-.{1,200}$/, 'Anexo inválido.'),
+  name: z.string().trim().min(1).max(255),
+  size: z.number().int().positive(),
+  mime: z.string().min(1).max(127),
+});
+
+export const attachmentsArraySchema = z
+  .array(attachmentRefSchema)
+  .max(10, 'Máximo de 10 anexos por mensagem.');

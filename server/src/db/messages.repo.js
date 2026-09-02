@@ -19,23 +19,45 @@ async function invalidateChannelMessageCache(channelId) {
   }
 }
 
+// Agregado em JSON dos anexos de uma mensagem, na ordem de seleção
+// (position) - reaproveitado tanto no INSERT/SELECT de uma mensagem nova
+// quanto na listagem paginada abaixo, pra nunca divergir o formato entre os
+// dois. Vira [] (nunca null) quando a mensagem não tem anexo.
+const ATTACHMENTS_AGG = `
+  COALESCE(
+    (SELECT json_agg(json_build_object('path', ma.path, 'name', ma.name, 'size', ma.size, 'mime', ma.mime) ORDER BY ma.position)
+     FROM message_attachments ma WHERE ma.message_id = m.id),
+    '[]'
+  ) AS attachments`;
+
 // IMPORTANTE: esta função não checa membership nem o tipo do canal - quem
 // chama (rota HTTP ou handler de socket) é responsável por confirmar
 // isRoomMember() e que o canal é do tipo 'text' antes. Manter a checagem de
 // autorização fora do repositório e explícita em cada chamador evita que uma
 // nova rota "esqueça" de checar.
-export async function createMessage({ channelId, userId, content }) {
+export async function createMessage({ channelId, userId, content, attachments = [] }) {
   // userId é a PK interna (BIGINT) do usuário.
   const { rows: inserted } = await pool.query(
     "INSERT INTO messages (channel_id, user_id, content) VALUES ($1, $2, $3) RETURNING id",
     [channelId, userId, content],
   );
+  const messageId = inserted[0].id;
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    await pool.query(
+      "INSERT INTO message_attachments (message_id, path, name, size, mime, position) VALUES ($1, $2, $3, $4, $5, $6)",
+      [messageId, att.path, att.name, att.size, att.mime, i],
+    );
+  }
+
   const { rows } = await pool.query(
     `SELECT m.id, m.channel_id, m.content, m.created_at,
-            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath"
+            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath",
+            ${ATTACHMENTS_AGG}
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.id = $1`,
-    [inserted[0].id],
+    [messageId],
   );
   await invalidateChannelMessageCache(channelId);
   return rows[0];
@@ -67,7 +89,8 @@ export async function listMessagesForChannel(
 
   const { rows } = await pool.query(
     `SELECT m.id, m.channel_id, m.content, m.created_at,
-            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath"
+            u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath",
+            ${ATTACHMENTS_AGG}
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.channel_id = $1 ${cursorClause}
      ORDER BY m.id DESC

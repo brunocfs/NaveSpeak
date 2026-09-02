@@ -20,6 +20,36 @@ Reportem qualquer detalhe que possa ser melhorado.
 
 Aproveitem para conhecer a proposta do NaveSpeak.
 
+# Novidades da versão 0.3.1
+
+## Novidades
+
+- Anexos no chat de canal e privado
+  Envie arquivos direto na conversa - até 20MB cada, vários por mensagem. Imagem, vídeo e áudio aparecem inline; o resto vira um chip com nome, tamanho e link de download.
+
+- Arrastar e soltar, com confirmação
+  Solte um arquivo em qualquer lugar do chat pra anexar. Ele fica pendente até você confirmar (✓) ou descartar (✕) - nada sobe sem essa confirmação.
+
+- Preview automático de link
+  Um link de imagem colado na mensagem já mostra a prévia; um link do YouTube mostra a miniatura do vídeo, clicável.
+
+- Estatísticas de conexão na sala
+  Novo ícone na barra de voz mostra o estado da chamada (bom / instável / ruim) e, ao clicar, abre ping e perda de pacotes em tempo real.
+
+- Efeitos sonoros da chamada
+  Sons de entrar e sair do canal, começar a compartilhar tela, ligar/desligar "silenciar todos" e ligação privada tocando - ouvidos por todo mundo já conectado no canal, não só por quem agiu.
+
+- Push-to-Talk
+  Agora você pode definir uma keybind para utilizar o "Pressione para Falar" - A utilização deste recurso pela versão browser apenas funciona quando a tela do NaveSpeak está em foco. Para utilizar o recurso com outras janelas em foco é necessário utilizar o aplicativo Desktop!
+
+- Sensibilidade de Microfones e Supressor de Ruido
+  Adicionado novos controles de supressor de ruido e também o recurso para controlar a sensibilidade do seu microfone!
+
+- Menções - @username
+  Agora é possivel mencionar seus amigos no chat!
+
+## Correções e Melhorias
+
 # Novidades da versão 0.3.0
 
 ## Chamadas de voz e vídeo

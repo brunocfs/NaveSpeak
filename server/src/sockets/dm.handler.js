@@ -3,7 +3,8 @@ import { areFriends } from "../db/friends.repo.js";
 import { isBlockedEitherDirection } from "../db/blocks.repo.js";
 import { createPrivateMessage } from "../db/privateMessages.repo.js";
 import { redis } from "../config/redis.js";
-import { userIdParamSchema, messageContentSchema } from "../validation/schemas.js";
+import { userIdParamSchema, messageContentSchema, attachmentsArraySchema } from "../validation/schemas.js";
+import { resolveAttachments } from "../utils/resolveAttachments.js";
 
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_MESSAGES = 15;
@@ -36,11 +37,26 @@ export function registerDmHandlers(io, socket) {
     const peerIdResult = userIdParamSchema.safeParse(payload?.userId);
     if (!peerIdResult.success) return ack({ error: "ID de usuário inválido." });
 
-    const contentResult = messageContentSchema.safeParse(payload?.content);
-    if (!contentResult.success) {
-      return ack({
-        error: contentResult.error.issues[0]?.message ?? "Mensagem inválida.",
-      });
+    const attachmentsResult = attachmentsArraySchema.safeParse(payload?.attachments ?? []);
+    if (!attachmentsResult.success) {
+      return ack({ error: attachmentsResult.error.issues[0]?.message ?? "Anexo inválido." });
+    }
+    const hasAttachments = attachmentsResult.data.length > 0;
+
+    // Mesma regra de chat.handler.js: conteúdo só é obrigatório se não
+    // houver anexo nenhum.
+    const rawContent = typeof payload?.content === "string" ? payload.content : "";
+    let content = "";
+    if (rawContent.trim().length > 0) {
+      const contentResult = messageContentSchema.safeParse(rawContent);
+      if (!contentResult.success) {
+        return ack({
+          error: contentResult.error.issues[0]?.message ?? "Mensagem inválida.",
+        });
+      }
+      content = contentResult.data;
+    } else if (!hasAttachments) {
+      return ack({ error: "Mensagem vazia." });
     }
 
     const peer = await findUserByPublicId(peerIdResult.data);
@@ -58,11 +74,19 @@ export function registerDmHandlers(io, socket) {
       return ack({ error: "Vocês precisam ser amigos para conversar." });
     }
 
+    let attachments = [];
+    if (hasAttachments) {
+      const resolved = await resolveAttachments(attachmentsResult.data);
+      if (resolved.error) return ack({ error: resolved.error });
+      attachments = resolved.attachments;
+    }
+
     try {
       const message = await createPrivateMessage({
         senderId: user.internalId,
         recipientId: peer.id,
-        content: contentResult.data,
+        content,
+        attachments,
       });
       // Entrega para as duas "rooms pessoais" (user:<publicId>, ver
       // online.handler.js) - cobre todas as abas/janelas de ambos os lados.

@@ -56,3 +56,22 @@ export const authRateLimiter = rateLimit({
   passOnStoreError: true,
   store,
 });
+
+// Store própria (janela diferente da de auth acima) - instâncias de
+// RedisRateLimitStore não podem ser compartilhadas entre limiters com
+// windowMs diferente, senão o TTL da chave no Redis fica errado.
+const attachmentStore = new RedisRateLimitStore(10 * 60 * 1000);
+
+// Limita upload de anexo de chat (attachments.routes.js) POR USUÁRIO (roda
+// depois de requireAuth, então req.user já existe) - não por IP, pra não
+// punir todo mundo atrás do mesmo NAT/proxy corporativo.
+export const attachmentUploadRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Você está enviando arquivos rápido demais. Aguarde um pouco." },
+  passOnStoreError: true,
+  store: attachmentStore,
+  keyGenerator: (req) => `attach:${req.user?.internalId ?? req.ip}`,
+});

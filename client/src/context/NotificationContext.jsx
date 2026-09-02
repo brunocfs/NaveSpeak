@@ -6,6 +6,7 @@ import { usePreferences } from './PreferencesContext.jsx';
 import { getSocket } from '../api/socket.js';
 import { isElectron } from '../api/media.js';
 import { avatarSrc } from '../components/Avatar.jsx';
+import { playSound } from '../utils/sounds.js';
 
 const NotificationContext = createContext(null);
 
@@ -149,6 +150,11 @@ export function NotificationProvider({ children }) {
         return;
       }
 
+      // Som ainda não tem arquivo (playSound falha em silêncio até o
+      // usuário colocar sounds/message.mp3 em client/public/) - já fica
+      // ligado nas mesmas condições da notificação, pra não precisar mexer
+      // aqui de novo quando o arquivo existir.
+      playSound('message');
       fireNotification(`chat:${message.id}`, {
         title: message.username,
         body: truncate(message.content),
@@ -167,6 +173,7 @@ export function NotificationProvider({ children }) {
         return;
       }
 
+      playSound('message');
       fireNotification(`dm:${message.id}`, {
         title: message.sender_username,
         body: truncate(message.content),

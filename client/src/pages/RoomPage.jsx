@@ -5,6 +5,14 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PictureInPicture2,
+  Mic,
+  MicOff,
+  HeadphoneOff,
+  Headphones,
+  Video,
+  VideoOff,
+  ScreenShare,
+  PhoneOff,
 } from "lucide-react";
 import {
   Link,
@@ -27,7 +35,10 @@ import { useNotifications } from "../context/NotificationContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
-
+import PreferencesModal from "../components/PreferencesModal.jsx";
+import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
+import ConnectionStatusButton from "../components/ConnectionStatusButton.jsx";
+import { isElectron, listScreenSources } from "../api/media.js";
 export default function RoomPage() {
   const { roomId } = useParams();
   const navigate = useNavigate();
@@ -65,7 +76,7 @@ export default function RoomPage() {
   // canal ainda não existe no array no momento em que ele chega.
   const [voiceRosters, setVoiceRosters] = useState({});
   const [error, setError] = useState(null);
-
+  const [screenPickerSources, setScreenPickerSources] = useState(null);
   const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
   const selectedChannel =
     channels.find((c) => c.id === selectedChannelId) ?? null;
@@ -75,6 +86,7 @@ export default function RoomPage() {
   // não de um hook local aqui - assim sair da tela da sala não desconecta a
   // chamada. Ver context/MediaSessionContext.jsx.
   const media = useMediaSession();
+  const preferences = usePreferences();
   // Nó onde o VoicePanel (global, montado em App.jsx) deve portar seu
   // conteúdo quando exibido embutido nesta tela - registrado/desregistrado
   // no efeito abaixo. O painel em si (grade de participantes, controles) não
@@ -109,7 +121,18 @@ export default function RoomPage() {
       });
     }
   }
-
+  async function toggleScreenShare() {
+    if (media.sharingScreen) {
+      media.stopScreenShare();
+      return;
+    }
+    if (isElectron()) {
+      const sources = await listScreenSources();
+      setScreenPickerSources(sources ?? []);
+      return;
+    }
+    media.shareScreen();
+  }
   const showingVoicePanel =
     isVoice && media.voiceChannelId === activeChannel?.id && media.connected;
 
@@ -299,25 +322,39 @@ export default function RoomPage() {
   }, [roomId, activeChannelId, user?.id]);
 
   useEffect(() => {
+    // Guarda ANTES de registrar qualquer listener - crucial: activeChannelId
+    // começa null (canais ainda não carregaram, ver efeito de `refresh()`
+    // acima) e este efeito roda uma vez nesse estado a cada
+    // montagem/refresh da página. Registrar socket.on("connect", join) já
+    // aqui, mesmo sem entrar no `if`, prendia um listener com `join` fechado
+    // sobre activeChannelId=null PARA SEMPRE (o `return;` antigo, no meio da
+    // função, pulava o `return () => {...}` de limpeza no fim - o efeito
+    // nunca desfazia esse registro). Numa reconexão do socket (ex.: F5,
+    // trocando o transporte), esse "connect" antigo disparava
+    // channel:join(null) - o servidor rejeita (exige UUID), a resposta de
+    // erro ("ID de canal inválido.") virava `error` e derrubava a tela
+    // inteira. Com o guarda aqui em cima, este efeito simplesmente não
+    // registra nada enquanto não há canal ativo de verdade.
+    if (!activeChannelId) return;
     const socket = getSocket();
     function handlePresence(update) {
       if (update.channelId === activeChannelId) setOnline(update.members);
     }
 
-    socket.on("connect", join);
-    socket.on("presence:update", handlePresence);
-    if (!activeChannelId) return;
     // channel:join vale para qualquer tipo de canal (texto ou voz) - é o que
     // popula a presença "quem está vendo este canal" e, em canais de voz,
     // entrega o roster inicial da chamada.
-    if (socket.connected) join();
-
     function join() {
       socket.emit("channel:join", activeChannelId, (response) => {
         if (response?.error) setError(response.error);
         else if (response?.members) setOnline(response.members);
       });
     }
+
+    socket.on("connect", join);
+    socket.on("presence:update", handlePresence);
+    if (socket.connected) join();
+
     return () => {
       socket.emit("channel:leave", activeChannelId);
       socket.off("connect", join);
@@ -500,8 +537,12 @@ export default function RoomPage() {
             </span>
             <button
               onClick={toggleMembersSidebar}
-              title={membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"}
-              aria-label={membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"}
+              title={
+                membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
+              }
+              aria-label={
+                membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
+              }
               aria-pressed={membersSidebarVisible}
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
@@ -558,8 +599,8 @@ export default function RoomPage() {
       >
         {/* <aside className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"> */}
         <section className="lg:flex lg:min-h-0 lg:flex-col">
-          <aside className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            <div className="flex shrink-0 justify-between">
+          <aside className="flex min-h-0 flex-1 flex-col rounded-t-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+            <div className="flex shrink-0 justify-between  ">
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Canais
               </h2>
@@ -574,7 +615,7 @@ export default function RoomPage() {
                 </button>
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 ">
               <div className="mb-4">
                 <p className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Texto
@@ -651,7 +692,9 @@ export default function RoomPage() {
                             media.voiceChannelId !== c.id
                               ? null
                               : isSelf
-                                ? (media.micTransmitting ? media.localMicStream : null)
+                                ? media.micTransmitting
+                                  ? media.localMicStream
+                                  : null
                                 : (media.remoteStreams.find(
                                     (s) =>
                                       s.userId === p.userId &&
@@ -673,12 +716,18 @@ export default function RoomPage() {
                           // chega correto pra quem entra depois de alguém já
                           // mutado (não depende mais de remoteStreams, que só
                           // existe pra quem está na chamada).
-                          const micMuted = isSelf ? !media.micTransmitting : Boolean(p.micMuted);
-                          const cameraOn = isSelf ? media.cameraOn : Boolean(p.cameraOn);
+                          const micMuted = isSelf
+                            ? !media.micTransmitting
+                            : Boolean(p.micMuted);
+                          const cameraOn = isSelf
+                            ? media.cameraOn
+                            : Boolean(p.cameraOn);
                           const sharingScreen = isSelf
                             ? media.sharingScreen
                             : Boolean(p.sharingScreen);
-                          const deafened = isSelf ? media.deafened : Boolean(p.deafened);
+                          const deafened = isSelf
+                            ? media.deafened
+                            : Boolean(p.deafened);
 
                           return (
                             <VoiceRosterEntry
@@ -749,6 +798,111 @@ export default function RoomPage() {
               </div>
             </div>
           </aside>
+          {/* overflow-hidden removido de propósito: essa barra não tem
+              cantos arredondados (não precisa clipar nada) e estava
+              cortando o popover do ConnectionStatusButton, que abre pra
+              CIMA (bottom-full) e precisa extrapolar essa caixa. */}
+          {media.connected ? (
+            <div className="flex p-2    shadow-sm ring-1  border-slate-700 bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 ">
+              <div className="flex flex-1 gap-2 justify-between items-center">
+                {/* Estatísticas de conexão (ping/perda de pacote) - ver
+                  ConnectionStatusButton.jsx, dados vêm de
+                  media.networkStats (MediaSessionContext). */}
+                <ConnectionStatusButton />
+                <div className="flex gap-2  items-center">
+                  <button
+                    onClick={() =>
+                      media.cameraOn ? media.stopCamera() : media.shareCamera()
+                    }
+                    title={media.cameraOn ? "Desligar câmera" : "Ligar câmera"}
+                    className={`rounded-xl px-2 py-2 cursor-pointer transition ${
+                      media.cameraOn
+                        ? "bg-blue-600 hover:bg-blue-500"
+                        : "bg-gray-600 hover:bg-gray-500"
+                    }`}
+                  >
+                    {media.cameraOn ? (
+                      <Video className="size-4 text-white" />
+                    ) : (
+                      <VideoOff className="size-4 text-white" />
+                    )}
+                  </button>
+                  <button
+                    onClick={toggleScreenShare}
+                    title={
+                      media.sharingScreen
+                        ? "Parar compartilhamento"
+                        : "Compartilhar tela"
+                    }
+                    className={`rounded-xl px-2 py-2 cursor-pointer transition ${
+                      media.sharingScreen
+                        ? "bg-green-600 hover:bg-green-500"
+                        : "bg-gray-600 hover:bg-gray-500"
+                    }`}
+                  >
+                    <ScreenShare className="size-4 text-white" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            ""
+          )}
+          <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1 border-slate-700 overflow-hidden bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 ">
+            <div className="hidden items-center gap-2 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex dark:bg-slate-800 dark:text-slate-200 ">
+              <span className="relative inline-flex shrink-0">
+                <Avatar
+                  avatarPath={user?.avatarPath}
+                  username={user?.username}
+                  size="md"
+                />
+                <StatusDot
+                  status={user?.status ?? "offline"}
+                  className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
+                />
+              </span>
+              <PreferencesModal />
+            </div>
+
+            <div class="flex flex-1 gap-2 items-center  ">
+              <button
+                onClick={() => media.toggleMute()}
+                title={media.muted ? "Ativar microfone" : "Silenciar microfone"}
+                className={`rounded-xl px-2 py-2 cursor-pointer transition ${
+                  media.micTransmitting
+                    ? "bg-gray-600 hover:bg-gray-500"
+                    : "bg-red-600 hover:bg-red-500"
+                }`}
+              >
+                {media.micTransmitting ? (
+                  <Mic className="size-5 text-white" />
+                ) : (
+                  <MicOff className="size-5 text-white" />
+                )}
+              </button>
+              <button
+                onClick={() => media.toggleDeafen()}
+                title={media.deafened ? "Ouvir todos" : "Silenciar todos"}
+                className={`rounded-xl px-2 py-2 cursor-pointer transition ${
+                  media.deafened
+                    ? "bg-red-600 hover:bg-red-500"
+                    : "bg-gray-600 hover:bg-gray-500"
+                }`}
+              >
+                {media.deafened ? (
+                  <HeadphoneOff className="size-5 text-white" />
+                ) : (
+                  <Headphones className="size-5 text-white" />
+                )}
+              </button>
+              <button
+                onClick={() => media.leaveVoice()}
+                className="cursor-pointer rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400"
+              >
+                <PhoneOff></PhoneOff>
+              </button>
+            </div>
+          </div>
         </section>
 
         <section className="min-w-0 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col">
@@ -816,96 +970,102 @@ export default function RoomPage() {
                 {activeChannel.name ? `  ${activeChannel.name}` : ""}
               </h2>
               <div className="min-h-0 flex-1">
-                <ChatPanel channelId={activeChannel.id} />
+                <ChatPanel
+                  channelId={activeChannel.id}
+                  members={members}
+                  channel={activeChannel}
+                  room={room}
+                  roles={roles}
+                />
               </div>
             </div>
           )}
         </section>
 
         {membersSidebarVisible && (
-        <aside className="lg:flex lg:min-h-0 lg:flex-col">
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            <div className="mb-4 flex shrink-0 items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                Membros
-              </h3>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {members.length}
-              </span>
-            </div>
+          <aside className="lg:flex lg:min-h-0 lg:flex-col">
+            <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+              <div className="mb-4 flex shrink-0 items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                  Membros
+                </h3>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {members.length}
+                </span>
+              </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              {members.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Nenhum membro encontrado.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {memberGroups.map((group) => (
-                    <div key={group.key}>
-                      <p className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                        {group.color && (
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: group.color }}
-                          />
-                        )}
-                        {group.label} — {group.members.length}
-                      </p>
-                      <ul className="space-y-2">
-                        {group.members.map((m) => {
-                          const status = m.status;
-                          const isOnline = status !== "offline";
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {members.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Nenhum membro encontrado.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {memberGroups.map((group) => (
+                      <div key={group.key}>
+                        <p className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                          {group.color && (
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: group.color }}
+                            />
+                          )}
+                          {group.label} — {group.members.length}
+                        </p>
+                        <ul className="space-y-2">
+                          {group.members.map((m) => {
+                            const status = m.status;
+                            const isOnline = status !== "offline";
 
-                          return (
-                            <li
-                              key={m.id}
-                              className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-800/60"
-                            >
-                              <div className="flex min-w-0 items-center gap-3">
-                                <span className="relative inline-flex shrink-0">
-                                  <Avatar
-                                    avatarPath={m.avatarPath}
-                                    username={m.username}
-                                    size="sm"
-                                  />
-                                  <StatusDot
-                                    status={status}
-                                    className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
-                                  />
-                                </span>
-                                <span
-                                  className="truncate text-sm font-medium text-slate-800 dark:text-slate-100"
-                                  style={
-                                    group.color
-                                      ? { color: group.color }
-                                      : undefined
-                                  }
-                                >
-                                  {m.username}
-                                </span>
-                              </div>
-
-                              <span
-                                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                                  isOnline
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                                    : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                                }`}
+                            return (
+                              <li
+                                key={m.id}
+                                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-800/60"
                               >
-                                {statusLabel(status)}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              )}
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <span className="relative inline-flex shrink-0">
+                                    <Avatar
+                                      avatarPath={m.avatarPath}
+                                      username={m.username}
+                                      size="sm"
+                                    />
+                                    <StatusDot
+                                      status={status}
+                                      className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
+                                    />
+                                  </span>
+                                  <span
+                                    className="truncate text-sm font-medium text-slate-800 dark:text-slate-100"
+                                    style={
+                                      group.color
+                                        ? { color: group.color }
+                                        : undefined
+                                    }
+                                  >
+                                    {m.username}
+                                  </span>
+                                </div>
+
+                                <span
+                                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                                    isOnline
+                                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                                      : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {statusLabel(status)}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </aside>
+          </aside>
         )}
       </main>
       {/* A barra "Na voz" (mic/câmera/tela/sair) agora é global - ver

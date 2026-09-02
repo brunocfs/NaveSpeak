@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { getSocket } from '../api/socket.js';
 import { useMediaSession } from './MediaSessionContext.jsx';
+import { playSound, stopSound } from '../utils/sounds.js';
 
 function emitAsync(socket, event, payload) {
   return new Promise((resolve) => {
@@ -37,6 +38,19 @@ export function CallProvider({ children }) {
     voiceChannelIdRef.current = media.voiceChannelId;
     if (!media.voiceChannelId) setActiveRoster([]);
   }, [media.voiceChannelId]);
+
+  // Toca "calling" em loop enquanto há pelo menos um convite tocando (ver
+  // CallInviteBanner.jsx) e para sozinho assim que a lista esvazia -
+  // aceito (acceptCall), recusado (declineCall) ou encerrado pelo outro lado
+  // (handleEnded abaixo) removem da lista, e o efeito reage a isso sozinho.
+  useEffect(() => {
+    if (incomingCalls.length === 0) {
+      stopSound('calling');
+      return;
+    }
+    playSound('calling', { loop: true });
+    return () => stopSound('calling');
+  }, [incomingCalls.length]);
 
   useEffect(() => {
     function handleInvite(payload) {

@@ -6,20 +6,39 @@
 // bloqueio - quem chama (sockets/dm.handler.js) é responsável por isso antes.
 import { pool } from '../config/db.js';
 
+// Mesmo raciocínio de ATTACHMENTS_AGG em messages.repo.js.
+const ATTACHMENTS_AGG = `
+  COALESCE(
+    (SELECT json_agg(json_build_object('path', pma.path, 'name', pma.name, 'size', pma.size, 'mime', pma.mime) ORDER BY pma.position)
+     FROM private_message_attachments pma WHERE pma.private_message_id = pm.id),
+    '[]'
+  ) AS attachments`;
+
 const CONVERSATION_ROW = `
   SELECT pm.id, pm.content, pm.created_at,
          su.public_id AS sender_id, su.username AS sender_username, su.avatar_path AS "senderAvatarPath",
-         ru.public_id AS recipient_id
+         ru.public_id AS recipient_id,
+         ${ATTACHMENTS_AGG}
   FROM private_messages pm
   INNER JOIN users su ON su.id = pm.sender_id
   INNER JOIN users ru ON ru.id = pm.recipient_id`;
 
-export async function createPrivateMessage({ senderId, recipientId, content }) {
+export async function createPrivateMessage({ senderId, recipientId, content, attachments = [] }) {
   const { rows: inserted } = await pool.query(
     'INSERT INTO private_messages (sender_id, recipient_id, content) VALUES ($1, $2, $3) RETURNING id',
     [senderId, recipientId, content]
   );
-  const { rows } = await pool.query(`${CONVERSATION_ROW} WHERE pm.id = $1`, [inserted[0].id]);
+  const messageId = inserted[0].id;
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    await pool.query(
+      'INSERT INTO private_message_attachments (private_message_id, path, name, size, mime, position) VALUES ($1, $2, $3, $4, $5, $6)',
+      [messageId, att.path, att.name, att.size, att.mime, i]
+    );
+  }
+
+  const { rows } = await pool.query(`${CONVERSATION_ROW} WHERE pm.id = $1`, [messageId]);
   return rows[0];
 }
 

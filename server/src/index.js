@@ -18,6 +18,7 @@ import dmRoutes from './routes/dm.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
+import attachmentsRoutes from './routes/attachments.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { attachSockets } from './sockets/index.js';
 import { createWorkers } from './mediasoup/workers.js';
@@ -48,6 +49,10 @@ app.use(helmet());
 // primeiro a bater com o path é que decide o limite aplicado.
 app.use('/api/users/me/avatar', express.json({ limit: '3mb' }));
 app.use('/api/rooms', express.json({ limit: '3mb' }));
+// Anexo de chat vai de base64 dentro do JSON também (mesmo motivo do
+// comentário acima) - 20MB decodificados vira ~27MB em base64, mais folga
+// pro resto do payload.
+app.use('/api/attachments', express.json({ limit: '28mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 
@@ -80,6 +85,7 @@ app.use('/api/dm/:userId', dmRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/invites', invitesRoutes);
+app.use('/api/attachments', attachmentsRoutes);
 
 // Avatares enviados por usuário (users.routes.js) - fora de /api de
 // propósito, são arquivos estáticos, não respostas JSON.

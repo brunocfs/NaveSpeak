@@ -289,7 +289,7 @@ export default function PreferencesModal() {
         onClick={handleOpen}
         aria-label="Preferências"
         title="Preferências"
-        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        className="inline-flex cursor-pointer h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
       >
         <svg
           className="h-5 w-5"
@@ -827,7 +827,9 @@ export default function PreferencesModal() {
                                   onClick={() => setCapturingKey(true)}
                                   className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                 >
-                                  {capturingKey ? "Esc para cancelar" : "Atribuir tecla"}
+                                  {capturingKey
+                                    ? "Esc para cancelar"
+                                    : "Atribuir tecla"}
                                 </button>
                               </div>
                             )}

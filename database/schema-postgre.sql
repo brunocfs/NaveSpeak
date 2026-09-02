@@ -177,6 +177,22 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS ix_messages_channel_created ON messages (channel_id, created_at);
 
+-- Anexos de arquivo de uma mensagem de canal (0..N por mensagem - ver
+-- server/src/routes/attachments.routes.js pro upload em si; aqui so guarda a
+-- referencia). "position" preserva a ordem de selecao no client.
+CREATE TABLE IF NOT EXISTS message_attachments (
+  id BIGSERIAL PRIMARY KEY,
+  message_id BIGINT NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  size INTEGER NOT NULL,
+  mime VARCHAR(127) NOT NULL,
+  position SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_message_attachments_message FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_message_attachments_message ON message_attachments (message_id);
+
 -- Amizade: UMA linha por par de usuarios, independente da ordem - o indice
 -- unico abaixo normaliza o par via LEAST/GREATEST, entao nao existe como
 -- terem duas linhas (pendente + aceita, ou duas pendentes cruzadas) para o
@@ -233,6 +249,20 @@ CREATE TABLE IF NOT EXISTS private_messages (
 );
 CREATE INDEX IF NOT EXISTS ix_private_messages_pair
   ON private_messages (LEAST(sender_id, recipient_id), GREATEST(sender_id, recipient_id), id);
+
+-- Mesma coisa que message_attachments, pro lado das DMs.
+CREATE TABLE IF NOT EXISTS private_message_attachments (
+  id BIGSERIAL PRIMARY KEY,
+  private_message_id BIGINT NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  size INTEGER NOT NULL,
+  mime VARCHAR(127) NOT NULL,
+  position SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_private_message_attachments_message FOREIGN KEY (private_message_id) REFERENCES private_messages(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_private_message_attachments_message ON private_message_attachments (private_message_id);
 
 -- Estado de leitura de uma conversa privada, POR USUARIO - duas colunas
 -- independentes sobre o mesmo par (user_id, peer_id):

@@ -10,6 +10,8 @@ import {
   markConversationRead,
 } from "../api/dm.js";
 import MessageInput from "./MessageInput.jsx";
+import MessageContent from "./MessageContent.jsx";
+import AttachmentDropZone from "./AttachmentDropZone.jsx";
 import StatusDot from "./StatusDot.jsx";
 import Avatar from "./Avatar.jsx";
 
@@ -26,6 +28,13 @@ export default function DmPanel({ friend }) {
   const [callBusy, setCallBusy] = useState(false);
   const [status, setStatus] = useState(friend.status ?? "offline");
   const bottomRef = useRef(null);
+  // Quem pode ser @mencionado numa DM - só os dois lados da conversa (ver
+  // MessageContent.jsx).
+  const mentionableUsernames = [user?.username, friend.username].filter(Boolean);
+  // Sugestão de autocomplete (MessageInput.jsx) só oferece o amigo - não faz
+  // sentido sugerir @mencionar a si mesmo numa conversa 1:1.
+  const mentionCandidates = [{ id: friend.id, username: friend.username, avatarPath: friend.avatarPath }];
+  const messageInputRef = useRef(null);
 
   // Sincroniza com o status atual ao trocar de amigo (o objeto `friend` vindo
   // de RoomsPage é um snapshot do momento da seleção - não se atualiza
@@ -112,10 +121,10 @@ export default function DmPanel({ friend }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend(content) {
+  async function handleSend(content, attachments) {
     const socket = getSocket();
     return new Promise((resolve) => {
-      socket.emit("dm:send", { userId: friend.id, content }, (response) => {
+      socket.emit("dm:send", { userId: friend.id, content, attachments }, (response) => {
         resolve(response ?? { error: "Sem resposta do servidor." });
       });
     });
@@ -151,7 +160,11 @@ export default function DmPanel({ friend }) {
   }
   // <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
   return (
-    <div className="flex h-full min-h-[500px] flex-col">
+    <AttachmentDropZone
+      onFilesDropped={(fileList) => messageInputRef.current?.addDroppedFiles(fileList)}
+      disabled={loading}
+      className="flex h-full min-h-[500px] flex-col"
+    >
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <h3 className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold text-slate-900 dark:text-white">
           <span className="relative inline-flex shrink-0">
@@ -225,9 +238,11 @@ export default function DmPanel({ friend }) {
                   {formatMessageTime(message.created_at)}
                 </span>
               </div>
-              <p className="break-words text-sm text-slate-700 dark:text-slate-200">
-                {message.content}
-              </p>
+              <MessageContent
+                content={message.content}
+                attachments={message.attachments}
+                mentionableUsernames={mentionableUsernames}
+              />
             </div>
           </div>
         ))}
@@ -235,8 +250,13 @@ export default function DmPanel({ friend }) {
       </div>
 
       <div className="px-4 pb-4 sm:px-5">
-        <MessageInput onSend={handleSend} disabled={loading} />
+        <MessageInput
+          ref={messageInputRef}
+          onSend={handleSend}
+          disabled={loading}
+          mentionCandidates={mentionCandidates}
+        />
       </div>
-    </div>
+    </AttachmentDropZone>
   );
 }
