@@ -41,7 +41,33 @@ app.use(
     credentials: true,
   })
 );
-app.use(helmet());
+// CSP: os padrões do helmet servem pra tudo, MENOS pelo `script-src 'self'`
+// puro - ele bloqueia compilar WebAssembly ("Compiling or instantiating
+// WebAssembly module violates the following Content Security policy
+// directive because 'unsafe-eval' is not an allowed source"), e é isso que
+// derrubava TODOS os supressores de ruído do mic em produção (RNNoise,
+// GTCRN, DeepFilterNet3 - client/src/audio/*.js), que existem justamente
+// como WASM dentro de um AudioWorklet. `'wasm-unsafe-eval'` libera só a
+// compilação de WASM, sem liberar `eval()`/`new Function()` de JavaScript
+// (que é o que `'unsafe-eval'` faria) - é o token feito exatamente pra este
+// caso, suportado no Chrome/Edge desde a v97.
+//
+// O outro pedaço do mesmo problema é do lado do build: worklet pequeno o
+// bastante virava `data:text/javascript;base64,...` no bundle, e data: URI
+// como script também é barrado por `script-src 'self'` - resolvido lá em
+// client/vite.config.js (assetsInlineLimit), não com `data:` aqui: liberar
+// data: em script-src é justamente um dos vetores clássicos de XSS que a
+// CSP existe pra fechar.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+      },
+    },
+  })
+);
 // Limite de corpo maior só para o upload de avatar (imagem em base64 dentro
 // do JSON, sem multer/multipart - ver users.routes.js) - precisa vir ANTES
 // do express.json global (100kb): o body-parser marca req._body assim que
