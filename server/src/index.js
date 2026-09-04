@@ -64,6 +64,19 @@ app.use(
       useDefaults: true,
       directives: {
         scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+        // O chat mostra imagem REMOTA por desenho: miniatura de vídeo do
+        // YouTube (img.youtube.com) e prévia de qualquer link de imagem
+        // colado na mensagem (ver MessageContent.jsx) - com o padrão do
+        // helmet (`img-src 'self' data:`) as duas coisas eram bloqueadas e a
+        // miniatura simplesmente não aparecia. `https:` libera imagem de
+        // qualquer host https, que é exatamente o que a feature faz; não
+        // vale a pena allowlist só do YouTube porque o link colado pode ser
+        // de qualquer CDN. Continua sem `http:` de propósito (o
+        // upgrade-insecure-requests do próprio helmet já promove essas pra
+        // https). Efeito colateral aceito e inerente à feature: uma imagem
+        // remota numa mensagem entrega IP/User-Agent de quem vê pro host
+        // dela (pixel de rastreio) - quem cola o link escolhe isso.
+        imgSrc: ["'self'", 'data:', 'https:'],
       },
     },
   })
