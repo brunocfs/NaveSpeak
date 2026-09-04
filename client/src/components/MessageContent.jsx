@@ -1,5 +1,6 @@
 import { Paperclip } from "lucide-react";
 import { API_URL } from "../api/config.js";
+import { renderMessageTokens } from "../utils/messageFormatting.jsx";
 
 // URL de imagem "solta" no texto (sem attachment) - regra: termina numa
 // extensão de imagem conhecida, com querystring opcional (ex.: CDN com
@@ -7,15 +8,6 @@ import { API_URL } from "../api/config.js";
 // (img.youtube.com) - sem chamada de rede nenhuma, sem embed/iframe.
 const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i;
 const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,15})/;
-
-// "@" + esse charset/tamanho (mesmo de usernameFieldSchema no server,
-// server/src/validation/schemas.js) é o que reconhecemos como possível
-// menção no texto. TOKEN_RE junta URL e menção num único split, na ordem em
-// que aparecem no texto - processar separado (primeiro link, depois menção
-// dentro de cada pedaço "não-link") funcionaria, mas duplicaria a lógica de
-// alternar texto/token; um regex só, com as duas alternativas, resolve isso
-// numa passada.
-const TOKEN_RE = /(https?:\/\/[^\s<]+|@[A-Za-z0-9_]{3,32})/g;
 
 function extractImageUrl(text) {
   const urls = text.match(/https?:\/\/[^\s<]+/g);
@@ -46,43 +38,16 @@ function attachmentSrc(relativePath) {
   return `${API_URL}/uploads/${relativePath}`;
 }
 
-// Troca cada URL do texto por um <a> clicável e cada @username que bate com
-// alguém de verdade (mentionableUsernames - membros do servidor no chat de
-// canal, os dois lados da conversa na DM) por texto em negrito - o resto
-// fica como texto puro. React escapa tudo automaticamente (sem
-// dangerouslySetInnerHTML), então nada aqui vira HTML/script executável.
-//
-// "@algo" que não bate com ninguém conhecido (comparação sem diferenciar
-// maiúsculas/minúsculas) fica como texto normal - evita destacar qualquer
-// "@arroba" solto que apareça na mensagem por acaso.
+// Renderiza **negrito**, *itálico*, ~~riscado~~, `código`, URL clicável e
+// @username em destaque (só quando bate com alguém de verdade -
+// mentionableUsernames: membros do servidor no chat de canal, os dois lados
+// da conversa na DM) - regra compartilhada com o preview "ao vivo" do
+// composer em utils/messageFormatting.jsx, pra nunca divergir entre o que o
+// usuário vê digitando e o que é renderizado na mensagem enviada. React
+// escapa tudo automaticamente (sem dangerouslySetInnerHTML), então nada aqui
+// vira HTML/script executável.
 function MessageText({ text, mentionableUsernames }) {
-  const parts = text.split(TOKEN_RE);
-  return parts.map((part, i) => {
-    if (i % 2 === 0) return part;
-
-    if (part.startsWith("@")) {
-      const isMention = mentionableUsernames.has(part.slice(1).toLowerCase());
-      return isMention ? (
-        <strong key={i} className="font-semibold text-blue-600 dark:text-blue-400">
-          {part}
-        </strong>
-      ) : (
-        part
-      );
-    }
-
-    return (
-      <a
-        key={i}
-        href={part}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="break-all underline decoration-slate-400 underline-offset-2 hover:decoration-current"
-      >
-        {part}
-      </a>
-    );
-  });
+  return renderMessageTokens(text, mentionableUsernames);
 }
 
 function AttachmentItem({ attachment }) {
@@ -140,7 +105,7 @@ export default function MessageContent({ content, attachments = [], mentionableU
   return (
     <div className="space-y-2">
       {trimmed && (
-        <p className="break-words text-sm text-slate-700 dark:text-slate-200">
+        <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-200">
           <MessageText text={trimmed} mentionableUsernames={mentionableSet} />
         </p>
       )}

@@ -18,13 +18,13 @@ function AutoGridArea({ tiles, pinned, onTogglePin, deafened, minHeight }) {
   const effectiveHeight = Math.max(height, minHeight ?? 0);
   const layout = useMemo(
     () => computeGridLayout(tiles.length, width, effectiveHeight, { gap: GAP }),
-    [tiles.length, width, effectiveHeight]
+    [tiles.length, width, effectiveHeight],
   );
 
   return (
     <div
       ref={containerRef}
-      className="flex h-full w-full flex-wrap content-center items-center justify-center gap-2"
+      className="flex h-full p-1 w-full flex-wrap content-center items-center justify-center gap-2"
       style={minHeight ? { minHeight } : undefined}
     >
       {tiles.map(({ key, ...t }) => (
@@ -51,13 +51,24 @@ function AutoGridArea({ tiles, pinned, onTogglePin, deafened, minHeight }) {
 // região própria). Mesmos props dos dois (tiles, pinnedKeys, onTogglePin,
 // deafened) pra dar pra trocar de modo em VoicePanel.jsx sem mexer em mais
 // nada - só a REPRESENTAÇÃO visual muda, o Set de fixados é o mesmo.
-export default function SimpleVideoGrid({ tiles, pinnedKeys, onTogglePin, deafened }) {
+export default function SimpleVideoGrid({
+  tiles,
+  pinnedKeys,
+  onTogglePin,
+  deafened,
+}) {
   const pinnedTiles = tiles.filter((t) => pinnedKeys.has(t.key));
-  const restTiles = pinnedTiles.length > 0 ? tiles.filter((t) => !pinnedKeys.has(t.key)) : [];
+  const restTiles =
+    pinnedTiles.length > 0 ? tiles.filter((t) => !pinnedKeys.has(t.key)) : [];
 
   if (pinnedTiles.length === 0) {
     return (
-      <AutoGridArea tiles={tiles} pinned={false} onTogglePin={onTogglePin} deafened={deafened} />
+      <AutoGridArea
+        tiles={tiles}
+        pinned={false}
+        onTogglePin={onTogglePin}
+        deafened={deafened}
+      />
     );
   }
 

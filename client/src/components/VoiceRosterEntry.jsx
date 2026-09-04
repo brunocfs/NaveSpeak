@@ -8,6 +8,9 @@ import {
   Camera,
   MonitorUp,
   Volume2,
+  VolumeX,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 // Uma linha da lista de participantes de um canal de voz na sidebar de
 // RoomPage.jsx. Extraída num componente à parte porque useSpeaking() é um
@@ -34,6 +37,14 @@ import {
 // usuário logado (é só preferência de audição local, não afeta ninguém mais,
 // ver RemoteAudioPlayers.jsx/PreferencesContext). Sozinho já é suficiente
 // pra abrir o menu ⋮, mesmo sem nenhuma permissão de moderação.
+//
+// `localControls` (opcional, mesma régua de volumeControl - sem permissão
+// nenhuma, nunca pro próprio usuário) reúne mute-local do mic e ocultar
+// webcam/tela - tudo 100% local, nunca chega no servidor nem afeta o que os
+// outros participantes veem/ouvem. Mesmas ações que já existem por tile
+// dentro da chamada (ParticipantTile.jsx/VoicePanel.jsx), disponíveis aqui
+// pra quem prefere a sidebar (ex.: participante sem câmera/tela ligada
+// ainda não tem tile de mídia pra clicar).
 export default function VoiceRosterEntry({
   username,
   avatarPath,
@@ -44,6 +55,7 @@ export default function VoiceRosterEntry({
   sharingScreen,
   moderation,
   volumeControl,
+  localControls,
 }) {
   const speaking = useSpeaking(micStream);
   return (
@@ -69,28 +81,121 @@ export default function VoiceRosterEntry({
         ""
       )}
 
+      {/* Câmera/tela clicáveis quando `localControls` existe: atalho pra
+          reativar rápido uma mídia que o próprio usuário ocultou (ver
+          onToggleCameraHidden/onToggleScreenHidden) SEM precisar desligar
+          "esconder quem está sem câmera/tela" em VoicePanel.jsx só pra achar
+          o tile de novo - o indicador já fica bem aqui, na frente do nome,
+          então funciona mesmo com o painel de vídeo inteiro escondido/
+          minimizado. Cor esmaecida = ligada mas ocultada por você (ainda
+          clicável, clique de novo mostra); cor cheia = visível normalmente.
+          Sem `localControls` (é você mesmo, ou não há nada pra alternar),
+          continua um indicador não-clicável, como sempre foi. */}
       {cameraOn ? (
-        <Camera className="size-3.5 shrink-0 text-green-400"></Camera>
+        localControls ? (
+          <button
+            type="button"
+            onClick={localControls.onToggleCameraHidden}
+            title={
+              localControls.cameraHidden
+                ? "Webcam ocultada por você - clique para mostrar"
+                : "Ocultar webcam (só pra você)"
+            }
+            className={`shrink-0 transition ${
+              localControls.cameraHidden
+                ? "text-slate-400 hover:text-slate-300"
+                : "text-green-400 hover:text-green-300"
+            }`}
+          >
+            <Camera className="size-3.5" />
+          </button>
+        ) : (
+          <Camera className="size-3.5 shrink-0 text-green-400" />
+        )
       ) : (
         ""
       )}
 
       {sharingScreen ? (
-        <div className="group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out">
-          <span className="relative flex size-4 items-center justify-center">
-            <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
-            <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
-            <MonitorUp className="relative z-10 size-3 text-emerald-400" />
-          </span>
-        </div>
+        localControls ? (
+          <button
+            type="button"
+            onClick={localControls.onToggleScreenHidden}
+            title={
+              localControls.screenHidden
+                ? "Tela ocultada por você - clique para mostrar"
+                : "Ocultar tela compartilhada (só pra você)"
+            }
+            className={`group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out ${
+              localControls.screenHidden ? "opacity-50 grayscale" : ""
+            }`}
+          >
+            <span className="relative flex size-4 items-center justify-center">
+              <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
+              <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
+              <MonitorUp className="relative z-10 size-3 text-emerald-400" />
+            </span>
+          </button>
+        ) : (
+          <div className="group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out">
+            <span className="relative flex size-4 items-center justify-center">
+              <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
+              <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
+              <MonitorUp className="relative z-10 size-3 text-emerald-400" />
+            </span>
+          </div>
+        )
       ) : null}
 
-      {(moderation || volumeControl) && (
+      {(moderation || volumeControl || localControls) && (
         <details className="group relative ml-auto shrink-0">
           <summary className="cursor-pointer list-none rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100">
             ⋮
           </summary>
           <div className="absolute right-0 z-10 mt-1 w-56 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800">
+            {localControls && (
+              <>
+                <button
+                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={localControls.onToggleLocalMute}
+                >
+                  {localControls.locallyMuted ? (
+                    <VolumeX className="size-3.5 shrink-0" />
+                  ) : (
+                    <Volume2 className="size-3.5 shrink-0" />
+                  )}
+                  {localControls.locallyMuted
+                    ? "Reativar áudio (só pra você)"
+                    : "Mutar localmente (só pra você)"}
+                </button>
+                <button
+                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={localControls.onToggleCameraHidden}
+                >
+                  {localControls.cameraHidden ? (
+                    <EyeOff className="size-3.5 shrink-0" />
+                  ) : (
+                    <Eye className="size-3.5 shrink-0" />
+                  )}
+                  {localControls.cameraHidden
+                    ? "Mostrar webcam"
+                    : "Ocultar webcam (só pra você)"}
+                </button>
+                <button
+                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  onClick={localControls.onToggleScreenHidden}
+                >
+                  {localControls.screenHidden ? (
+                    <EyeOff className="size-3.5 shrink-0" />
+                  ) : (
+                    <Eye className="size-3.5 shrink-0" />
+                  )}
+                  {localControls.screenHidden
+                    ? "Mostrar tela compartilhada"
+                    : "Ocultar tela compartilhada (só pra você)"}
+                </button>
+              </>
+            )}
             {volumeControl && (
               <label className="block px-2 py-1">
                 <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">

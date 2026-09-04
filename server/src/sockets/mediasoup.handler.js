@@ -237,19 +237,27 @@ export function registerMediasoupHandlers(io, socket) {
     }
   });
 
-  socket.on('media:produce', async ({ channelId, transportId, kind, rtpParameters, appData } = {}, callback) => {
+  socket.on('media:produce', async ({ channelId, transportId, kind, rtpParameters, appData, paused } = {}, callback) => {
     const ack = wrapAck(callback);
     const peer = getPeer(channelId, socket.id);
     const transport = peer?.transports.get(transportId);
     if (!transport) return ack({ error: 'Transporte não encontrado.' });
     if (kind !== 'audio' && kind !== 'video') return ack({ error: 'Tipo de mídia inválido.' });
 
-    // Vídeo (webcam OU compartilhamento de tela, mesmo bit de permissão)
-    // exige a role de compartilhamento do canal, quando definida, e é
-    // recusado enquanto o moderador tiver travado a mídia deste usuário
-    // (voice:moderateMedia mode:'lock') - checado aqui, não só escondido na
-    // UI, porque é o servidor quem decide o que aceita transmitir.
-    if (kind === 'video' && !isCallChannel(channelId)) {
+    // Áudio do compartilhamento de tela (appData.source 'screen-audio',
+    // producer À PARTE do vídeo - ver startScreenAudio em
+    // MediaSessionContext.jsx) é opcional mas ainda É compartilhamento de
+    // mídia - sem essa checagem, alguém sem a role de compartilhamento (ou
+    // travado por voice:moderateMedia) só não conseguiria mandar o VÍDEO da
+    // tela mas o áudio do sistema passaria sozinho, driblando a restrição.
+    const isScreenAudio = kind === 'audio' && appData?.source === 'screen-audio';
+
+    // Vídeo (webcam OU compartilhamento de tela, mesmo bit de permissão) e o
+    // áudio da tela acima exigem a role de compartilhamento do canal, quando
+    // definida, e são recusados enquanto o moderador tiver travado a mídia
+    // deste usuário (voice:moderateMedia mode:'lock') - checado aqui, não só
+    // escondido na UI, porque é o servidor quem decide o que aceita transmitir.
+    if ((kind === 'video' || isScreenAudio) && !isCallChannel(channelId)) {
       const lock = getLock(channelId, user.id);
       if (lock.mediaLocked) return ack({ error: 'Um moderador bloqueou sua mídia neste canal.' });
 
@@ -273,11 +281,19 @@ export function registerMediasoupHandlers(io, socket) {
       });
       peer.producers.set(producer.id, producer);
 
-      // Áudio travado (voice:moderateMute mode:'lock'): o produtor é aceito
-      // (não quebra a negociação do cliente) mas nasce pausado - o próprio
-      // usuário não consegue reverter isso via media:setProducerPaused
-      // enquanto a trava existir (ver handler abaixo).
-      if (kind === 'audio' && getLock(channelId, user.id).audioLocked) {
+      // Áudio nasce pausado em dois casos: (1) travado por moderador
+      // (voice:moderateMute mode:'lock') - o próprio usuário não consegue
+      // reverter isso via media:setProducerPaused enquanto a trava existir
+      // (ver handler abaixo); (2) o cliente pediu (`paused: true`) porque o
+      // usuário já estava mutado/ensurdecido ANTES deste producer nascer -
+      // caso do reconnect (handleReconnect em MediaSessionContext.jsx), onde
+      // sem isso o producer nasceria destravado e o `media:newProducer`
+      // abaixo já teria avisado o resto do canal ANTES de qualquer
+      // media:setProducerPaused subsequente chegar - janela real (proporcional
+      // ao RTT) em que o mic transmite de verdade pros outros apesar do
+      // usuário estar "ensurdecido" na UI. Pausar aqui, antes do broadcast,
+      // fecha essa janela por completo em vez de só encurtá-la.
+      if (kind === 'audio' && (Boolean(paused) || getLock(channelId, user.id).audioLocked)) {
         await producer.pause();
       }
 
@@ -493,7 +509,12 @@ export function registerMediasoupHandlers(io, socket) {
         const peer = room?.peers.get(socketId);
         if (!peer) continue;
         for (const [producerId, producer] of Array.from(peer.producers.entries())) {
-          if (producer.kind !== 'video') continue;
+          // Vídeo (webcam/tela) OU o áudio à parte do compartilhamento de
+          // tela (kind 'audio', appData.source 'screen-audio') - sem a
+          // segunda parte, desligar a mídia de alguém deixava o áudio da
+          // tela dele tocando sozinho, sem vídeo nenhum por trás.
+          const isScreenAudio = producer.kind === 'audio' && producer.appData?.source === 'screen-audio';
+          if (producer.kind !== 'video' && !isScreenAudio) continue;
           producer.close();
           peer.producers.delete(producerId);
           io.to(voiceRoomOf(parsedChannel.data)).emit('media:producerClosed', { producerId });

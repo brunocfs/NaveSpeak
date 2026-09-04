@@ -14,10 +14,14 @@
     "dev:electron": "npm run dev --workspace electron",
     "build:client": "npm run build --workspace client",
     "build:electron": "npm run build --workspace electron",
-    "migrate": "npm run migrate --workspace server"
+    "migrate": "npm run migrate --workspace server",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "react-doctor": "^0.9.13"
   }
 }

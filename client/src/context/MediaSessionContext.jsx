@@ -11,7 +11,9 @@ import { useWindowPopout } from '../hooks/useWindowPopout.js';
 import { usePreferences } from './PreferencesContext.jsx';
 import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
+import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
+import { createGainStream } from '../audio/gainStream.js';
 import { playSound } from '../utils/sounds.js';
 
 // Push-to-talk: ignora o próprio código da tecla quando o foco está num
@@ -168,6 +170,16 @@ export function MediaSessionProvider({ children }) {
   const [remoteStreams, setRemoteStreams] = useState([]);
   const [error, setError] = useState(null);
   const [sharingScreen, setSharingScreen] = useState(false);
+  // Áudio OPCIONAL do compartilhamento de tela (system/app audio, produzido
+  // como um producer À PARTE do vídeo - ver shareScreen/startScreenAudio
+  // abaixo). `screenAudioVolume` é o GANHO DE ENVIO que o próprio
+  // compartilhador controla sobre o que está mandando (0-200, ver
+  // audio/gainStream.js) - diferente do volume de escuta que cada OUVINTE
+  // ajusta pra si (esse é local, per-listener, vive em PreferencesContext
+  // igual userVolumes, ver getScreenAudioVolume/setScreenAudioVolume lá).
+  const [screenAudioEnabled, setScreenAudioEnabled] = useState(false);
+  const [screenAudioVolume, setScreenAudioVolumeState] = useState(100);
+  const screenAudioVolumeRef = useRef(100);
   const [cameraOn, setCameraOn] = useState(false);
   const [localScreenStream, setLocalScreenStream] = useState(null);
   const [localCameraStream, setLocalCameraStream] = useState(null);
@@ -223,9 +235,10 @@ export function MediaSessionProvider({ children }) {
   const sendTransportRef = useRef(null);
   const recvTransportRef = useRef(null);
   const localStreamRef = useRef(null);
-  // Controlador do grafo Web Audio do supressor de ruído WASM (RNNoise ou
-  // GTCRN, ver audio/rnnoise.js e audio/gtcrn.js) quando noiseSuppressionMode
-  // é 'rnnoise'/'gtcrn' - null no 'native'/'off'. Guardado à parte de
+  // Controlador do grafo Web Audio do supressor de ruído WASM (RNNoise, GTCRN
+  // ou DeepFilterNet3, ver audio/rnnoise.js, audio/gtcrn.js e
+  // audio/deepfilternet.js) quando noiseSuppressionMode é
+  // 'rnnoise'/'gtcrn'/'deepfilternet' - null no 'native'/'off'. Guardado à parte de
   // localStreamRef porque a stream "crua" continua sendo o dono da captura
   // de verdade (é ela que precisa ser parada ao sair da voz); esta é só o
   // grafo derivado que produz a track processada enviada de verdade.
@@ -238,13 +251,29 @@ export function MediaSessionProvider({ children }) {
   const gateRef = useRef(null);
   const micProducerRef = useRef(null);
   const screenProducerRef = useRef(null);
+  // Producer À PARTE pro áudio do compartilhamento de tela (kind 'audio',
+  // appData.source 'screen-audio') - existe só enquanto screenAudioEnabled.
+  // screenAudioGainRef é o controlador do grafo de ganho (audio/gainStream.js)
+  // que alimenta esse producer, mesmo papel de denoiserRef/gateRef pro mic.
+  const screenAudioProducerRef = useRef(null);
+  const screenAudioGainRef = useRef(null);
+  // Track de vídeo/áudio ATUALMENTE em uso pelo compartilhamento de tela -
+  // só existem pra guardar o listener 'ended' de trocar de fonte
+  // (switchScreenSource abaixo) contra a PRÓPRIA troca: ao trocar, paramos a
+  // track ANTIGA de propósito (t.stop() no cleanup do localScreenStream), o
+  // que dispara 'ended' NELA também - sem checar "essa ended é da track
+  // ATUAL?", esse 'ended' da antiga chamaria stopScreenShare/stopScreenAudio
+  // e derrubaria o compartilhamento NOVO que acabou de substituí-la.
+  const activeScreenVideoTrackRef = useRef(null);
+  const activeScreenAudioTrackRef = useRef(null);
   const cameraProducerRef = useRef(null);
   const consumersRef = useRef(new Map());
-  // Guardam sempre a versão mais atual de stopScreenShare/stopCamera, para
-  // que os listeners 'ended' registrados no momento da captura (que não
-  // podem depender de um valor de closure que muda a cada render) chamem a
-  // implementação certa mesmo depois de reconexões/re-renders.
+  // Guardam sempre a versão mais atual de stopScreenShare/stopScreenAudio/
+  // stopCamera, para que os listeners 'ended' registrados no momento da
+  // captura (que não podem depender de um valor de closure que muda a cada
+  // render) chamem a implementação certa mesmo depois de reconexões/re-renders.
   const stopScreenShareRef = useRef(() => {});
+  const stopScreenAudioRef = useRef(() => {});
   const stopCameraRef = useRef(() => {});
   // Idem, mas pra RELIGAR a câmera depois de uma reconexão (handleReconnect
   // abaixo) - shareCamera só existe como useCallback mais adiante no
@@ -404,8 +433,15 @@ export function MediaSessionProvider({ children }) {
       // sempre devolvia o usuário sem câmera, mesmo que ela estivesse ligada
       // um instante antes de cair.
       const wasCameraOn = cameraOnRef.current;
+      // `startMuted` pede pro producer de mic já nascer pausado NO SERVIDOR
+      // (media:produce, paused: true) - fecha de vez a janela que existia
+      // antes aqui: producer nascia destravado, media:newProducer já
+      // avisava o canal, e só DEPOIS um media:setProducerPaused separado
+      // (que podia falhar/atrasar sob latência alta) tentava re-pausar. Sem
+      // essa janela, quem nunca mutou (caso comum) não perde nada - segue o
+      // mesmíssimo caminho de antes, sem round-trip a mais.
       await leaveVoiceRef.current({ keepMeta: true });
-      await joinVoiceRef.current(channelId);
+      await joinVoiceRef.current(channelId, { startMuted: wasMuted || wasDeafened });
 
       // Religa a câmera DEPOIS do rejoin (precisa do sendTransport novo, que
       // só existe a partir daqui) - pede o device salvo de novo via
@@ -417,22 +453,9 @@ export function MediaSessionProvider({ children }) {
         await shareCameraRef.current();
       }
 
-      if (wasMuted || wasDeafened) {
-        const producer = micProducerRef.current;
-        if (producer) {
-          try {
-            await emitAsync(socket, 'media:setProducerPaused', {
-              channelId,
-              producerId: producer.id,
-              paused: true,
-            });
-            producer.pause();
-          } catch (err) {
-            console.error('Falha ao reaplicar mute após reconexão:', err.message);
-          }
-        }
-        setMuted(true);
-      }
+      // Só reflete estado local/roster daqui pra baixo - o producer em si já
+      // nasceu pausado (ou não) dentro de joinVoiceRef acima.
+      if (wasMuted || wasDeafened) setMuted(true);
       if (wasDeafened) {
         setDeafened(true);
         socket.emit('media:setDeafened', { channelId, deafened: true });
@@ -547,6 +570,11 @@ export function MediaSessionProvider({ children }) {
       setLocalMicStream(null);
       micProducerRef.current = null;
       screenProducerRef.current = null;
+      screenAudioProducerRef.current = null;
+      screenAudioGainRef.current?.destroy();
+      screenAudioGainRef.current = null;
+      activeScreenVideoTrackRef.current = null;
+      activeScreenAudioTrackRef.current = null;
       cameraProducerRef.current = null;
 
       for (const consumer of consumersRef.current.values()) consumer.close();
@@ -562,6 +590,9 @@ export function MediaSessionProvider({ children }) {
       setConnected(false);
       setMuted(false);
       setSharingScreen(false);
+      setScreenAudioEnabled(false);
+      screenAudioVolumeRef.current = 100;
+      setScreenAudioVolumeState(100);
       setCameraOn(false);
       setDeafened(false);
       wasMutedBeforeDeafenRef.current = false;
@@ -589,6 +620,164 @@ export function MediaSessionProvider({ children }) {
     leaveVoiceRef.current = leaveVoice;
   }, [leaveVoice]);
 
+  // Monta captura crua do mic + supressor de ruído (se ligado) + noise gate
+  // (se ligado) a partir dos valores ATUAIS de preferências - extraído de
+  // dentro de joinVoice pra ser reaproveitado também por switchMic (troca ao
+  // vivo, ver abaixo), sem duplicar a lógica de "qual supressor pra qual
+  // modo" e "gate depois do supressor" nos dois lugares. Nunca toca em
+  // refs/producer - só devolve as peças prontas, quem chama decide o que
+  // fazer com elas (joinVoice: usa direto; switchMic: troca no producer
+  // existente e só DEPOIS derruba a cadeia antiga, ver comentário lá).
+  const buildMicChain = useCallback(
+    async (deviceId) => {
+      assertMediaDevicesAvailable();
+      const { stream, fellBack } = await requestMicStream(deviceId, { noiseSuppressionMode });
+      let audioTrack = stream.getAudioTracks()[0];
+      let denoiser = null;
+      let gate = null;
+
+      // Modos 'rnnoise'/'gtcrn'/'deepfilternet': a captura acima já entra
+      // com noiseSuppression nativo DESLIGADO (ver
+      // media.js#micAudioConstraints) - o processamento de verdade é este
+      // grafo WASM à parte. Falha aqui (ex.: AudioWorklet indisponível) não
+      // pode derrubar a entrada na voz - segue com a track crua, só avisa.
+      // (o 'deepfilternet' é o mais pesado dos três: baixa ~24MB de assets
+      // sob demanda na primeira entrada em voz com esse modo - ver
+      // audio/deepfilternet.js.)
+      const DENOISER_BY_MODE = {
+        rnnoise: [createRnnoiseStream, 'RNNoise'],
+        gtcrn: [createGtcrnStream, 'GTCRN'],
+        deepfilternet: [createDeepFilterNetStream, 'DeepFilterNet3'],
+      };
+      if (DENOISER_BY_MODE[noiseSuppressionMode]) {
+        const [createDenoisedStream, label] = DENOISER_BY_MODE[noiseSuppressionMode];
+        try {
+          denoiser = await createDenoisedStream(stream, { level: noiseSuppressionLevel });
+          audioTrack = denoiser.stream.getAudioTracks()[0];
+        } catch (err) {
+          console.error(err);
+          setError(
+            `Não foi possível ativar o supressor de ruído ${label} - entrando com o microfone sem esse processamento.`
+          );
+        }
+      }
+
+      // Sensibilidade do microfone (noise gate) - DEPOIS do supressor de
+      // ruído acima, na track que vai mesmo pro producer (crua ou já
+      // denoised). Falha aqui também não derruba a entrada na voz, mesmo
+      // padrão do supressor.
+      if (micGateEnabled) {
+        try {
+          gate = await createNoiseGateStream(new MediaStream([audioTrack]), {
+            thresholdDb: micGateThresholdDb,
+          });
+          audioTrack = gate.stream.getAudioTracks()[0];
+        } catch (err) {
+          console.error(err);
+          setError('Não foi possível ativar a sensibilidade do microfone - entrando sem esse processamento.');
+        }
+      }
+
+      return { rawStream: stream, audioTrack, denoiser, gate, fellBack };
+    },
+    [noiseSuppressionMode, noiseSuppressionLevel, micGateEnabled, micGateThresholdDb]
+  );
+
+  // Troca o microfone (dispositivo, modo/nível do supressor, ou sensibilidade)
+  // AO VIVO, sem sair e reentrar no canal - monta a cadeia nova (captura +
+  // supressor + gate) em paralelo à antiga, só troca no producer via
+  // `replaceTrack` (mexe SÓ no RTCRtpSender local, mesmo producerId, ZERO
+  // round-trip com o servidor e ZERO media:newProducer pros outros - mesma
+  // técnica já usada por switchScreenSource) quando a nova já está pronta, e
+  // só DEPOIS derruba a antiga - assim uma falha na captura nova (dispositivo
+  // desconectado no meio do caminho, por exemplo) nunca deixa a chamada sem
+  // mic nenhum.
+  //
+  // `rebuildGenerationRef` protege contra corrida: se o usuário trocar de
+  // novo (ou sair da voz) enquanto uma troca anterior ainda está em
+  // andamento, o resultado da mais antiga é descartado ao chegar (nunca
+  // sobrescreve o que já é mais novo).
+  const rebuildGenerationRef = useRef(0);
+  const switchMic = useCallback(
+    async (deviceId) => {
+      if (!micProducerRef.current) return;
+      const myGeneration = ++rebuildGenerationRef.current;
+      setError(null);
+      let built;
+      try {
+        built = await buildMicChain(deviceId);
+      } catch (err) {
+        console.error(err);
+        setError(err.message ?? 'Não foi possível trocar de microfone.');
+        return;
+      }
+      const { rawStream, audioTrack, denoiser, gate, fellBack } = built;
+
+      // Ficou obsoleta (outra troca começou depois desta, ou saiu da voz
+      // enquanto isso rodava) - descarta sem tocar em nada que já está no ar.
+      if (myGeneration !== rebuildGenerationRef.current || !micProducerRef.current) {
+        rawStream.getTracks().forEach((t) => t.stop());
+        denoiser?.destroy();
+        gate?.destroy();
+        return;
+      }
+
+      if (fellBack) {
+        setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
+      }
+
+      try {
+        await micProducerRef.current.replaceTrack({ track: audioTrack });
+      } catch (err) {
+        console.error(err);
+        setError(err.message ?? 'Não foi possível trocar de microfone.');
+        rawStream.getTracks().forEach((t) => t.stop());
+        denoiser?.destroy();
+        gate?.destroy();
+        return;
+      }
+
+      const oldDenoiser = denoiserRef.current;
+      const oldGate = gateRef.current;
+      const oldRawStream = localStreamRef.current;
+      denoiserRef.current = denoiser;
+      gateRef.current = gate;
+      localStreamRef.current = rawStream;
+      setLocalMicStream(rawStream);
+
+      oldDenoiser?.destroy();
+      oldGate?.destroy();
+      oldRawStream?.getTracks().forEach((t) => t.stop());
+    },
+    [buildMicChain]
+  );
+
+  // Dispara switchMic sozinho quando dispositivo/modo/sensibilidade do mic
+  // mudam em Preferências ENQUANTO já conectado - `micLiveKeyRef` guarda a
+  // última combinação vista, pra só agir numa mudança de verdade (nunca no
+  // instante em que `connected` vira true logo após joinVoice, que já usou
+  // os valores atuais por conta própria). Nível do supressor (só o número)
+  // fica de fora deste combo de propósito - é ajustado ao vivo sem
+  // reconstruir nada, ver efeito de `setLevel` logo abaixo (arrastar o
+  // slider não pode reabrir o microfone a cada pixel).
+  const micLiveKeyRef = useRef(`${micDeviceId}|${noiseSuppressionMode}|${micGateEnabled}|${micGateThresholdDb}`);
+  useEffect(() => {
+    const key = `${micDeviceId}|${noiseSuppressionMode}|${micGateEnabled}|${micGateThresholdDb}`;
+    if (connected && micLiveKeyRef.current !== key) {
+      switchMic(micDeviceId);
+    }
+    micLiveKeyRef.current = key;
+  }, [micDeviceId, noiseSuppressionMode, micGateEnabled, micGateThresholdDb, connected, switchMic]);
+
+  // Nível do supressor de ruído (RNNoise/GTCRN/DeepFilterNet) ao vivo, sem
+  // reconstruir a cadeia inteira - os três `create*Stream` devolvem um
+  // `setLevel(pct)` próprio pra isso (ver audio/rnnoise.js, audio/gtcrn.js,
+  // audio/deepfilternet.js). Não usa `connected` na guarda: se não há
+  // denoiser ativo agora, a chamada é só um no-op silencioso.
+  useEffect(() => {
+    denoiserRef.current?.setLevel(noiseSuppressionLevel);
+  }, [noiseSuppressionLevel]);
+
   // Só é chamado a partir de um clique explícito do usuário ("Entrar na
   // voz") - getUserMedia nunca dispara sozinho ao carregar a página. Recebe
   // o channelId do canal de voz alvo para que a conexão seja sempre
@@ -603,6 +792,14 @@ export function MediaSessionProvider({ children }) {
         await leaveVoice();
       }
       setError(null);
+      // `meta.startMuted`: só o reconnect passa isso (usuário já estava
+      // mutado/ensurdecido antes de cair) - pedimos pro producer de mic já
+      // nascer pausado no servidor (ver media:produce abaixo), fechando de
+      // vez a janela em que o mic ficaria audível pros outros entre o
+      // producer nascer e um media:setProducerPaused separado chegar depois.
+      // Entrada normal nunca passa isso - fluxo de quem nunca mutou continua
+      // idêntico, sem round-trip extra.
+      const startMuted = Boolean(meta.startMuted);
       try {
         channelIdRef.current = channelId;
         if (meta.roomId !== undefined) setVoiceRoomId(meta.roomId);
@@ -634,6 +831,9 @@ export function MediaSessionProvider({ children }) {
             kind,
             rtpParameters,
             appData,
+            // Só se aplica ao producer de mic (kind 'audio') - câmera/tela
+            // sempre nascem ligadas, `startMuted` nunca vale pra elas.
+            paused: kind === 'audio' ? startMuted : false,
           })
             .then(({ id }) => callback({ id }))
             .catch(errback);
@@ -656,54 +856,24 @@ export function MediaSessionProvider({ children }) {
         });
         recvTransportRef.current = recvTransport;
 
-        assertMediaDevicesAvailable();
-        const { stream, fellBack } = await requestMicStream(micDeviceId, { noiseSuppressionMode });
+        // Captura + supressor de ruído + gate, ver buildMicChain acima -
+        // mesma lógica reaproveitada por switchMic (troca ao vivo).
+        const { rawStream, audioTrack, denoiser, gate, fellBack } = await buildMicChain(micDeviceId);
         if (fellBack) {
           setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
         }
-        localStreamRef.current = stream;
-        setLocalMicStream(stream);
-        let audioTrack = stream.getAudioTracks()[0];
-
-        // Modos 'rnnoise'/'gtcrn': a captura acima já entra com
-        // noiseSuppression nativo DESLIGADO (ver
-        // media.js#micAudioConstraints) - o processamento de verdade é este
-        // grafo WASM à parte. Falha aqui (ex.: AudioWorklet indisponível)
-        // não pode derrubar a entrada na voz - segue com a track crua, só
-        // avisa.
-        if (noiseSuppressionMode === 'rnnoise' || noiseSuppressionMode === 'gtcrn') {
-          try {
-            const createDenoisedStream =
-              noiseSuppressionMode === 'gtcrn' ? createGtcrnStream : createRnnoiseStream;
-            const denoiser = await createDenoisedStream(stream, { level: noiseSuppressionLevel });
-            denoiserRef.current = denoiser;
-            audioTrack = denoiser.stream.getAudioTracks()[0];
-          } catch (err) {
-            console.error(err);
-            setError(
-              `Não foi possível ativar o supressor de ruído ${noiseSuppressionMode === 'gtcrn' ? 'GTCRN' : 'RNNoise'} - entrando com o microfone sem esse processamento.`
-            );
-          }
-        }
-
-        // Sensibilidade do microfone (noise gate) - DEPOIS do supressor de
-        // ruído acima, na track que vai mesmo pro producer (crua ou já
-        // denoised). Falha aqui também não derruba a entrada na voz, mesmo
-        // padrão do supressor.
-        if (micGateEnabled) {
-          try {
-            const gate = await createNoiseGateStream(new MediaStream([audioTrack]), {
-              thresholdDb: micGateThresholdDb,
-            });
-            gateRef.current = gate;
-            audioTrack = gate.stream.getAudioTracks()[0];
-          } catch (err) {
-            console.error(err);
-            setError('Não foi possível ativar a sensibilidade do microfone - entrando sem esse processamento.');
-          }
-        }
+        localStreamRef.current = rawStream;
+        setLocalMicStream(rawStream);
+        denoiserRef.current = denoiser;
+        gateRef.current = gate;
 
         const micProducer = await sendTransport.produce({ track: audioTrack, appData: { source: 'mic' } });
+        // Espelha localmente o que já pedimos pro servidor (`paused` no
+        // media:produce acima) - servidor já nasceu pausado, mas sem isso o
+        // producer local seguiria codificando/mandando RTP à toa até o
+        // próximo toggle (disableTrackOnPause do mediasoup-client também
+        // desliga a track de verdade aqui, não só marca o producer).
+        if (startMuted) micProducer.pause();
         micProducerRef.current = micProducer;
 
         for (const producer of joinData.producers) {
@@ -727,16 +897,7 @@ export function MediaSessionProvider({ children }) {
         await leaveVoice();
       }
     },
-    [
-      socket,
-      consumeProducer,
-      leaveVoice,
-      micDeviceId,
-      noiseSuppressionMode,
-      noiseSuppressionLevel,
-      micGateEnabled,
-      micGateThresholdDb,
-    ]
+    [socket, consumeProducer, leaveVoice, micDeviceId, buildMicChain]
   );
 
   useEffect(() => {
@@ -762,17 +923,32 @@ export function MediaSessionProvider({ children }) {
     async (paused) => {
       const producer = micProducerRef.current;
       if (!producer) return false;
+      // MUTAR é local-primeiro: pausa o producer AQUI, antes de qualquer
+      // round-trip pro servidor. producer.pause() do mediasoup-client já
+      // desliga a track de verdade (disableTrackOnPause) - o mic para de
+      // mandar RTP na hora, sem esperar confirmação. Antes disso rodava
+      // DEPOIS do await: cada mute (mesmo sem queda de conexão) deixava o
+      // mic transmitindo de verdade durante 1 round-trip inteiro até o
+      // servidor confirmar - imperceptível em rede local, mas audível de
+      // verdade sob latência alta (ex.: usuário nos EUA), sem precisar de
+      // nenhuma reconexão pra acontecer. Privacidade > sincronismo com o
+      // servidor: preferimos mutar rápido demais a mutar tarde demais.
+      // DESmutar continua servidor-primeiro (abaixo) - só volta a
+      // transmitir depois que o servidor confirma, porque um moderador pode
+      // recusar (audioLocked) e aí NUNCA se deve religar o mic sozinho.
+      if (paused) producer.pause();
       try {
         await emitAsync(socket, 'media:setProducerPaused', {
           channelId: channelIdRef.current,
           producerId: producer.id,
           paused,
         });
-        if (paused) producer.pause();
-        else producer.resume();
+        if (!paused) producer.resume();
         return true;
       } catch (err) {
         console.error(err);
+        // Já pausamos local acima (se paused) - fica pausado mesmo com o ack
+        // falhando: seguro por padrão. Quem chamou decide se tenta de novo.
         return false;
       }
     },
@@ -941,12 +1117,77 @@ export function MediaSessionProvider({ children }) {
     [socket]
   );
 
+  // Produz o áudio (já opcional) do compartilhamento de tela como um
+  // producer À PARTE do vídeo (appData.source 'screen-audio') - passa antes
+  // por um grafo de ganho (audio/gainStream.js) pra o compartilhador poder
+  // ajustar o volume do que está enviando (setLocalScreenAudioVolume
+  // abaixo). Falha aqui (grafo Web Audio indisponível, produce recusado
+  // etc.) não derruba o compartilhamento de vídeo - só segue sem áudio.
+  const startScreenAudio = useCallback(async (rawAudioTrack) => {
+    try {
+      const gain = await createGainStream(new MediaStream([rawAudioTrack]), {
+        volume: screenAudioVolumeRef.current,
+      });
+      screenAudioGainRef.current = gain;
+      activeScreenAudioTrackRef.current = rawAudioTrack;
+      const processedTrack = gain.stream.getAudioTracks()[0];
+      // Track CRUA (a que saiu da captura, não a processada pelo gain) é a
+      // que morre quando o navegador/SO encerra o compartilhamento - é nela
+      // que o 'ended' precisa escutar. Guard contra a própria troca de fonte
+      // - ver comentário de activeScreenAudioTrackRef acima.
+      rawAudioTrack.addEventListener('ended', () => {
+        if (activeScreenAudioTrackRef.current !== rawAudioTrack) return;
+        stopScreenAudioRef.current();
+      });
+
+      const producer = await sendTransportRef.current.produce({
+        track: processedTrack,
+        appData: { source: 'screen-audio' },
+      });
+      screenAudioProducerRef.current = producer;
+      setScreenAudioEnabled(true);
+    } catch (err) {
+      console.error(err);
+      screenAudioGainRef.current?.destroy();
+      screenAudioGainRef.current = null;
+      setScreenAudioEnabled(false);
+      setError('Não foi possível incluir o áudio no compartilhamento de tela - seguindo só com o vídeo.');
+    }
+  }, []);
+
+  const stopScreenAudio = useCallback(async () => {
+    await closeProducer(screenAudioProducerRef.current);
+    screenAudioProducerRef.current = null;
+    screenAudioGainRef.current?.destroy();
+    screenAudioGainRef.current = null;
+    activeScreenAudioTrackRef.current = null;
+    setScreenAudioEnabled(false);
+  }, [closeProducer]);
+
+  useEffect(() => {
+    stopScreenAudioRef.current = stopScreenAudio;
+  }, [stopScreenAudio]);
+
+  // Ajusta ao vivo o ganho do áudio compartilhado JÁ em transmissão (sem
+  // recriar producer nenhum) - só o compartilhador vê/mexe nisso, é o
+  // volume do que ELE está enviando, não o de quem escuta (esse é per-
+  // listener, ver getScreenAudioVolume/setScreenAudioVolume em
+  // PreferencesContext).
+  const setLocalScreenAudioVolume = useCallback((volume) => {
+    const clamped = Math.min(200, Math.max(0, volume));
+    screenAudioVolumeRef.current = clamped;
+    setScreenAudioVolumeState(clamped);
+    screenAudioGainRef.current?.setVolume(clamped);
+  }, []);
+
   // Compartilhar tela: só pode ser chamado a partir de um clique explícito
   // do usuário ("Compartilhar tela") - é isso que dispara o prompt nativo do
   // navegador/SO para escolher e autorizar a captura, nunca automático.
   // Exige já estar conectado na voz (sendTransport criado em joinVoice).
+  // `withAudio` pede o áudio do sistema/app junto (ver requestScreenStream
+  // em api/media.js) - sempre opcional, sem áudio nenhum se omitido/recusado.
   const shareScreen = useCallback(
-    async (sourceId) => {
+    async (sourceId, { withAudio = false } = {}) => {
       if (!sendTransportRef.current) {
         setError('Entre na voz antes de compartilhar a tela.');
         return;
@@ -957,12 +1198,18 @@ export function MediaSessionProvider({ children }) {
       }
       setError(null);
       try {
-        const stream = await requestScreenStream(sourceId);
+        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio });
         const [track] = stream.getVideoTracks();
+        activeScreenVideoTrackRef.current = track;
 
         // Se o usuário parar a captura pelo controle nativo do navegador/SO
         // (em vez do nosso botão), sincronizamos o estado da UI também.
-        track.addEventListener('ended', () => stopScreenShareRef.current());
+        // Guard contra a própria troca de fonte - ver comentário de
+        // activeScreenVideoTrackRef acima.
+        track.addEventListener('ended', () => {
+          if (activeScreenVideoTrackRef.current !== track) return;
+          stopScreenShareRef.current();
+        });
 
         const producer = await sendTransportRef.current.produce({
           track,
@@ -974,6 +1221,8 @@ export function MediaSessionProvider({ children }) {
         // "shareScreen" toca via handleVoiceUpdate (voice:update, mesmo
         // motivo do comentário em joinVoice acima) - o broadcast que marca
         // sharingScreen:true inclui quem iniciou.
+
+        if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
       } catch (err) {
         console.error(err);
         if (err.name !== 'NotAllowedError') {
@@ -981,12 +1230,14 @@ export function MediaSessionProvider({ children }) {
         }
       }
     },
-    [mediaLocked]
+    [mediaLocked, startScreenAudio]
   );
 
   const stopScreenShare = useCallback(async () => {
     await closeProducer(screenProducerRef.current);
     screenProducerRef.current = null;
+    activeScreenVideoTrackRef.current = null;
+    if (screenAudioProducerRef.current) await stopScreenAudioRef.current();
     setLocalScreenStream((stream) => {
       stream?.getTracks().forEach((t) => t.stop());
       return null;
@@ -997,6 +1248,62 @@ export function MediaSessionProvider({ children }) {
   useEffect(() => {
     stopScreenShareRef.current = stopScreenShare;
   }, [stopScreenShare]);
+
+  // Troca a fonte compartilhada (outra tela/janela/app) SEM encerrar o
+  // compartilhamento - o vídeo troca via producer.replaceTrack, que só mexe
+  // no RTCRtpSender local: mesmo producerId, mesmo consumer do lado de quem
+  // assiste, ZERO round-trip com o servidor e ZERO evento
+  // media:newProducer/media:producerClosed pros outros participantes -
+  // pra eles, o vídeo só "muda de conteúdo" no mesmo lugar, sem o piscar de
+  // um recompartilhar do zero. O áudio (opcional) é a única parte que ainda
+  // pode exigir um producer novo (não dá pra "replaceTrack" um producer que
+  // não existe, nem "remover" áudio sem fechar o producer de verdade) - mas
+  // isso nunca afeta o vídeo, que já trocou por replaceTrack acima.
+  const switchScreenSource = useCallback(
+    async (sourceId, { withAudio } = {}) => {
+      if (!screenProducerRef.current) {
+        // Sem compartilhamento ativo pra trocar - trata como um início normal.
+        return shareScreen(sourceId, { withAudio });
+      }
+      setError(null);
+      const wantAudio = withAudio ?? screenAudioEnabled;
+      try {
+        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio: wantAudio });
+        const [newTrack] = stream.getVideoTracks();
+        // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
+        // atribuição que faz o 'ended' dela ser ignorado como "própria
+        // troca", ver comentário de activeScreenVideoTrackRef no topo.
+        activeScreenVideoTrackRef.current = newTrack;
+        newTrack.addEventListener('ended', () => {
+          if (activeScreenVideoTrackRef.current !== newTrack) return;
+          stopScreenShareRef.current();
+        });
+
+        await screenProducerRef.current.replaceTrack({ track: newTrack });
+
+        if (screenAudioProducerRef.current) await stopScreenAudioRef.current();
+        if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
+
+        // getTracks() (não só getVideoTracks()) de propósito: também para a
+        // track de ÁUDIO crua da captura anterior, se havia uma - sem isso
+        // ela ficava viva (capturando de verdade) mesmo depois do producer
+        // dela já ter sido fechado acima, só porque nada mais segurava essa
+        // referência pra parar.
+        setLocalScreenStream((prevStream) => {
+          prevStream?.getTracks().forEach((t) => {
+            if (t !== newTrack) t.stop();
+          });
+          return stream;
+        });
+      } catch (err) {
+        console.error(err);
+        if (err.name !== 'NotAllowedError') {
+          setError(err.message ?? 'Não foi possível trocar a fonte compartilhada.');
+        }
+      }
+    },
+    [shareScreen, screenAudioEnabled, startScreenAudio]
+  );
 
   const shareCamera = useCallback(async () => {
     if (!sendTransportRef.current) {
@@ -1048,6 +1355,47 @@ export function MediaSessionProvider({ children }) {
   useEffect(() => {
     stopCameraRef.current = stopCamera;
   }, [stopCamera]);
+
+  // Troca a webcam AO VIVO (dispositivo mudou em Preferências ENQUANTO a
+  // câmera já está ligada) - mesma técnica de switchScreenSource/switchMic:
+  // captura a nova stream, `replaceTrack` no producer existente (mesmo
+  // producerId, sem media:newProducer pros outros participantes), só depois
+  // para a stream antiga. Se a câmera não está ligada agora, não faz nada -
+  // da próxima vez que ligar, shareCamera já lê o cameraDeviceId atual
+  // sozinho, não precisa desta função.
+  const switchCamera = useCallback(async (deviceId) => {
+    if (!cameraProducerRef.current) return;
+    setError(null);
+    try {
+      const { stream, fellBack } = await requestCameraStream(deviceId);
+      if (fellBack) {
+        setError('A webcam salva em Preferências não foi encontrada - usando o padrão do sistema.');
+      }
+      const [newTrack] = stream.getVideoTracks();
+      if (!cameraProducerRef.current) {
+        // Câmera foi desligada enquanto a captura acima rodava.
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      newTrack.addEventListener('ended', () => stopCameraRef.current());
+      await cameraProducerRef.current.replaceTrack({ track: newTrack });
+      setLocalCameraStream((prevStream) => {
+        prevStream?.getTracks().forEach((t) => t.stop());
+        return stream;
+      });
+    } catch (err) {
+      console.error(err);
+      setError(err.message ?? 'Não foi possível trocar de webcam.');
+    }
+  }, []);
+
+  const cameraLiveDeviceIdRef = useRef(cameraDeviceId);
+  useEffect(() => {
+    if (cameraOn && cameraLiveDeviceIdRef.current !== cameraDeviceId) {
+      switchCamera(cameraDeviceId);
+    }
+    cameraLiveDeviceIdRef.current = cameraDeviceId;
+  }, [cameraDeviceId, cameraOn, switchCamera]);
 
   // Sai da chamada de voz quando o provider desmonta - como ele vive em
   // App.jsx, acima de <Routes>, isso só acontece quando o app inteiro
@@ -1159,6 +1507,10 @@ export function MediaSessionProvider({ children }) {
       localScreenStream,
       shareScreen,
       stopScreenShare,
+      switchScreenSource,
+      screenAudioEnabled,
+      screenAudioVolume,
+      setLocalScreenAudioVolume,
       cameraOn,
       localCameraStream,
       shareCamera,
@@ -1199,6 +1551,10 @@ export function MediaSessionProvider({ children }) {
       localScreenStream,
       shareScreen,
       stopScreenShare,
+      switchScreenSource,
+      screenAudioEnabled,
+      screenAudioVolume,
+      setLocalScreenAudioVolume,
       cameraOn,
       localCameraStream,
       shareCamera,

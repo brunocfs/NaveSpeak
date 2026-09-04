@@ -400,6 +400,13 @@ body {
   border-radius: 4px;
 }
 
+/* Fonte selecionada no ScreenSourcePicker (troca de fonte/início de share) -
+   confirma via botão separado agora, não mais só o clique direto. */
+.source-option[aria-pressed="true"] {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+}
+
 .modal-cancel {
   padding: 0.5rem 0.9rem;
   border: none;
@@ -407,6 +414,22 @@ body {
   background: var(--panel-border);
   color: var(--text);
   cursor: pointer;
+}
+
+.modal-confirm {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+
+.modal-confirm:disabled {
+  background: var(--panel-border);
+  color: var(--text);
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* --- LoginPage.jsx: painel de apresentação (branding) ---

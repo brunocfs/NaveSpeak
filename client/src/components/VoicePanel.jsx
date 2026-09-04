@@ -1,6 +1,21 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, ChevronDown, Eye, EyeOff } from "lucide-react";
+import {
+  ExternalLink,
+  ChevronDown,
+  Camera,
+  CameraOff,
+  Eye,
+  EyeOff,
+  Headphones,
+  HeadphoneOff,
+  Mic,
+  MicOff,
+  LayoutFreeform,
+  Grid2x2,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
@@ -40,6 +55,17 @@ export default function VoicePanel() {
     hideParticipantsWithoutMedia,
     toggleHideParticipantsWithoutMedia,
     getUserVolume,
+    getScreenAudioVolume,
+    setScreenAudioVolume,
+    autoplayCamera,
+    autoplayScreenShare,
+    isMediaHidden,
+    toggleMediaHidden,
+    isLocallyMuted,
+    toggleLocalMute,
+    outputDeviceId,
+    membersSidebarVisible,
+    toggleMembersSidebar,
   } = usePreferences();
   const {
     connected,
@@ -58,6 +84,9 @@ export default function VoicePanel() {
     stopCamera,
     sharingScreen,
     localScreenStream,
+    screenAudioEnabled,
+    screenAudioVolume,
+    setLocalScreenAudioVolume,
     localMicStream,
     micTransmitting,
     voiceRoster: participants,
@@ -72,6 +101,24 @@ export default function VoicePanel() {
   // tempo (cada um ganha a região prioritária do VideoLayoutManager).
   const [pinnedKeys, setPinnedKeys] = useState(() => new Set());
   const prevScreenKeysRef = useRef(new Set());
+
+  // Chaves de tile 'iniciadas manualmente' - só importa quando a preferência
+  // de autoplay correspondente (autoplayCamera/autoplayScreenShare) está
+  // DESLIGADA: a mídia chega mas fica atrás de um "clique para assistir"
+  // (ParticipantTile.jsx) até a chave aparecer aqui. Efêmero DE PROPÓSITO
+  // (não é preferência persistida) - é "already opted into watching THIS
+  // stream nesta chamada", não uma escolha permanente como autoplay/ocultar;
+  // reseta sozinho quando o tile desaparece (ver efeito de poda abaixo, mesmo
+  // padrão de pinnedKeys) e começa vazio a cada nova montagem do painel.
+  const [manuallyStartedKeys, setManuallyStartedKeys] = useState(
+    () => new Set(),
+  );
+  function startWatching(key) {
+    setManuallyStartedKeys((prev) => {
+      if (prev.has(key)) return prev;
+      return new Set(prev).add(key);
+    });
+  }
 
   // Só usado no modo flutuante (ver mais abaixo) - reseta a cada nova
   // conexão pra uma chamada anterior minimizada não deixar a próxima já
@@ -118,8 +165,19 @@ export default function VoicePanel() {
       const cameraEntry = remoteStreams.find(
         (s) => s.userId === p.userId && s.appData?.source === "camera",
       );
+      const key = `user:${p.userId}`;
+      // Webcam remota: oculta (nunca chega no servidor, só visual/local) OU
+      // aguardando clique (autoplayCamera desligado E ninguém clicou ainda
+      // pra esta pessoa nesta chamada) - hidden sempre vence, ver
+      // ParticipantTile.jsx.
+      const hiddenMedia = isMediaHidden(p.userId, "camera");
+      const needsManualStart =
+        Boolean(cameraEntry?.stream) &&
+        !autoplayCamera &&
+        !hiddenMedia &&
+        !manuallyStartedKeys.has(key);
       tiles.push({
-        key: `user:${p.userId}`,
+        key,
         kind: "person",
         userId: p.userId,
         username: p.username,
@@ -128,6 +186,12 @@ export default function VoicePanel() {
         micMuted: micEntry?.paused ?? false,
         videoStream: cameraEntry?.stream ?? null,
         micStream: micEntry?.stream ?? null,
+        hiddenMedia,
+        onToggleHiddenMedia: () => toggleMediaHidden(p.userId, "camera"),
+        needsManualStart,
+        onStartWatching: () => startWatching(key),
+        locallyMuted: isLocallyMuted(p.userId),
+        onToggleLocalMute: () => toggleLocalMute(p.userId),
       });
     }
     return tiles;
@@ -139,6 +203,12 @@ export default function VoicePanel() {
     cameraOn,
     localCameraStream,
     localMicStream,
+    autoplayCamera,
+    manuallyStartedKeys,
+    isMediaHidden,
+    toggleMediaHidden,
+    isLocallyMuted,
+    toggleLocalMute,
   ]);
 
   // Um tile por TELA compartilhada, sempre à parte do tile da pessoa (no
@@ -153,20 +223,81 @@ export default function VoicePanel() {
         username: `${user?.username} (sua tela)`,
         isLocal: true,
         videoStream: localScreenStream,
+        // Local: o volume é o GANHO DE ENVIO (0-200) que o próprio
+        // compartilhador ajusta sobre o que está mandando - ver
+        // setLocalScreenAudioVolume em MediaSessionContext.jsx.
+        hasAudio: screenAudioEnabled,
+        audioVolume: screenAudioVolume,
+        audioVolumeMax: 200,
+        onAudioVolumeChange: setLocalScreenAudioVolume,
       });
     }
     for (const s of remoteStreams) {
       if (s.appData?.source !== "screen") continue;
+      // Remoto: o volume é de ESCUTA (0-100, per-listener) - existência do
+      // producer irmão 'screen-audio' deste mesmo userId é o que decide se
+      // este compartilhamento tem áudio ou não.
+      const hasAudio = remoteStreams.some(
+        (a) => a.userId === s.userId && a.appData?.source === "screen-audio",
+      );
+      const key = `screen:${s.userId}`;
+      // Tela compartilhada remota: mesma prioridade hidden > manual-start de
+      // personTiles acima, só que governada por autoplayScreenShare (padrão
+      // DESLIGADO - ver PreferencesContext, diferente da webcam).
+      const hiddenMedia = isMediaHidden(s.userId, "screen");
+      const needsManualStart =
+        !autoplayScreenShare && !hiddenMedia && !manuallyStartedKeys.has(key);
       tiles.push({
-        key: `screen:${s.userId}`,
+        key,
         kind: "screen",
+        userId: s.userId,
         username: `${s.username} (tela)`,
         isLocal: false,
         videoStream: s.stream,
+        hasAudio,
+        audioVolume: getScreenAudioVolume(s.userId),
+        audioVolumeMax: 100,
+        onAudioVolumeChange: hasAudio
+          ? (v) => setScreenAudioVolume(s.userId, v)
+          : undefined,
+        hiddenMedia,
+        onToggleHiddenMedia: () => toggleMediaHidden(s.userId, "screen"),
+        needsManualStart,
+        onStartWatching: () => startWatching(key),
       });
     }
     return tiles;
-  }, [remoteStreams, sharingScreen, localScreenStream, user]);
+  }, [
+    remoteStreams,
+    sharingScreen,
+    localScreenStream,
+    user,
+    screenAudioEnabled,
+    screenAudioVolume,
+    setLocalScreenAudioVolume,
+    getScreenAudioVolume,
+    setScreenAudioVolume,
+    autoplayScreenShare,
+    manuallyStartedKeys,
+    isMediaHidden,
+    toggleMediaHidden,
+  ]);
+
+  // Um <audio> por compartilhamento de tela REMOTO com áudio - consumido por
+  // RemoteAudioPlayers junto do mic de todo mundo (nunca filtrado por
+  // visibleTiles, mesmo motivo de personTiles: áudio não pode depender do
+  // tile aparecer no grid).
+  const screenAudioTiles = useMemo(
+    () =>
+      remoteStreams
+        .filter((s) => s.appData?.source === "screen-audio")
+        .map((s) => ({
+          key: `screen-audio:${s.userId}`,
+          userId: s.userId,
+          stream: s.stream,
+        })),
+    [remoteStreams],
+  );
 
   const allTiles = useMemo(
     () => [...screenTiles, ...personTiles],
@@ -174,16 +305,30 @@ export default function VoicePanel() {
   );
 
   // Lista que de fato vai pro grid - com "esconder sem mídia" ligado, tira
-  // quem só tem avatar (sem câmera/tela, kind='person' sem videoStream);
-  // quem só tem o mic aberto continua sendo OUVIDO normalmente (o áudio não
-  // depende do tile aparecer), só não ocupa quadradinho visual. Telas
-  // compartilhadas sempre têm mídia, nunca somem por esse filtro. Um
-  // participante FIXADO nunca some mesmo sem mídia - o usuário pediu
-  // destaque nele de propósito, esconder seria contraintuitivo.
+  // quem só tem avatar (sem câmera/tela, kind='person' sem videoStream) E
+  // quem tem mídia mas está OCULTADA (`hiddenMedia`, ver ParticipantTile.jsx/
+  // PreferencesContext) - pro usuário, as duas situações são visualmente a
+  // MESMA coisa (só o avatar, sem vídeo pra ver), então contam igual pra
+  // este filtro. Quem quer reativar rápido sem mexer neste filtro tem o
+  // atalho no indicador de câmera/tela da sidebar (ver VoiceRosterEntry.jsx).
+  // Quem só tem o mic aberto continua sendo OUVIDO normalmente (o áudio não
+  // depende do tile aparecer), só não ocupa quadradinho visual.
+  //
+  // `!t.hiddenMedia` fica FORA do OR de propósito (multiplicando os dois
+  // termos, não só o primeiro): telas compartilhadas são auto-fixadas ao
+  // aparecer (ver efeito logo abaixo), e fixado normalmente escapa deste
+  // filtro (é a exceção "participante FIXADO nunca some sem mídia" - o
+  // usuário pediu destaque nele de propósito). Mas ocultar é uma escolha
+  // EXPLÍCITA e mais recente que esse auto-fixar automático - sem tirar
+  // `hiddenMedia` do escopo do OR, uma tela ocultada DEPOIS de já fixada
+  // automaticamente nunca saía do grid mesmo com este filtro ligado (o
+  // `pinnedKeys.has(t.key)` sempre vencia sozinho). Oculto agora sempre
+  // vence, fixado ou não - só quem NUNCA foi ocultado continua protegido
+  // pelo pin.
   const visibleTiles = useMemo(() => {
     if (!hideParticipantsWithoutMedia) return allTiles;
     return allTiles.filter(
-      (t) => t.videoStream || pinnedKeys.has(t.key),
+      (t) => !t.hiddenMedia && (t.videoStream || pinnedKeys.has(t.key)),
     );
   }, [allTiles, hideParticipantsWithoutMedia, pinnedKeys]);
 
@@ -208,6 +353,20 @@ export default function VoicePanel() {
   // mas não mexe nas outras fixações ainda válidas.
   useEffect(() => {
     setPinnedKeys((prev) => {
+      const liveKeys = new Set(allTiles.map((t) => t.key));
+      const next = new Set([...prev].filter((k) => liveKeys.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allTiles]);
+
+  // Mesma poda de pinnedKeys acima, pras chaves 'iniciadas manualmente' -
+  // sem isso, parar de compartilhar e compartilhar de novo (ou sair/entrar
+  // na chamada) manteria pra sempre uma chave morta no Set, sem efeito
+  // nenhum (só memória), mas também sem nunca voltar a pedir o clique se um
+  // NOVO stream reaproveitasse a MESMA chave (`user:<id>`/`screen:<id>` são
+  // por PESSOA, não por stream - ver comentário de manuallyStartedKeys).
+  useEffect(() => {
+    setManuallyStartedKeys((prev) => {
       const liveKeys = new Set(allTiles.map((t) => t.key));
       const next = new Set([...prev].filter((k) => liveKeys.has(k)));
       return next.size === prev.size ? prev : next;
@@ -240,11 +399,14 @@ export default function VoicePanel() {
 
   const content = (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Voz · {allTiles.length} na chamada
-        </h3>
-
+      <div
+        className={`${popout ? "justify-center dark:bg-black p-2 rounded-xl" : "justify-between"} mb-3 flex flex-wrap items-center  gap-2`}
+      >
+        {!popout && (
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Voz · {allTiles.length} na chamada
+          </h3>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {isCall && <AddCallParticipant roster={activeRoster} />}
 
@@ -256,27 +418,26 @@ export default function VoicePanel() {
             <button
               onClick={() => setVideoLayoutMode("grid")}
               title="Grade fixa, sem resize manual"
-              className={`rounded-md px-2.5 py-1 transition ${
+              className={` cursor-pointer rounded-md px-2.5 py-1 transition ${
                 videoLayoutMode === "grid"
                   ? "bg-slate-500 text-white"
                   : "text-slate-300 hover:text-white"
               }`}
             >
-              Grade
+              <Grid2x2 />
             </button>
             <button
               onClick={() => setVideoLayoutMode("free")}
               title="Grid automático + resize manual por tile"
-              className={`rounded-md px-2.5 py-1 transition ${
+              className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
                 videoLayoutMode === "free"
                   ? "bg-slate-500 text-white"
                   : "text-slate-300 hover:text-white"
               }`}
             >
-              Livre
+              <LayoutFreeform />
             </button>
           </div>
-
           <button
             onClick={toggleHideParticipantsWithoutMedia}
             title={
@@ -298,53 +459,79 @@ export default function VoicePanel() {
             )}
           </button>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={toggleMute}
-              disabled={muted && audioLocked}
-              title={
-                muted && audioLocked
-                  ? "Um moderador bloqueou seu áudio neste canal"
-                  : undefined
-              }
-              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {muted
-                ? audioLocked
-                  ? "🔒 Mutado por moderador"
-                  : "Ativar mic"
-                : "Silenciar"}
-            </button>
-            <button
-              onClick={cameraOn ? stopCamera : shareCamera}
-              disabled={!cameraOn && mediaLocked}
-              title={
-                !cameraOn && mediaLocked
-                  ? "Um moderador bloqueou sua mídia neste canal"
-                  : undefined
-              }
-              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {cameraOn
-                ? "Desligar câmera"
-                : mediaLocked
-                  ? "🔒 Mídia bloqueada"
-                  : "Ligar câmera"}
-            </button>
-            <button
-              onClick={toggleDeafen}
-              className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
-            >
-              {deafened ? "Ouvir todos" : "Silenciar todos"}
-            </button>
-            <button
-              onClick={leaveVoice}
-              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Sair da voz
-            </button>
-          </div>
+          {popout && (
+            <div>
+              <div className="flex flex-wrap gap-2 ">
+                <button
+                  onClick={cameraOn ? stopCamera : shareCamera}
+                  disabled={!cameraOn && mediaLocked}
+                  title={
+                    !cameraOn && mediaLocked
+                      ? "Um moderador bloqueou sua mídia neste canal"
+                      : undefined
+                  }
+                  className={`cursor-pointer rounded-lg  px-3 py-1.5 text-sm text-white  disabled:cursor-not-allowed disabled:opacity-50 ${
+                    cameraOn
+                      ? "bg-blue-600 hover:bg-blue-500"
+                      : "bg-slate-700 hover:bg-slate-600"
+                  }`}
+                >
+                  {cameraOn ? (
+                    <Camera className="size-4" />
+                  ) : mediaLocked ? (
+                    "Mídia bloqueada"
+                  ) : (
+                    <CameraOff className="size-4" />
+                  )}
+                </button>
+                <button
+                  onClick={toggleMute}
+                  disabled={muted && audioLocked}
+                  title={
+                    muted && audioLocked
+                      ? "Um moderador bloqueou seu áudio neste canal"
+                      : undefined
+                  }
+                  className={`cursor-pointer rounded-lg  px-3 py-1.5 text-sm text-white  ${
+                    muted
+                      ? "bg-red-600 hover:bg-red-500"
+                      : "bg-slate-700 hover:bg-slate-600"
+                  }`}
+                >
+                  {muted ? (
+                    audioLocked ? (
+                      "Mutado por moderador"
+                    ) : (
+                      <MicOff className="size-4" />
+                    )
+                  ) : (
+                    <Mic className="size-4" />
+                  )}
+                </button>
 
+                <button
+                  onClick={toggleDeafen}
+                  className={`cursor-pointer rounded-lg  px-3 py-1.5 text-sm text-white  ${
+                    deafened
+                      ? "bg-red-600 hover:bg-red-500"
+                      : "bg-slate-700 hover:bg-slate-600"
+                  }`}
+                >
+                  {deafened ? (
+                    <HeadphoneOff className="size-4" />
+                  ) : (
+                    <Headphones className="size-4" />
+                  )}
+                </button>
+                <button
+                  onClick={leaveVoice}
+                  className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Sair da voz
+                </button>
+              </div>
+            </div>
+          )}
           <button
             onClick={togglePopout}
             title={popout ? "Encaixar de volta" : "Abrir em uma nova janela"}
@@ -355,6 +542,27 @@ export default function VoicePanel() {
             }`}
           >
             <ExternalLink className="size-4" />
+          </button>
+
+          <button
+            onClick={toggleMembersSidebar}
+            title={
+              membersSidebarVisible
+                ? "Esconder painel de participantes"
+                : "Mostrar painel de participantes"
+            }
+            aria-pressed={membersSidebarVisible}
+            className={`rounded-lg p-2 text-white transition ${
+              membersSidebarVisible
+                ? "bg-slate-700 hover:bg-slate-600"
+                : "bg-blue-600 hover:bg-blue-500"
+            }`}
+          >
+            {membersSidebarVisible ? (
+              <PanelRightClose className="size-4" />
+            ) : (
+              <PanelRightOpen className="size-4" />
+            )}
           </button>
 
           {floating && (
@@ -376,8 +584,12 @@ export default function VoicePanel() {
           qual tile está fixado, ver RemoteAudioPlayers.jsx. */}
       <RemoteAudioPlayers
         tiles={personTiles}
+        screenAudioTiles={screenAudioTiles}
         deafened={deafened}
         getUserVolume={getUserVolume}
+        getScreenAudioVolume={getScreenAudioVolume}
+        isLocallyMuted={isLocallyMuted}
+        outputDeviceId={outputDeviceId}
       />
 
       <div className="min-h-0 flex-1 overflow-auto">

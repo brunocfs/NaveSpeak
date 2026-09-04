@@ -9,9 +9,10 @@ import {
   MicOff,
   HeadphoneOff,
   Headphones,
-  Video,
-  VideoOff,
+  Camera,
+  CameraOff,
   ScreenShare,
+  RefreshCw,
   PhoneOff,
 } from "lucide-react";
 import {
@@ -38,6 +39,7 @@ import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import PreferencesModal from "../components/PreferencesModal.jsx";
 import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
 import ConnectionStatusButton from "../components/ConnectionStatusButton.jsx";
+import StatusSelector from "../components/StatusSelector.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
 export default function RoomPage() {
   const { roomId } = useParams();
@@ -50,6 +52,10 @@ export default function RoomPage() {
     toggleMembersSidebar,
     getUserVolume,
     setUserVolume,
+    isLocallyMuted,
+    toggleLocalMute,
+    isMediaHidden,
+    toggleMediaHidden,
   } = usePreferences();
   const [room, setRoom] = useState(null);
   const [members, setMembers] = useState([]);
@@ -63,6 +69,7 @@ export default function RoomPage() {
   const [activeChannelId, setActiveChannelId] = useState(null);
   const [selectedChannelId, setSelectedChannelId] = useState(null);
   const [online, setOnline] = useState([]);
+  const [openUserStatus, setOpenUserStatus] = useState(false);
   // Status de presença global por usuário (independente de canal/servidor) -
   // distinto de `online` acima, que é só quem está vendo o canal ativo.
   // Mapa { userId: 'online'|'busy'|'away' } - quem não aparece aqui está
@@ -77,6 +84,12 @@ export default function RoomPage() {
   const [voiceRosters, setVoiceRosters] = useState({});
   const [error, setError] = useState(null);
   const [screenPickerSources, setScreenPickerSources] = useState(null);
+  // 'share' = começar um compartilhamento novo; 'switch' = trocar a fonte de
+  // um já ativo - mesmo modal, ver comentário equivalente em
+  // VoiceStatusBar.jsx (a barra global tem a mesma UI de compartilhamento,
+  // duplicada de propósito - RoomPage e VoiceStatusBar já divergiam nisso
+  // antes desta feature).
+  const [screenPickerMode, setScreenPickerMode] = useState("share");
   const [screenPickerError, setScreenPickerError] = useState(null);
   const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
   const selectedChannel =
@@ -122,33 +135,49 @@ export default function RoomPage() {
       });
     }
   }
-  async function toggleScreenShare() {
+  async function openSourcePicker(mode) {
+    // `screenPickerSources` era setado aqui mas o <ScreenSourcePicker> nunca
+    // era renderizado nesta tela (só existia em VoiceStatusBar.jsx) - clicar
+    // em "Compartilhar tela" listava as fontes e ficava preso num estado sem
+    // UI nenhuma pra mostrar, sem erro nenhum (a promise resolvia normal).
+    // Ver <ScreenSourcePicker> montado abaixo, e o try/catch aqui pra caso a
+    // listagem em si falhe.
+    try {
+      const sources = await listScreenSources();
+      setScreenPickerMode(mode);
+      setScreenPickerSources(sources ?? []);
+    } catch (err) {
+      // NÃO usa `setError` daqui - esse `error` (acima) troca a tela
+      // INTEIRA da sala por uma página de erro (ver `if (error) return`
+      // logo abaixo), reservado pra falha de carregar a sala em si. Um
+      // estado próprio, só pra não deixar o clique morrer em silêncio de
+      // novo como antes.
+      console.error("[screen-share] Falha ao listar fontes de tela:", err);
+      setScreenPickerError(
+        err.message ?? "Não foi possível listar as telas/janelas disponíveis.",
+      );
+    }
+  }
+  function toggleScreenShare() {
     if (media.sharingScreen) {
       media.stopScreenShare();
       return;
     }
     if (isElectron()) {
-      // `screenPickerSources` era setado aqui mas o <ScreenSourcePicker>
-      // nunca era renderizado nesta tela (só existia em VoiceStatusBar.jsx)
-      // - clicar em "Compartilhar tela" listava as fontes e ficava preso
-      // num estado sem UI nenhuma pra mostrar, sem erro nenhum (a promise
-      // resolvia normal). Ver <ScreenSourcePicker> montado abaixo, e o
-      // try/catch aqui pra caso a listagem em si falhe.
-      try {
-        const sources = await listScreenSources();
-        setScreenPickerSources(sources ?? []);
-      } catch (err) {
-        // NÃO usa `setError` daqui - esse `error` (acima) troca a tela
-        // INTEIRA da sala por uma página de erro (ver `if (error) return`
-        // logo abaixo), reservado pra falha de carregar a sala em si. Um
-        // estado próprio, só pra não deixar o clique morrer em silêncio de
-        // novo como antes.
-        console.error("[screen-share] Falha ao listar fontes de tela:", err);
-        setScreenPickerError(err.message ?? "Não foi possível listar as telas/janelas disponíveis.");
-      }
+      openSourcePicker("share");
       return;
     }
-    media.shareScreen();
+    // Navegador comum: getDisplayMedia({ audio: true }) só faz o seletor
+    // NATIVO mostrar a opção "Compartilhar áudio" - quem decide de verdade
+    // se ela vem é o usuário ali (ver requestScreenStream em api/media.js).
+    media.shareScreen(undefined, { withAudio: true });
+  }
+  function switchScreenSource() {
+    if (isElectron()) {
+      openSourcePicker("switch");
+      return;
+    }
+    media.switchScreenSource(undefined, { withAudio: true });
   }
   const showingVoicePanel =
     isVoice && media.voiceChannelId === activeChannel?.id && media.connected;
@@ -552,7 +581,8 @@ export default function RoomPage() {
             >
               {room.invite_code}
             </span>
-            <button
+            {/* retirar */}
+            {/* <button
               onClick={toggleMembersSidebar}
               title={
                 membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
@@ -564,7 +594,7 @@ export default function RoomPage() {
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               {membersSidebarVisible ? <PanelRightClose /> : <PanelRightOpen />}
-            </button>
+            </button> */}
             {canOpenSettings && (
               <button
                 onClick={() => setSettingsOpen(true)}
@@ -765,6 +795,27 @@ export default function RoomPage() {
                                         setUserVolume(p.userId, v),
                                     }
                               }
+                              localControls={
+                                isSelf
+                                  ? null
+                                  : {
+                                      locallyMuted: isLocallyMuted(p.userId),
+                                      onToggleLocalMute: () =>
+                                        toggleLocalMute(p.userId),
+                                      cameraHidden: isMediaHidden(
+                                        p.userId,
+                                        "camera",
+                                      ),
+                                      onToggleCameraHidden: () =>
+                                        toggleMediaHidden(p.userId, "camera"),
+                                      screenHidden: isMediaHidden(
+                                        p.userId,
+                                        "screen",
+                                      ),
+                                      onToggleScreenHidden: () =>
+                                        toggleMediaHidden(p.userId, "screen"),
+                                    }
+                              }
                               moderation={
                                 anyVoiceModeration
                                   ? {
@@ -820,7 +871,7 @@ export default function RoomPage() {
               cortando o popover do ConnectionStatusButton, que abre pra
               CIMA (bottom-full) e precisa extrapolar essa caixa. */}
           {media.connected ? (
-            <div className="flex p-2    shadow-sm ring-1  border-slate-700 bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 ">
+            <div className="flex p-2   ring-slate-200 shadow-sm ring-1  border-slate-700  dark:bg-slate-800 dark:ring-slate-800 ">
               <div className="flex flex-1 gap-2 justify-between items-center">
                 {/* Estatísticas de conexão (ping/perda de pacote) - ver
                   ConnectionStatusButton.jsx, dados vêm de
@@ -839,9 +890,9 @@ export default function RoomPage() {
                     }`}
                   >
                     {media.cameraOn ? (
-                      <Video className="size-4 text-white" />
+                      <Camera className="size-4 text-white" />
                     ) : (
-                      <VideoOff className="size-4 text-white" />
+                      <CameraOff className="size-4 text-white" />
                     )}
                   </button>
                   <button
@@ -859,20 +910,42 @@ export default function RoomPage() {
                   >
                     <ScreenShare className="size-4 text-white" />
                   </button>
+                  {media.sharingScreen && (
+                    <button
+                      onClick={switchScreenSource}
+                      title="Trocar a tela/janela compartilhada (sem parar o compartilhamento)"
+                      className="rounded-xl px-2 py-2 cursor-pointer bg-gray-600 transition hover:bg-gray-500"
+                    >
+                      <RefreshCw className="size-4 text-white" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
           ) : (
             ""
           )}
-          <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1 border-slate-700 overflow-hidden bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 ">
+          {openUserStatus && (
+            <div className=" fixed w-50 left-50 bottom-60 rounded-full">
+              <button onClick={() => setOpenUserStatus((prev) => !prev)}>
+                <StatusSelector onDot={true} />
+              </button>
+            </div>
+          )}
+          {/* <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1 border-slate-700 overflow-hidden bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 "> */}
+          <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1  overflow-hidden border-slate-100 dark:border-slate-600 ring-slate-200 dark:bg-slate-800 dark:ring-slate-800  ">
             <div className="hidden items-center gap-2 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex dark:bg-slate-800 dark:text-slate-200 ">
               <span className="relative inline-flex shrink-0">
-                <Avatar
-                  avatarPath={user?.avatarPath}
-                  username={user?.username}
-                  size="md"
-                />
+                <button
+                  className="cursor-pointer"
+                  onClick={() => setOpenUserStatus((prev) => !prev)}
+                >
+                  <Avatar
+                    avatarPath={user?.avatarPath}
+                    username={user?.username}
+                    size="md"
+                  />
+                </button>
                 <StatusDot
                   status={user?.status ?? "offline"}
                   className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
@@ -914,7 +987,7 @@ export default function RoomPage() {
               </button>
               <button
                 onClick={() => media.leaveVoice()}
-                className="cursor-pointer rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400"
+                className={`${media.connected ? "cursor-pointer rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400" : "cursor-pointer rounded-xl bg-slate-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-red-400"}`}
               >
                 <PhoneOff></PhoneOff>
               </button>
@@ -983,9 +1056,32 @@ export default function RoomPage() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <h2 className="shrink-0 border-b border-slate-200 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                {activeChannel.name ? `  ${activeChannel.name}` : ""}
-              </h2>
+              <div class="flex justify-between border-b border-slate-200 dark:border-slate-800 items-center pr-3">
+                <h2 className="shrink-0  px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-500  dark:text-slate-400">
+                  {activeChannel.name ? `  ${activeChannel.name}` : ""}
+                </h2>
+                <button
+                  onClick={toggleMembersSidebar}
+                  title={
+                    membersSidebarVisible
+                      ? "Ocultar membros"
+                      : "Mostrar membros"
+                  }
+                  aria-label={
+                    membersSidebarVisible
+                      ? "Ocultar membros"
+                      : "Mostrar membros"
+                  }
+                  aria-pressed={membersSidebarVisible}
+                  className="cursor-pointer inline-flex h-8 w-8 p-1.5 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  {membersSidebarVisible ? (
+                    <PanelRightClose />
+                  ) : (
+                    <PanelRightOpen />
+                  )}
+                </button>
+              </div>
               <div className="min-h-0 flex-1">
                 <ChatPanel
                   channelId={activeChannel.id}
@@ -1092,9 +1188,19 @@ export default function RoomPage() {
       {screenPickerSources && (
         <ScreenSourcePicker
           sources={screenPickerSources}
-          onSelect={(sourceId) => {
+          title={
+            screenPickerMode === "switch"
+              ? "Trocar para qual fonte?"
+              : "Escolha o que compartilhar"
+          }
+          defaultWithAudio={
+            screenPickerMode === "switch" ? media.screenAudioEnabled : false
+          }
+          onSelect={(sourceId, withAudio) => {
             setScreenPickerSources(null);
-            media.shareScreen(sourceId);
+            if (screenPickerMode === "switch")
+              media.switchScreenSource(sourceId, { withAudio });
+            else media.shareScreen(sourceId, { withAudio });
           }}
           onCancel={() => setScreenPickerSources(null)}
         />

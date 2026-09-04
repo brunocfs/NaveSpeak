@@ -20,7 +20,7 @@ Reportem qualquer detalhe que possa ser melhorado.
 
 Aproveitem para conhecer a proposta do NaveSpeak.
 
-# Novidades da versão 0.3.1
+# Novidades da versão 0.3.2
 
 ## Novidades
 
@@ -48,7 +48,13 @@ Aproveitem para conhecer a proposta do NaveSpeak.
 - Menções - @username
   Agora é possivel mencionar seus amigos no chat!
 
+- Algumas melhorias no visual!
+
+- Novo supressor de ruído: DeepFilterNet3
+  Em Preferências > Áudio agora tem a opção DeepFilterNet3, o supressor mais forte da lista - nos nossos testes ele derruba cerca de 20dB do ruído de fundo (teclado, ventilador, conversa) praticamente sem mexer na sua voz. Na primeira vez que você entrar em voz com ele, o app baixa ~24MB de modelo (só uma vez) e ele usa mais CPU que os outros. O nível agora vale a régua inteira: 0% deixa o áudio intocado e 100% libera o corte máximo.
+
 ## Correções e Melhorias
+
 
 # Novidades da versão 0.3.0
 

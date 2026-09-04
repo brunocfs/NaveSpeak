@@ -41,8 +41,21 @@ export async function listMediaDevices() {
   return {
     mics: list.filter((d) => d.kind === 'audioinput'),
     cameras: list.filter((d) => d.kind === 'videoinput'),
+    // Dispositivos de SAÍDA (alto-falante/fone) - só populam de verdade em
+    // navegadores com setSinkId (Chrome/Edge); em quem não tem, a lista
+    // normalmente já vem vazia sozinha (o browser não lista o que não pode
+    // trocar), mas o filtro por `kind` não muda - ver RemoteAudioPlayers.jsx
+    // pra onde isso realmente é aplicado.
+    speakers: list.filter((d) => d.kind === 'audiooutput'),
   };
 }
+
+// Suporte a trocar o dispositivo de SAÍDA de áudio (HTMLMediaElement.setSinkId)
+// - Chrome/Edge têm, Firefox/Safari não (em setembro de 2026). Checado uma
+// vez só e reaproveitado - `'setSinkId' in HTMLMediaElement.prototype` é
+// barato mas não precisa ser refeito toda hora.
+export const supportsAudioOutputSelection =
+  typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
 // Pede microfone+câmera só para o navegador liberar os `label` reais dos
 // dispositivos em enumerateDevices (fica vazio até alguma permissão de
@@ -95,9 +108,10 @@ async function getStreamWithFallback(constraints, fallbackConstraints) {
 // `noiseSuppressionMode` (Preferências > Áudio, ver PreferencesContext) só
 // decide o constraint NATIVO `noiseSuppression` do WebRTC:
 // - 'native': liga o supressor nativo do navegador (comportamento de sempre).
-// - 'off'/'rnnoise': desliga - no modo 'rnnoise' o processamento de verdade
-//   acontece depois, via WASM (ver audio/rnnoise.js), e rodar os dois juntos
-//   só arriscaria artefato (um supressor "limpando" o que o outro já mexeu).
+// - 'off'/'rnnoise'/'gtcrn'/'deepfilternet': desliga - nesses modos o
+//   processamento de verdade acontece depois, via WASM (ver audio/rnnoise.js,
+//   audio/gtcrn.js e audio/deepfilternet.js), e rodar os dois juntos só
+//   arriscaria artefato (um supressor "limpando" o que o outro já mexeu).
 // echoCancellation/autoGainControl ficam sempre ligados - não são o alvo
 // deste controle e desligá-los não tem bom motivo de UX aqui.
 function micAudioConstraints(deviceId, noiseSuppressionMode) {
@@ -117,26 +131,52 @@ export async function requestMicStream(deviceId, { noiseSuppressionMode = "nativ
   );
 }
 
-export async function requestScreenStream(sourceId) {
+// `withAudio`: pede áudio junto com o vídeo da captura de tela.
+// - Electron: desktopCapturer não expõe áudio por janela/app - só o loopback
+//   do sistema inteiro (`chromeMediaSource: 'desktop'` sem sourceId, junto na
+//   MESMA chamada de getUserMedia do vídeo, é o padrão documentado da API).
+//   Só funciona em algumas plataformas (Windows, essencialmente) - se a
+//   captura com áudio falhar, refaz só com vídeo em vez de derrubar o share
+//   inteiro por causa do áudio.
+// - Navegador comum: getDisplayMedia({ audio: true }) só faz o Chrome/Edge
+//   MOSTRAREM a opção "Compartilhar áudio" no seletor nativo - quem decide
+//   de verdade se a track de áudio vem é o usuário ali, não este código
+//   (por isso devolve `hasAudio` calculado da stream resultante, não do que
+//   foi pedido).
+//
+// Devolve `{ stream, hasAudio }` - `hasAudio` reflete o que REALMENTE veio.
+export async function requestScreenStream(sourceId, { withAudio = false } = {}) {
   assertMediaDevicesAvailable();
 
   if (isElectron()) {
     if (!sourceId) throw new Error('Selecione uma janela ou tela para compartilhar.');
-    return navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sourceId,
-        },
+    const videoConstraints = {
+      mandatory: {
+        chromeMediaSource: 'desktop',
+        chromeMediaSourceId: sourceId,
       },
-    });
+    };
+    if (withAudio) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { mandatory: { chromeMediaSource: 'desktop' } },
+          video: videoConstraints,
+        });
+        return { stream, hasAudio: stream.getAudioTracks().length > 0 };
+      } catch {
+        // Plataforma sem loopback de áudio (fora do Windows, tipicamente) -
+        // segue só com vídeo em vez de falhar o compartilhamento inteiro.
+      }
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+    return { stream, hasAudio: false };
   }
 
   // Navegador comum: isso só deve ser chamado a partir de um gesto explícito
   // do usuário (onClick do botão "Compartilhar tela") - nunca automaticamente
   // ao carregar a página, senão o navegador bloqueia o pedido de permissão.
-  return navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: withAudio });
+  return { stream, hasAudio: stream.getAudioTracks().length > 0 };
 }
 
 // Reaproveita a webcam salva em Preferências (deviceId), com fallback para

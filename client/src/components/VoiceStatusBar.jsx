@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, Headphones } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, RefreshCw, Volume2, Headphones } from "lucide-react";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
 import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
@@ -15,32 +15,53 @@ export default function VoiceStatusBar() {
   // Fontes de tela/janela do Electron - fora dele, getDisplayMedia já mostra
   // o seletor nativo do navegador, então isso fica sempre null.
   const [screenPickerSources, setScreenPickerSources] = useState(null);
+  // 'share' = começar um compartilhamento novo; 'switch' = trocar a fonte de
+  // um compartilhamento JÁ ativo (mesmo modal, texto/callback diferentes -
+  // ver ScreenSourcePicker.jsx). Só importa enquanto screenPickerSources !=
+  // null.
+  const [screenPickerMode, setScreenPickerMode] = useState("share");
   const [screenPickerError, setScreenPickerError] = useState(null);
 
   if (!media.voiceChannelId) return null;
 
-  async function toggleScreenShare() {
-    if (media.sharingScreen) {
-      media.stopScreenShare();
-      return;
-    }
-    if (isElectron()) {
+  async function openSourcePicker(mode) {
+    setScreenPickerError(null);
+    try {
+      const sources = await listScreenSources();
+      setScreenPickerMode(mode);
+      setScreenPickerSources(sources ?? []);
+    } catch (err) {
       // Sem try/catch aqui antes: se o IPC (ipcMain.handle('screen:get-sources'))
       // rejeitasse - desktopCapturer falhando por qualquer motivo do lado
       // nativo -, a promise estourava sem handler e o clique parecia não
       // fazer NADA (sem seletor, sem erro visível nenhum). Agora loga e
       // mostra o motivo real em vez de falhar em silêncio.
-      setScreenPickerError(null);
-      try {
-        const sources = await listScreenSources();
-        setScreenPickerSources(sources ?? []);
-      } catch (err) {
-        console.error("[screen-share] Falha ao listar fontes de tela:", err);
-        setScreenPickerError(err.message ?? "Não foi possível listar as telas/janelas disponíveis.");
-      }
+      console.error("[screen-share] Falha ao listar fontes de tela:", err);
+      setScreenPickerError(err.message ?? "Não foi possível listar as telas/janelas disponíveis.");
+    }
+  }
+
+  function toggleScreenShare() {
+    if (media.sharingScreen) {
+      media.stopScreenShare();
       return;
     }
-    media.shareScreen();
+    if (isElectron()) {
+      openSourcePicker("share");
+      return;
+    }
+    // Navegador comum: getDisplayMedia({ audio: true }) só faz o seletor
+    // NATIVO mostrar a opção "Compartilhar áudio" - quem decide de verdade
+    // se ela vem é o usuário ali (ver requestScreenStream em api/media.js).
+    media.shareScreen(undefined, { withAudio: true });
+  }
+
+  function switchScreenSource() {
+    if (isElectron()) {
+      openSourcePicker("switch");
+      return;
+    }
+    media.switchScreenSource(undefined, { withAudio: true });
   }
 
   return (
@@ -74,8 +95,37 @@ export default function VoiceStatusBar() {
           media.sharingScreen ? "bg-blue-600 hover:bg-blue-500" : "bg-gray-600 hover:bg-gray-500"
         }`}
       >
-        <ScreenShare className="size-5 text-white" />
+        {media.sharingScreen ? (
+          <ScreenShareOff className="size-5 text-white" />
+        ) : (
+          <ScreenShare className="size-5 text-white" />
+        )}
       </button>
+      {media.sharingScreen && (
+        <button
+          onClick={switchScreenSource}
+          title="Trocar a tela/janela compartilhada (sem parar o compartilhamento)"
+          className="rounded-xl bg-gray-600 px-3 py-3 cursor-pointer transition hover:bg-gray-500"
+        >
+          <RefreshCw className="size-5 text-white" />
+        </button>
+      )}
+      {media.sharingScreen && media.screenAudioEnabled && (
+        <div
+          className="flex items-center gap-1.5 rounded-xl bg-gray-700 px-2.5 py-2"
+          title={`Volume do áudio compartilhado: ${media.screenAudioVolume}%`}
+        >
+          <Volume2 className="size-4 text-white shrink-0" />
+          <input
+            type="range"
+            min={0}
+            max={200}
+            value={media.screenAudioVolume}
+            onChange={(e) => media.setLocalScreenAudioVolume(Number(e.target.value))}
+            className="h-1 w-16 cursor-pointer accent-blue-400"
+          />
+        </div>
+      )}
       <button
         onClick={() => media.toggleMute()}
         title={media.muted ? "Ativar microfone" : "Silenciar microfone"}
@@ -113,9 +163,12 @@ export default function VoiceStatusBar() {
       {screenPickerSources && (
         <ScreenSourcePicker
           sources={screenPickerSources}
-          onSelect={(sourceId) => {
+          title={screenPickerMode === "switch" ? "Trocar para qual fonte?" : "Escolha o que compartilhar"}
+          defaultWithAudio={screenPickerMode === "switch" ? media.screenAudioEnabled : false}
+          onSelect={(sourceId, withAudio) => {
             setScreenPickerSources(null);
-            media.shareScreen(sourceId);
+            if (screenPickerMode === "switch") media.switchScreenSource(sourceId, { withAudio });
+            else media.shareScreen(sourceId, { withAudio });
           }}
           onCancel={() => setScreenPickerSources(null)}
         />

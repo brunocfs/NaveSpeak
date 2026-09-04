@@ -6,6 +6,7 @@ import {
   listMediaDevices,
   unlockDeviceLabels,
   requestMicStream,
+  supportsAudioOutputSelection,
 } from "../api/media.js";
 import { useMicLevel } from "../hooks/useMicLevel.js";
 import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
@@ -103,12 +104,15 @@ export default function PreferencesModal() {
     notificationsEnabled,
     micDeviceId,
     cameraDeviceId,
+    outputDeviceId,
     noiseSuppressionMode,
     noiseSuppressionLevel,
     micGateEnabled,
     micGateThresholdDb,
     pushToTalkEnabled,
     pushToTalkKey,
+    autoplayCamera,
+    autoplayScreenShare,
   } = preferences;
 
   // Teste de microfone (sensibilidade) - stream à parte do `draft`, só existe
@@ -176,7 +180,7 @@ export default function PreferencesModal() {
   // <select> de microfone/webcam. `labelsUnlocked` reflete se o navegador já
   // liberou os `label` reais (getUserMedia concedido em algum momento) -
   // sem isso enumerateDevices devolve os deviceId mas com nome vazio.
-  const [devices, setDevices] = useState({ mics: [], cameras: [] });
+  const [devices, setDevices] = useState({ mics: [], cameras: [], speakers: [] });
   const [labelsUnlocked, setLabelsUnlocked] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -189,7 +193,9 @@ export default function PreferencesModal() {
       const list = await listMediaDevices();
       setDevices(list);
       setLabelsUnlocked(
-        list.mics.some((d) => d.label) || list.cameras.some((d) => d.label),
+        list.mics.some((d) => d.label) ||
+          list.cameras.some((d) => d.label) ||
+          list.speakers.some((d) => d.label),
       );
     } catch (err) {
       setDevicesError(
@@ -230,12 +236,15 @@ export default function PreferencesModal() {
       notificationsEnabled,
       micDeviceId,
       cameraDeviceId,
+      outputDeviceId,
       noiseSuppressionMode,
       noiseSuppressionLevel,
       micGateEnabled,
       micGateThresholdDb,
       pushToTalkEnabled,
       pushToTalkKey,
+      autoplayCamera,
+      autoplayScreenShare,
     });
     setTab(TABS[0].id);
     setOpen(true);
@@ -256,12 +265,15 @@ export default function PreferencesModal() {
     preferences.setNotificationsEnabled(draft.notificationsEnabled);
     preferences.setMicDeviceId(draft.micDeviceId || null);
     preferences.setCameraDeviceId(draft.cameraDeviceId || null);
+    preferences.setOutputDeviceId(draft.outputDeviceId || null);
     preferences.setNoiseSuppressionMode(draft.noiseSuppressionMode);
     preferences.setNoiseSuppressionLevel(draft.noiseSuppressionLevel);
     preferences.setMicGateEnabled(draft.micGateEnabled);
     preferences.setMicGateThresholdDb(draft.micGateThresholdDb);
     preferences.setPushToTalkEnabled(draft.pushToTalkEnabled);
     preferences.setPushToTalkKey(draft.pushToTalkKey);
+    preferences.setAutoplayCamera(draft.autoplayCamera);
+    preferences.setAutoplayScreenShare(draft.autoplayScreenShare);
     handleClose();
   }
 
@@ -597,29 +609,167 @@ export default function PreferencesModal() {
                               </select>
                             </div>
 
+                            {supportsAudioOutputSelection ? (
+                              <div>
+                                <label
+                                  htmlFor="preferences-speaker"
+                                  className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400"
+                                >
+                                  Saída de áudio (alto-falante/fone)
+                                </label>
+                                <select
+                                  id="preferences-speaker"
+                                  value={draft.outputDeviceId ?? SYSTEM_DEFAULT}
+                                  disabled={devicesLoading}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      outputDeviceId: e.target.value || null,
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                                >
+                                  <option value={SYSTEM_DEFAULT}>
+                                    Padrão do sistema
+                                  </option>
+                                  {withSavedFallback(
+                                    devices.speakers,
+                                    draft.outputDeviceId,
+                                  ).map((device, index) => (
+                                    <option
+                                      key={device.deviceId}
+                                      value={device.deviceId}
+                                      disabled={device.missing}
+                                    >
+                                      {deviceLabel(device, index, "Saída")}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400 dark:text-slate-500">
+                                Escolher saída de áudio não é suportado neste
+                                navegador (só Chrome/Edge por enquanto) - o
+                                app usa o alto-falante/fone padrão do sistema.
+                              </p>
+                            )}
+
                             <p className="text-xs text-slate-400 dark:text-slate-500">
                               Se o dispositivo escolhido não estiver mais
                               disponível na hora da chamada, o padrão do sistema
-                              é usado automaticamente.
+                              é usado automaticamente. Microfone e webcam valem
+                              da próxima vez que entrar na voz/ligar a câmera;
+                              trocar de mic/webcam ENQUANTO já está em uma
+                              chamada também aplica na hora (ver
+                              MediaSessionContext.jsx) - só a saída de áudio
+                              não depende disso, já era sempre imediata.
+                            </p>
+                          </div>
+
+                          {/* Reprodução automática da mídia dos OUTROS participantes -
+                    controla só o que VOCÊ vê/assiste (nunca afeta o que os outros
+                    veem, e nunca o áudio - o mic sempre toca). Desligado, a mídia
+                    fica atrás de um "Assistir" (ver ParticipantTile.jsx/
+                    VoicePanel.jsx) até você clicar; ligado, toca sozinha assim que
+                    a pessoa liga a câmera/começa a compartilhar - igual sempre foi
+                    antes desta preferência existir. */}
+                          <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                              Reprodução automática de mídia
+                            </p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                              Decide se a webcam/tela dos OUTROS participantes já
+                              toca sozinha quando eles ligam, ou se fica esperando
+                              você clicar em "Assistir". Nunca afeta o áudio (mic) e
+                              nunca a SUA própria mídia - só o que você assiste dos
+                              demais.
+                            </p>
+
+                            <label className="flex cursor-pointer items-center justify-between gap-3">
+                              <span>
+                                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  Webcam
+                                </span>
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Padrão: automático
+                                </span>
+                              </span>
+                              <span className="relative inline-flex shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={draft.autoplayCamera}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      autoplayCamera: e.target.checked,
+                                    }))
+                                  }
+                                  className="peer sr-only"
+                                />
+                                <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                              </span>
+                            </label>
+
+                            <label className="flex cursor-pointer items-center justify-between gap-3">
+                              <span>
+                                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  Compartilhamento de tela
+                                </span>
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Padrão: manual (clique para assistir)
+                                </span>
+                              </span>
+                              <span className="relative inline-flex shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={draft.autoplayScreenShare}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      autoplayScreenShare: e.target.checked,
+                                    }))
+                                  }
+                                  className="peer sr-only"
+                                />
+                                <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                              </span>
+                            </label>
+
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                              Ocultar a mídia de alguém especificamente, ou mutar
+                              o áudio dele só pra você, fica no menu ⋮ da lista de
+                              participantes ou direto no quadradinho dele durante
+                              a chamada.
                             </p>
                           </div>
 
                           {/* Supressor de ruído do próprio microfone - 'native' é o
                     noiseSuppression padrão do WebRTC (só liga/desliga);
-                    'rnnoise'/'gtcrn' processam via WASM (open source) com
-                    nível ajustável; ver api/media.js, audio/rnnoise.js e
-                    audio/gtcrn.js. */}
+                    'rnnoise'/'gtcrn'/'deepfilternet' processam via WASM (open
+                    source) com nível ajustável; ver api/media.js,
+                    audio/rnnoise.js, audio/gtcrn.js e audio/deepfilternet.js. */}
                           <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
                               Supressor de ruído
                             </p>
 
+                            {/* 'deepfilternet' fica por último de propósito: é o
+                        mais pesado (~24MB de assets baixados sob demanda) e
+                        o mais caro de CPU dos quatro. Ficou desligado por um
+                        tempo por causa de um `RuntimeError: unreachable`
+                        dentro de `df_create` - a causa era o modelo `.tar.gz`
+                        chegando já descompactado pelo `Content-Encoding` do
+                        servidor estático, não o WASM em si; corrigido em
+                        audio/deepfilternet.js (asset servido como `.bin`). */}
                             <div className="grid grid-cols-2 gap-2">
                               {[
                                 { value: "off", label: "Desligado" },
                                 { value: "native", label: "Nativo" },
                                 { value: "rnnoise", label: "RNNoise" },
                                 { value: "gtcrn", label: "GTCRN" },
+                                { value: "deepfilternet", label: "DeepFilterNet3" },
                               ].map((opt) => (
                                 <button
                                   key={opt.value}
@@ -634,6 +784,10 @@ export default function PreferencesModal() {
                                     draft.noiseSuppressionMode === opt.value
                                   }
                                   className={`rounded-xl border px-2 py-2 text-xs font-medium transition ${
+                                    // Cinco opções numa grade de duas colunas: a
+                                    // última ocupa a linha inteira sozinha.
+                                    opt.value === "deepfilternet" ? "col-span-2 " : ""
+                                  }${
                                     draft.noiseSuppressionMode === opt.value
                                       ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300"
                                       : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -645,7 +799,8 @@ export default function PreferencesModal() {
                             </div>
 
                             {(draft.noiseSuppressionMode === "rnnoise" ||
-                              draft.noiseSuppressionMode === "gtcrn") && (
+                              draft.noiseSuppressionMode === "gtcrn" ||
+                              draft.noiseSuppressionMode === "deepfilternet") && (
                               <label className="block">
                                 <span className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-400">
                                   Nível
@@ -678,6 +833,8 @@ export default function PreferencesModal() {
                                 " RNNoise (open source, xiph/rnnoise) roda no seu navegador via WASM - segura melhor ruído de fundo (teclado, conversa, ventilador) do que o supressor nativo; nível baixo mantém mais do áudio original, alto prioriza o corte de ruído."}
                               {draft.noiseSuppressionMode === "gtcrn" &&
                                 " GTCRN (open source) também roda via WASM, com uma rede mais nova que a do RNNoise - qualidade de supressão melhor nos benchmarks padrão, ainda leve o bastante pra tempo real; nível baixo mantém mais do áudio original, alto prioriza o corte de ruído."}
+                              {draft.noiseSuppressionMode === "deepfilternet" &&
+                                " DeepFilterNet3 (open source, Rikorose/DeepFilterNet) é o modelo mais forte e mais pesado da lista - corta ~20dB do ruído de fundo praticamente sem tocar na fala nos nossos testes, mas baixa ~24MB de assets (hospedados por nós mesmos) na primeira vez que você entrar em voz com esse modo, e usa mais CPU que os outros. Aqui o nível é o limite de atenuação do modelo: 0% deixa o áudio intocado, 100% libera o corte máximo."}
                             </p>
                           </div>
 
