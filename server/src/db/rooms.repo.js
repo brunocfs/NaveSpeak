@@ -1,30 +1,25 @@
 // Queries parametrizadas ($1, $2, ...) - nunca concatenar entrada do usuário na string SQL.
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { addDefaultChannelsForServer } from './channels.repo.js';
 
-function generateInviteCode() {
-  return randomBytes(6).toString('hex').toUpperCase(); // 12 caracteres
-}
-
 export async function createRoom({ name, createdBy }) {
   const id = randomUUID();
-  const inviteCode = generateInviteCode();
   // createdBy é a PK interna (BIGINT) do usuário - vem de req.user.internalId.
-  await pool.query(
-    'INSERT INTO rooms (id, name, invite_code, created_by) VALUES ($1, $2, $3, $4)',
-    [id, name, inviteCode, createdBy]
-  );
+  // invite_code não é mais preenchido aqui - convites viraram N linhas em
+  // server_invites (ver server/src/db/serverInvites.repo.js), geradas sob
+  // demanda por quem tem CREATE_INVITE, não uma por servidor.
+  await pool.query('INSERT INTO rooms (id, name, created_by) VALUES ($1, $2, $3)', [id, name, createdBy]);
   await addRoomMember({ roomId: id, userId: createdBy });
   // Já cria os canais padrão (texto "geral" + voz "Voz") para o servidor não
   // abrir sem nenhum canal.
   await addDefaultChannelsForServer(id);
-  return { id, name, invite_code: inviteCode, created_by: createdBy };
+  return { id, name, created_by: createdBy };
 }
 
 // created_by é exposto como o public_id do usuário (UUID), nunca a PK interna.
 const ROOM_WITH_CREATOR = `
-  SELECT r.id, r.name, r.invite_code, r.icon_path, u.public_id AS created_by, r.created_at
+  SELECT r.id, r.name, r.description, r.icon_path, u.public_id AS created_by, r.created_at
   FROM rooms r
   LEFT JOIN users u ON u.id = r.created_by`;
 
@@ -32,14 +27,6 @@ export async function findRoomById(roomId) {
   const { rows } = await pool.query(
     `${ROOM_WITH_CREATOR} WHERE r.id = $1 LIMIT 1`,
     [roomId]
-  );
-  return rows[0] ?? null;
-}
-
-export async function findRoomByInviteCode(inviteCode) {
-  const { rows } = await pool.query(
-    `${ROOM_WITH_CREATOR} WHERE r.invite_code = $1 LIMIT 1`,
-    [inviteCode]
   );
   return rows[0] ?? null;
 }
@@ -80,24 +67,20 @@ export async function removeRoomMember(roomId, userId) {
   await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId]);
 }
 
-// PATCH parcial: name/iconPath undefined = não mexe naquele campo (iconPath
-// null é um valor válido - "remover ícone", distinto de undefined).
-export async function updateRoomProfile(roomId, { name, iconPath } = {}) {
+// PATCH parcial: name/iconPath/description undefined = não mexe naquele
+// campo (iconPath/description null é um valor válido - "remover", distinto
+// de undefined).
+export async function updateRoomProfile(roomId, { name, iconPath, description } = {}) {
   const fields = [];
   const values = [];
   let i = 1;
   if (name !== undefined) { fields.push(`name = $${i++}`); values.push(name); }
   if (iconPath !== undefined) { fields.push(`icon_path = $${i++}`); values.push(iconPath); }
+  if (description !== undefined) { fields.push(`description = $${i++}`); values.push(description); }
   if (fields.length > 0) {
     values.push(roomId);
     await pool.query(`UPDATE rooms SET ${fields.join(', ')} WHERE id = $${i}`, values);
   }
-  return findRoomById(roomId);
-}
-
-export async function regenerateInviteCode(roomId) {
-  const inviteCode = generateInviteCode();
-  await pool.query('UPDATE rooms SET invite_code = $2 WHERE id = $1', [roomId, inviteCode]);
   return findRoomById(roomId);
 }
 

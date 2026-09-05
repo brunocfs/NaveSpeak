@@ -18,6 +18,7 @@ import ProfilePage from "./pages/ProfilePage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import AdminInvitesPage from "./pages/AdminInvitesPage.jsx";
 import InviteRedirectPage from "./pages/InviteRedirectPage.jsx";
+import ServerInvitePage from "./pages/ServerInvitePage.jsx";
 
 export default function App() {
   return (
@@ -62,6 +63,18 @@ export default function App() {
                   <Route
                     path="/invite/:code"
                     element={<InviteRedirectPage />}
+                  />
+                  {/* Convite de SERVIDOR (/join/:code) - gerado em
+                  ServerUserInvite.jsx, distinto de /invite/:code (convite de
+                  cadastro). Dentro de ProtectedRoute: precisa estar logado
+                  pra decidir entrar num servidor - ver ServerInvitePage.jsx. */}
+                  <Route
+                    path="/join/:code"
+                    element={
+                      <ProtectedRoute>
+                        <ServerInvitePage />
+                      </ProtectedRoute>
+                    }
                   />
                   <Route
                     path="/rooms"

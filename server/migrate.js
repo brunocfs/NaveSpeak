@@ -69,6 +69,35 @@ async function migrateLegacyMessages(pool) {
   console.log(`Convertidas ${servers.length} sala(s) para o modelo de canais.`);
 }
 
+// Convite de servidor era 1 código único em rooms.invite_code (modelo
+// antigo); virou N linhas em server_invites (múltiplos convites, cada um
+// com criador/validade próprios - ver database/schema-postgre.sql). Idempotente:
+// só cria uma linha "de migração" pro servidor que ainda não tem NENHUM
+// convite em server_invites, então rodar de novo não duplica. Convites
+// gerados depois da migração (via UI) não entram aqui.
+async function migrateLegacyRoomInvites(pool) {
+  const { rows: rooms } = await pool.query(
+    `SELECT r.id, r.invite_code, r.created_by
+     FROM rooms r
+     WHERE r.invite_code IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM server_invites si WHERE si.server_id = r.id)`
+  );
+  if (rooms.length === 0) return;
+
+  console.log(`Migrando ${rooms.length} convite(s) de servidor pro modelo novo (server_invites)...`);
+  for (const room of rooms) {
+    // Não dá pra saber a validade "original" (a coluna antiga não tinha
+    // expiração) - conta os 30 dias a partir de agora, igual a um convite
+    // recém-criado.
+    await pool.query(
+      `INSERT INTO server_invites (id, server_id, code, created_by, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '30 days')
+       ON CONFLICT (code) DO NOTHING`,
+      [randomUUID(), room.id, room.invite_code, room.created_by]
+    );
+  }
+}
+
 async function main() {
   const sql = await readFile(schemaPath, 'utf8');
 
@@ -83,6 +112,7 @@ async function main() {
   try {
     await pool.query(sql);
     await migrateLegacyMessages(pool);
+    await migrateLegacyRoomInvites(pool);
     console.log(`Migração aplicada com sucesso em "${process.env.DB_NAME}" (PostgreSQL).`);
   } finally {
     await pool.end();

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Phone, PhoneOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
 import { getSocket } from "../api/socket.js";
+import { useTypingEmitter } from "../hooks/useTypingEmitter.js";
 import {
   listConversation,
   clearConversation,
@@ -12,8 +13,12 @@ import {
 import MessageInput from "./MessageInput.jsx";
 import MessageContent from "./MessageContent.jsx";
 import AttachmentDropZone from "./AttachmentDropZone.jsx";
+import TypingIndicator from "./TypingIndicator.jsx";
 import StatusDot from "./StatusDot.jsx";
 import Avatar from "./Avatar.jsx";
+
+// Ver mesma constante em ChatPanel.jsx.
+const TYPING_EXPIRE_MS = 5000;
 
 // Conversa privada com um amigo. Mesmo padrão do ChatPanel (histórico via
 // REST, envio/recebimento em tempo real via socket) - só troca o canal de
@@ -27,6 +32,9 @@ export default function DmPanel({ friend }) {
   const [error, setError] = useState(null);
   const [callBusy, setCallBusy] = useState(false);
   const [status, setStatus] = useState(friend.status ?? "offline");
+  // Conversa 1:1 - só existe "o amigo está digitando ou não" (sem lista).
+  const [peerTyping, setPeerTyping] = useState(false);
+  const peerTypingTimeoutRef = useRef(null);
   const bottomRef = useRef(null);
   // Quem pode ser @mencionado numa DM - só os dois lados da conversa (ver
   // MessageContent.jsx).
@@ -117,9 +125,58 @@ export default function DmPanel({ friend }) {
     return () => socket.off("dm:message", handleIncoming);
   }, [friend.id]);
 
+  // Recebe "o amigo está digitando" - já chega só pra room pessoal deste
+  // usuário (ver dm.handler.js), então nunca precisa filtrar eco da própria
+  // digitação.
+  useEffect(() => {
+    const socket = getSocket();
+
+    function clearPeerTypingTimeout() {
+      if (peerTypingTimeoutRef.current) {
+        clearTimeout(peerTypingTimeoutRef.current);
+        peerTypingTimeoutRef.current = null;
+      }
+    }
+
+    function handleTyping({ userId, typing }) {
+      if (userId !== friend.id) return;
+      clearPeerTypingTimeout();
+
+      if (!typing) {
+        setPeerTyping(false);
+        return;
+      }
+      setPeerTyping(true);
+      // Rede de segurança: se o "parou" se perder, some sozinho (ver
+      // TYPING_EXPIRE_MS/ChatPanel.jsx).
+      peerTypingTimeoutRef.current = setTimeout(() => setPeerTyping(false), TYPING_EXPIRE_MS);
+    }
+
+    socket.on("dm:typing", handleTyping);
+    return () => {
+      socket.off("dm:typing", handleTyping);
+      clearPeerTypingTimeout();
+    };
+  }, [friend.id]);
+
+  // Trocar de amigo não deve carregar indicador de "digitando" de uma
+  // conversa pra outra.
+  useEffect(() => {
+    setPeerTyping(false);
+  }, [friend.id]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const emitTyping = useCallback(
+    (typing) => getSocket().emit("dm:typing", { userId: friend.id, typing }),
+    [friend.id],
+  );
+  const { notifyTyping, stop: stopTyping } = useTypingEmitter(emitTyping);
+  // Trocar de amigo (sem desmontar o DmPanel) avisa "parou" na conversa
+  // anterior antes de emitir qualquer coisa na nova.
+  useEffect(() => () => stopTyping(), [friend.id, stopTyping]);
 
   async function handleSend(content, attachments) {
     const socket = getSocket();
@@ -249,10 +306,12 @@ export default function DmPanel({ friend }) {
         <div ref={bottomRef} />
       </div>
 
+      <TypingIndicator usernames={peerTyping ? [friend.username] : []} />
       <div className="px-4 pb-4 sm:px-5">
         <MessageInput
           ref={messageInputRef}
           onSend={handleSend}
+          onTyping={notifyTyping}
           disabled={loading}
           mentionCandidates={mentionCandidates}
         />

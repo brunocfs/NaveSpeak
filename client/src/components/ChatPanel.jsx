@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
 import { markChannelRead } from "../api/messages.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useTypingEmitter } from "../hooks/useTypingEmitter.js";
 import MessageInput from "./MessageInput.jsx";
 import MessageContent from "./MessageContent.jsx";
 import AttachmentDropZone from "./AttachmentDropZone.jsx";
+import TypingIndicator from "./TypingIndicator.jsx";
 import Avatar from "./Avatar.jsx";
+
+// Depois desse tempo sem receber um refresh de "digitando" de alguém, o
+// indicador some sozinho aqui - rede de segurança pro caso do "parou" de
+// quem estava digitando se perder (aba fechada, conexão caiu). O emissor
+// (useTypingEmitter) reforça "digitando" no máximo a cada 2s enquanto ativo,
+// então 5s de folga cobre bem essa janela.
+const TYPING_EXPIRE_MS = 5000;
 
 // Bit ADMINISTRATOR de PERMISSIONS (server/src/utils/permissions.js) -
 // espelhado aqui só pra decidir a lista de sugestão de @menção (ver
@@ -16,7 +25,10 @@ const ADMINISTRATOR_BIT = 1;
 
 function memberPermissionBitmask(member, roles) {
   const permissionsByRoleId = new Map(roles.map((r) => [r.id, r.permissions]));
-  return (member.roles ?? []).reduce((mask, r) => mask | (permissionsByRoleId.get(r.id) ?? 0), 0);
+  return (member.roles ?? []).reduce(
+    (mask, r) => mask | (permissionsByRoleId.get(r.id) ?? 0),
+    0,
+  );
 }
 
 // Mesma regra de canAccessChannel(action:'view') no servidor - só sugere pra
@@ -31,13 +43,23 @@ function canMemberViewChannel(member, channel, room, roles) {
   return (member.roles ?? []).some((r) => r.id === channel.viewRoleId);
 }
 
-export default function ChatPanel({ channelId, members = [], channel = null, room = null, roles = [] }) {
+export default function ChatPanel({
+  channelId,
+  members = [],
+  channel = null,
+  room = null,
+  roles = [],
+}) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
   const messageInputRef = useRef(null);
+  // Quem está digitando NESTE canal agora: [{ userId, username }]. Ver
+  // TYPING_EXPIRE_MS acima para o auto-expira de cada entrada.
+  const [typingUsers, setTypingUsers] = useState([]);
+  const typingTimeoutsRef = useRef(new Map());
   // Quem pode ser @mencionado neste canal, pra DESTACAR EM NEGRITO uma
   // menção já escrita (MessageContent.jsx) - todo membro do servidor, sem
   // filtro de permissão (é só cosmético: só muda se a palavra "acende" ou
@@ -100,22 +122,91 @@ export default function ChatPanel({ channelId, members = [], channel = null, roo
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Recebe "fulano está digitando" de outros membros deste canal. Ignora
+  // eventos de outro canal (mesma conexão socket cobre todos os canais
+  // abertos - RoomPage costuma manter mais de um ChatPanel montado por trás
+  // de tabs) e do próprio usuário (outra aba dele mesmo).
+  useEffect(() => {
+    const socket = getSocket();
+    const timeouts = typingTimeoutsRef.current;
+
+    function handleTyping({
+      channelId: eventChannelId,
+      userId,
+      username,
+      typing,
+    }) {
+      if (eventChannelId !== channelId || userId === user?.id) return;
+
+      const existing = timeouts.get(userId);
+      if (existing) clearTimeout(existing);
+
+      if (!typing) {
+        timeouts.delete(userId);
+        setTypingUsers((prev) => prev.filter((u) => u.userId !== userId));
+        return;
+      }
+
+      setTypingUsers((prev) =>
+        prev.some((u) => u.userId === userId)
+          ? prev
+          : [...prev, { userId, username }],
+      );
+      timeouts.set(
+        userId,
+        setTimeout(() => {
+          timeouts.delete(userId);
+          setTypingUsers((prev) => prev.filter((u) => u.userId !== userId));
+        }, TYPING_EXPIRE_MS),
+      );
+    }
+
+    socket.on("chat:typing", handleTyping);
+    return () => {
+      socket.off("chat:typing", handleTyping);
+      for (const timeout of timeouts.values()) clearTimeout(timeout);
+      timeouts.clear();
+    };
+  }, [channelId, user?.id]);
+
+  // Trocar de canal não deve carregar indicador de "digitando" de um canal
+  // pro outro.
+  useEffect(() => {
+    setTypingUsers([]);
+  }, [channelId]);
+
+  const emitTyping = useCallback(
+    (typing) => getSocket().emit("chat:typing", { channelId, typing }),
+    [channelId],
+  );
+  const { notifyTyping, stop: stopTyping } = useTypingEmitter(emitTyping);
+  // Trocar de canal (sem desmontar o ChatPanel) avisa "parou" no canal
+  // anterior antes de emitir qualquer coisa no novo - useTypingEmitter só
+  // cobre desmontagem sozinho.
+  useEffect(() => () => stopTyping(), [channelId, stopTyping]);
+
   async function handleSend(content, attachments) {
     const socket = getSocket();
     return new Promise((resolve) => {
-      socket.emit("chat:send", { channelId, content, attachments }, (response) => {
-        resolve(response ?? { error: "Sem resposta do servidor." });
-      });
+      socket.emit(
+        "chat:send",
+        { channelId, content, attachments },
+        (response) => {
+          resolve(response ?? { error: "Sem resposta do servidor." });
+        },
+      );
     });
   }
 
   return (
     <AttachmentDropZone
-      onFilesDropped={(fileList) => messageInputRef.current?.addDroppedFiles(fileList)}
+      onFilesDropped={(fileList) =>
+        messageInputRef.current?.addDroppedFiles(fileList)
+      }
       disabled={loading}
       className="flex h-full min-h-[500px] flex-col"
     >
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
+      <div className="flex-1 space-y-4  overflow-y-auto px-4 py-4 sm:px-5">
         {loading && <p className="hint">Carregando mensagens...</p>}
         {error && <p className="error-text">{error}</p>}
         {messages.map((message) => (
@@ -151,9 +242,11 @@ export default function ChatPanel({ channelId, members = [], channel = null, roo
         ))}
         <div ref={bottomRef} />
       </div>
+      <TypingIndicator usernames={typingUsers.map((u) => u.username)} />
       <MessageInput
         ref={messageInputRef}
         onSend={handleSend}
+        onTyping={notifyTyping}
         disabled={loading}
         mentionCandidates={mentionCandidates}
       />

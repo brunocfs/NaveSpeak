@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Sparkles, Bug, ShieldCheck } from "lucide-react";
+import { Sparkles, Bug, ShieldCheck, Plus } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
@@ -12,6 +12,7 @@ import DmPanel from "../components/DmPanel.jsx";
 import StatusSelector from "../components/StatusSelector.jsx";
 import PreferencesModal from "../components/PreferencesModal.jsx";
 import WelcomeModal from "../components/WelcomeModal.jsx";
+import CreateOrJoinServerModal from "../components/CreateOrJoinServerModal.jsx";
 import Avatar from "../components/Avatar.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import logo from "../assets/nvspk.svg";
@@ -23,6 +24,9 @@ export default function RoomsPage() {
   const whatsNew = useWhatsNew();
   const [expanded, setExpanded] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState(null);
+  // Modal do botão "+" do cabeçalho - criar servidor novo ou entrar com
+  // convite (ver CreateOrJoinServerModal.jsx).
+  const [addServerOpen, setAddServerOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -53,7 +57,26 @@ export default function RoomsPage() {
   const [newRoomName, setNewRoomName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const scrollRef = useRef(null);
 
+  const handleWheel = (e) => {
+    const el = scrollRef.current;
+    if (!el || e.deltaY === 0) return;
+
+    const isAtStart = el.scrollLeft <= 0;
+    const isAtEnd = Math.ceil(el.scrollLeft + el.clientWidth) >= el.scrollWidth;
+
+    if ((isAtStart && e.deltaY < 0) || (isAtEnd && e.deltaY > 0)) {
+      return;
+    }
+
+    e.preventDefault();
+    e.preventDefault();
+    el.scrollBy({
+      left: e.deltaY,
+      behavior: "smooth",
+    });
+  };
   async function loadRooms() {
     setLoading(true);
     try {
@@ -119,6 +142,13 @@ export default function RoomsPage() {
     return () => socket.off("chat:message", handleChatMessage);
   }, [user?.id]);
 
+  // Sucesso do modal (criou OU entrou por convite, o resultado pro resto da
+  // página é o mesmo): recarrega a lista de servidores e já abre o novo.
+  async function handleServerAdded(room) {
+    await loadRooms();
+    navigate(`/rooms/${room.id}`);
+  }
+
   async function handleLogout() {
     await logout();
     navigate("/login");
@@ -172,86 +202,152 @@ export default function RoomsPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      <header className="shrink-0 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-10xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <div>
-            <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              <img
-                src={theme === "dark" ? logoDark : logo}
-                alt="Canal de voz"
-                className="h-15 w-15"
-              />
-              <strong>Nave</strong> Speak
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400"></p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <DownloadAppLink />
-
-            <Link
-              to="/profile"
-              className="hidden items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 sm:flex dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <Avatar
-                avatarPath={user?.avatarPath}
-                username={user?.username}
-                size="xs"
-              />
-              {user?.username}
-            </Link>
-
-            <StatusSelector />
-
-            <button
-              onClick={whatsNew.openManually}
-              title="Novidades"
-              aria-label="Novidades"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <Sparkles className="h-5 w-5" />
-            </button>
-
-            <Link
-              to="/reports"
-              title="Reportar bug ou sugestão"
-              aria-label="Reportar bug ou sugestão"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <Bug className="h-5 w-5" />
-            </Link>
-
-            {/* Painel de convites - só admin da aplicação (users.is_admin,
-                sem bootstrap automático, ver database/schema-postgre.sql)
-                vê este ícone. A rota /admin/invites também é protegida no
-                servidor (403 pra quem não é admin) e no client
-                (ProtectedRoute requireAdmin) - isto aqui é só não oferecer o
-                atalho a quem não pode usá-lo. */}
-            {user?.isAdmin && (
-              <Link
-                to="/admin/invites"
-                title="Convites"
-                aria-label="Convites"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <ShieldCheck className="h-5 w-5" />
-              </Link>
+      {/*   <header className=" shrink-0 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80"> */}
+      <div className="mx-auto w-full mt-4 px-8">
+        <header className="rounded-2xl  border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
+          <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
+            <div className="mr-5">
+              <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                {/* <div
+                className={`shrink-0 rounded-full object-cover ${theme === "dark" ? "bg-slate-800" : "bg-slate-200"}`}
+              > */}
+                <img
+                  src={theme === "dark" ? logoDark : logo}
+                  alt="Canal de voz"
+                  className="h-15 w-15"
+                />
+                <strong>Nave </strong>
+                Speak
+                {/* </div> */}
+              </h1>
+            </div>
+            {loading && (
+              <div className=" flex items-center gap-3">
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+              </div>
             )}
-
-            <PreferencesModal />
-
-            <button
+            {!loading && rooms.length > 0 && (
+              <div className="flex   min-w-0 overflow-hidden items-center gap-3">
+                <div
+                  ref={scrollRef}
+                  onWheel={handleWheel}
+                  className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  {rooms.map((room) => (
+                    <div
+                      className="group relative flex items-center  "
+                      key={room.id}
+                    >
+                      <Link key={room.id} to={`/rooms/${room.id}`}>
+                        <span className="relative inline-flex">
+                          <Avatar
+                            avatarPath={room.icon_path}
+                            username={room.name}
+                            size="lg"
+                          />
+                          {room.unreadCount > 0 && (
+                            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-blue-500 dark:ring-slate-900">
+                              {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                            </span>
+                          )}
+                        </span>
+                      </Link>
+                      <span
+                        className=" z-50
+                            absolute left-1/2 -translate-y-1/2
+                            whitespace-nowrap rounded-md
+                            bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
+                            opacity-0 -translate-x-2 pointer-events-none
+                            transition-all duration-200
+                            group-hover:opacity-100
+                            group-hover:translate-x-0"
+                      >
+                        {room.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAddServerOpen(true)}
+                  title="Criar ou entrar em um servidor"
+                  aria-label="Criar ou entrar em um servidor"
+                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
+                >
+                  <Plus />
+                </button>
+                <DownloadAppLink />
+              </div>
+            )}
+            {/* <button
               onClick={handleLogout}
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
             >
               Sair
-            </button>
-          </div>
-        </div>
-      </header>
+            </button> */}
+            {/* reativar */}
+            {/* <div className="flex items-center gap-3">
+              <DownloadAppLink />
 
-      <main className="grid max-w-10xl flex-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:min-h-0 lg:overflow-hidden">
-        <section className="lg:flex lg:min-h-0 lg:flex-col">
+              <Link
+                to="/profile"
+                className="hidden items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 sm:flex dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <Avatar
+                  avatarPath={user?.avatarPath}
+                  username={user?.username}
+                  size="xs"
+                />
+                {user?.username}
+              </Link>
+
+              <StatusSelector />
+
+              <button
+                onClick={whatsNew.openManually}
+                title="Novidades"
+                aria-label="Novidades"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <Sparkles className="h-5 w-5" />
+              </button>
+
+              <Link
+                to="/reports"
+                title="Reportar bug ou sugestão"
+                aria-label="Reportar bug ou sugestão"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <Bug className="h-5 w-5" />
+              </Link>
+
+              {user?.isAdmin && (
+                <Link
+                  to="/admin/invites"
+                  title="Convites"
+                  aria-label="Convites"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                </Link>
+              )}
+
+              <PreferencesModal />
+
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
+              >
+                Sair
+              </button>
+            </div> */}
+          </div>
+        </header>
+      </div>
+      <main className="grid max-w-10xl flex-1 gap-6 px-4 py-6 sm:px-6  lg:px-8 lg:min-h-0 lg:overflow-hidden">
+        {/* <section className="lg:flex lg:min-h-0 lg:flex-col">
           {removedNotice && (
             <div className="mb-4 flex items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
               {removedNotice}
@@ -262,14 +358,13 @@ export default function RoomsPage() {
                 Ok
               </button>
             </div>
-          )}
-          {error && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
-              {error}
-            </div>
-          )}
-          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300 mb-5">
-            {/* Cabeçalho clicável - sempre visível */}
+          )} */}
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </div>
+        )}
+        {/* <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300 mb-5">
             <button
               type="button"
               onClick={() => setExpanded((prev) => !prev)}
@@ -289,7 +384,6 @@ export default function RoomsPage() {
                 )}
               </div>
 
-              {/* Ícone de seta que rotaciona */}
               <svg
                 className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300 ${
                   expanded ? "rotate-180" : ""
@@ -307,7 +401,6 @@ export default function RoomsPage() {
               </svg>
             </button>
 
-            {/* Conteúdo expansível */}
             <div
               className={`grid transition-all duration-300 ease-in-out ${
                 expanded
@@ -317,7 +410,6 @@ export default function RoomsPage() {
             >
               <div className="overflow-hidden">
                 <div className="px-6 pb-6 space-y-6">
-                  {/* Criar novo servidor */}
                   <div>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">
                       Criar novo servidor
@@ -349,7 +441,6 @@ export default function RoomsPage() {
                     </form>
                   </div>
 
-                  {/* Entrar por convite */}
                   <div className="border-t border-slate-200 pt-6 dark:border-slate-800">
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">
                       Entrar por convite
@@ -381,9 +472,9 @@ export default function RoomsPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </div> */}
 
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+        {/* <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
             <div className="mb-6 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -451,18 +542,14 @@ export default function RoomsPage() {
                             </p>
                           </div>
                         </div>
-
-                        <div className="shrink-0 rounded-xl bg-slate-200 px-3 py-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                          {room.invite_code}
-                        </div>
                       </Link>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-          </div>
-        </section>
+          </div> */}
+        {/* </section> */}
         <section className="space-y-1 lg:flex lg:min-h-0 lg:flex-col">
           <div className="grid gap-6 md:grid-cols-[300px_minmax(0,1fr)] rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:min-h-0 lg:flex-1">
             <FriendsPanel
@@ -470,7 +557,7 @@ export default function RoomsPage() {
               onSelectFriend={setSelectedFriend}
             />
             {/* <div className="min-h-[500px] overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:h-full lg:min-h-0"> */}
-            <div className="min-h-[500px] overflow-hidden  border-l border-slate-200  dark:bg-slate-900 dark:ring-slate-800 lg:h-full lg:min-h-0">
+            <div className=" overflow-hidden  border-l border-slate-200 rounded-r-2xl dark:border-slate-800 dark:bg-slate-900 dark:ring-slate-800 lg:h-full lg:min-h-0">
               {selectedFriend ? (
                 <DmPanel friend={selectedFriend} />
               ) : (
@@ -483,7 +570,17 @@ export default function RoomsPage() {
         </section>
       </main>
 
-      <WelcomeModal open={whatsNew.open} version={whatsNew.version} onClose={whatsNew.close} />
+      <WelcomeModal
+        open={whatsNew.open}
+        version={whatsNew.version}
+        onClose={whatsNew.close}
+      />
+
+      <CreateOrJoinServerModal
+        open={addServerOpen}
+        onClose={() => setAddServerOpen(false)}
+        onSuccess={handleServerAdded}
+      />
     </div>
   );
 }

@@ -31,6 +31,31 @@ async function isRateLimited(socket) {
 export function registerChatHandlers(io, socket) {
   const user = socket.data.user;
 
+  // Indicador de "está digitando" por canal - sem rate limit e sem gravar
+  // nada no banco (evento efêmero, puro repasse). `socket.to()` (não `io.to`)
+  // já exclui quem emitiu, então nenhuma outra aba do próprio remetente
+  // recebe seu próprio "digitando" por aqui - mas confere membership igual
+  // chat:send, senão qualquer socket autenticado poderia forjar "fulano está
+  // digitando" num canal de servidor que nem é membro.
+  socket.on("chat:typing", async (payload) => {
+    const channelIdResult = channelIdParamSchema.safeParse(payload?.channelId);
+    if (!channelIdResult.success) return;
+    const channelId = channelIdResult.data;
+    const typing = Boolean(payload?.typing);
+
+    const channel = await findChannelById(channelId);
+    if (!channel || channel.type !== "text") return;
+    const member = await isRoomMember(channel.server_id, user.internalId);
+    if (!member) return;
+
+    socket.to(channelId).emit("chat:typing", {
+      channelId,
+      userId: user.id,
+      username: user.username,
+      typing,
+    });
+  });
+
   socket.on("chat:send", async (payload, callback) => {
     const ack = typeof callback === "function" ? callback : () => {};
 

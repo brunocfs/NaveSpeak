@@ -323,6 +323,54 @@ CREATE INDEX IF NOT EXISTS ix_reports_created ON reports (created_at DESC);
 -- /uploads, nunca a URL completa.
 ALTER TABLE rooms ADD COLUMN IF NOT EXISTS icon_path VARCHAR(255) NULL;
 
+-- Descricao curta do servidor, opcional - exibida na pagina de convite
+-- (/join/:code) junto do nome/imagem, ver ServerUserInvite.jsx.
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS description VARCHAR(300) NULL;
+
+-- rooms.invite_code era o convite ÚNICO por servidor (modelo antigo, um só
+-- link, regenerar apagava o anterior). Substituido por server_invites
+-- (abaixo) - múltiplos convites por servidor, cada um com validade e
+-- histórico próprios. A coluna fica só por compatibilidade com bancos
+-- antigos (migrateLegacyRoomInvites em migrate.js copia o valor pra
+-- server_invites uma vez); linhas novas não preenchem mais isso, daí
+-- precisar deixar de ser NOT NULL. Idempotente: já sem NOT NULL não dá erro
+-- rodar de novo.
+ALTER TABLE rooms ALTER COLUMN invite_code DROP NOT NULL;
+
+-- Convites de servidor - substitui o invite_code único de `rooms` (acima)
+-- por N convites por servidor, cada um com seu criador, validade (30 dias,
+-- regra de negócio) e possibilidade de ser revogado sem apagar - fica visível
+-- na aba "Convites" de ServerSettingsModal.jsx pra quem tem CREATE_INVITE.
+CREATE TABLE IF NOT EXISTS server_invites (
+  id UUID NOT NULL PRIMARY KEY,
+  server_id UUID NOT NULL,
+  code CHAR(12) NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP NULL,
+  revoked_by BIGINT NULL,
+  CONSTRAINT fk_server_invites_server FOREIGN KEY (server_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_server_invites_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_server_invites_revoked_by FOREIGN KEY (revoked_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT uq_server_invites_code UNIQUE (code)
+);
+CREATE INDEX IF NOT EXISTS ix_server_invites_server ON server_invites (server_id);
+
+-- Histórico auditado de quem entrou por qual convite - uma linha por uso
+-- (POST /rooms/join, ver rooms.routes.js). Deletar o convite (DELETE
+-- /rooms/:roomId/invites/:inviteId) apaga o histórico dele junto (cascade) -
+-- revogar (revoked_at) preserva tudo, é a ação reversível/auditável.
+CREATE TABLE IF NOT EXISTS server_invite_uses (
+  id BIGSERIAL PRIMARY KEY,
+  invite_id UUID NOT NULL,
+  user_id BIGINT NOT NULL,
+  used_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_server_invite_uses_invite FOREIGN KEY (invite_id) REFERENCES server_invites(id) ON DELETE CASCADE,
+  CONSTRAINT fk_server_invite_uses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_server_invite_uses_invite ON server_invite_uses (invite_id);
+
 -- Configuracoes de exibicao do servidor - hoje so o modo da lista de
 -- membros (agrupada por role vs. simples online/offline, ver
 -- server/src/pages/RoomPage.jsx). Criada sob demanda pelo repo (INSERT ...

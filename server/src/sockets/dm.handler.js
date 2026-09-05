@@ -25,6 +25,29 @@ async function isRateLimited(socket) {
 export function registerDmHandlers(io, socket) {
   const user = socket.data.user;
 
+  // Indicador de "está digitando" na DM - mesmo repasse efêmero de
+  // chat.handler.js, mas entregue só na room pessoal do destinatário
+  // (user:<publicId>, ver online.handler.js): nunca ecoa pra própria room do
+  // remetente, então não precisa filtrar client-side por "sou eu mesmo".
+  // Mesma checagem de bloqueio/amizade do dm:send - conversa pode ter sido
+  // desfeita desde que o campo de texto foi aberto.
+  socket.on("dm:typing", async (payload) => {
+    const peerIdResult = userIdParamSchema.safeParse(payload?.userId);
+    if (!peerIdResult.success) return;
+    const typing = Boolean(payload?.typing);
+
+    const peer = await findUserByPublicId(peerIdResult.data);
+    if (!peer || peer.id === user.internalId) return;
+    if (await isBlockedEitherDirection(user.internalId, peer.id)) return;
+    if (!(await areFriends(user.internalId, peer.id))) return;
+
+    io.to(`user:${peer.publicId}`).emit("dm:typing", {
+      userId: user.id,
+      username: user.username,
+      typing,
+    });
+  });
+
   socket.on("dm:send", async (payload, callback) => {
     const ack = typeof callback === "function" ? callback : () => {};
 

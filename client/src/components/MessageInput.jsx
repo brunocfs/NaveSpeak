@@ -55,7 +55,7 @@ let nextFileId = 0;
 // via AttachmentDropZone, mas quem guarda a lista de arquivo é este
 // componente) - addDroppedFiles é o método exposto pra isso.
 const MessageInput = forwardRef(function MessageInput(
-  { onSend, disabled, mentionCandidates = [] },
+  { onSend, disabled, mentionCandidates = [], onTyping },
   ref,
 ) {
   const [content, setContent] = useState("");
@@ -119,6 +119,7 @@ const MessageInput = forwardRef(function MessageInput(
       findActiveMention(value, e.target.selectionStart ?? value.length),
     );
     setMentionIndex(0);
+    onTyping?.(value.trim().length > 0);
   }
 
   function handleSelectionChange() {
@@ -326,6 +327,7 @@ const MessageInput = forwardRef(function MessageInput(
     setFiles([]);
     setMention(null);
     setHasSelection(false);
+    onTyping?.(false); // envio limpa o campo sem passar por handleContentChange - avisa "parou" na mão
   }
 
   function handleFormSubmit(e) {

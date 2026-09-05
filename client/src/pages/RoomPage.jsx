@@ -14,6 +14,8 @@ import {
   ScreenShare,
   RefreshCw,
   PhoneOff,
+  UserRoundPlus,
+  Bookmark,
 } from "lucide-react";
 import {
   Link,
@@ -30,6 +32,7 @@ import Avatar from "../components/Avatar.jsx";
 import VoiceRosterEntry from "../components/VoiceRosterEntry.jsx";
 import ServerSettingsModal from "../components/ServerSettingsModal.jsx";
 import CreateChannelModal from "../components/CreateChannelModal.jsx";
+import ServerUserInvite from "../components/ServerUserInvite.jsx";
 import { hasPermission } from "../api/roles.js";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
@@ -41,6 +44,8 @@ import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
 import ConnectionStatusButton from "../components/ConnectionStatusButton.jsx";
 import StatusSelector from "../components/StatusSelector.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
+import logo from "../assets/nvspk.svg";
+import logoDark from "../assets/nvspk-dark.svg";
 export default function RoomPage() {
   const { roomId } = useParams();
   const navigate = useNavigate();
@@ -48,6 +53,7 @@ export default function RoomPage() {
   const [searchParams] = useSearchParams();
   const { setActiveChannel } = useNotifications();
   const {
+    theme,
     membersSidebarVisible,
     toggleMembersSidebar,
     getUserVolume,
@@ -65,6 +71,9 @@ export default function RoomPage() {
   const [myPermissions, setMyPermissions] = useState([]);
   const [isOwner, setIsOwner] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [serverMenuOpen, setServerMenuOpen] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState(null);
   const [selectedChannelId, setSelectedChannelId] = useState(null);
@@ -83,6 +92,11 @@ export default function RoomPage() {
   // canal ainda não existe no array no momento em que ele chega.
   const [voiceRosters, setVoiceRosters] = useState({});
   const [error, setError] = useState(null);
+  // Lista de servidores do cabeçalho (mesmo estilo/dado de RoomsPage.jsx) -
+  // carregada à parte de `room` (que é só o servidor ABERTO agora), pra
+  // permitir navegar livremente entre servidores puxando essa faixa.
+  const [rooms, setRooms] = useState([]);
+  const [roomsLoading, setRoomsLoading] = useState(true);
   const [screenPickerSources, setScreenPickerSources] = useState(null);
   // 'share' = começar um compartilhamento novo; 'switch' = trocar a fonte de
   // um já ativo - mesmo modal, ver comentário equivalente em
@@ -107,7 +121,27 @@ export default function RoomPage() {
   // é mais renderizado aqui, só este container vazio que serve de alvo do
   // portal.
   const voicePanelAnchorRef = useRef(null);
+  const serverMenuRef = useRef(null);
+  const scrollRef = useRef(null);
 
+  const handleWheel = (e) => {
+    const el = scrollRef.current;
+    if (!el || e.deltaY === 0) return;
+
+    const isAtStart = el.scrollLeft <= 0;
+    const isAtEnd = Math.ceil(el.scrollLeft + el.clientWidth) >= el.scrollWidth;
+
+    if ((isAtStart && e.deltaY < 0) || (isAtEnd && e.deltaY > 0)) {
+      return;
+    }
+
+    e.preventDefault();
+    e.preventDefault();
+    el.scrollBy({
+      left: e.deltaY,
+      behavior: "smooth",
+    });
+  };
   // Clicar num canal de voz seleciona ELE e já conecta na chamada - não
   // exige um segundo clique em "Entrar na voz". Só entra de novo se ainda
   // não estiver conectado a esse canal (reclicar o canal já ativo não deve
@@ -265,6 +299,43 @@ export default function RoomPage() {
     };
   }, [roomId]);
 
+  // Lista de servidores do cabeçalho (ServerRail inline abaixo) - carregada
+  // uma vez, independente de `roomId` (trocar de servidor pela própria
+  // faixa não precisa recarregar a lista, só qual item fica marcado ativo).
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest("/rooms")
+      .then((data) => {
+        if (!cancelled) setRooms(data.rooms ?? []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setRoomsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Mesmo contador por servidor de RoomsPage.jsx (soma de mensagens novas em
+  // qualquer canal de texto) - mantém o badge do cabeçalho em dia mesmo
+  // navegando dentro de outro servidor.
+  useEffect(() => {
+    const socket = getSocket();
+    function handleChatMessage(message) {
+      if (message.user_id === user?.id) return;
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === message.serverId
+            ? { ...r, unreadCount: (r.unreadCount ?? 0) + 1 }
+            : r,
+        ),
+      );
+    }
+    socket.on("chat:message", handleChatMessage);
+    return () => socket.off("chat:message", handleChatMessage);
+  }, [user?.id]);
+
   // Removido do servidor (expulso ou banido - ver rooms.routes.js) enquanto
   // esta tela está aberta: some daqui direto, sem esperar um refresh manual.
   useEffect(() => {
@@ -293,6 +364,21 @@ export default function RoomPage() {
     setActiveChannel(activeChannel?.type === "text" ? activeChannel.id : null);
     return () => setActiveChannel(null);
   }, [activeChannel, setActiveChannel]);
+
+  // Fecha o dropdown do servidor ao clicar fora dele.
+  useEffect(() => {
+    if (!serverMenuOpen) return;
+    function handleClickOutside(event) {
+      if (
+        serverMenuRef.current &&
+        !serverMenuRef.current.contains(event.target)
+      ) {
+        setServerMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [serverMenuOpen]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -443,14 +529,22 @@ export default function RoomPage() {
   // cada aba do modal filtra de novo pela permissão específica dela.
   const canOpenSettings =
     isOwner ||
-    ["MANAGE_SERVER", "ADMINISTRATOR", "MANAGE_CHANNELS", "BAN_MEMBERS"].some(
-      (p) => hasPermission(myPermissions, p),
-    );
+    [
+      "MANAGE_SERVER",
+      "ADMINISTRATOR",
+      "MANAGE_CHANNELS",
+      "BAN_MEMBERS",
+      "CREATE_INVITE",
+    ].some((p) => hasPermission(myPermissions, p));
   // Botão (+) da lista de canais (atalho pra CreateChannelModal) - mesma
   // permissão que a aba "Canais" de ServerSettingsModal exige no servidor
   // (POST /rooms/:roomId/channels -> requirePermission(MANAGE_CHANNELS)).
   const canManageChannels =
     isOwner || hasPermission(myPermissions, "MANAGE_CHANNELS");
+  // Regra de permissão do convite: só quem tem CREATE_INVITE (ou é dono) vê
+  // a opção "Convidar para o servidor" - o servidor reforça de novo em POST
+  // /rooms/:roomId/invite/regenerate (requirePermission(CREATE_INVITE)).
+  const canInvite = isOwner || hasPermission(myPermissions, "CREATE_INVITE");
 
   const voicePerms = {
     canMute: hasPermission(myPermissions, "MUTE_MEMBERS"),
@@ -532,57 +626,104 @@ export default function RoomPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      <header className="shrink-0 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-8xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link
-              to="/rooms"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              &larr;
-            </Link>
-
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar
-                avatarPath={room.icon_path}
-                username={room.name}
-                size="md"
-              />
-              <div className="min-w-0">
-                <h1 className="flex gap-3 truncate text-xl font-bold text-slate-900 dark:text-white">
-                  {room.name}
-                  {canOpenSettings && (
-                    <button
-                      onClick={() => setSettingsOpen(true)}
-                      title="Configurações do servidor"
-                      aria-label="Configurações do servidor"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                      <Settings />
-                    </button>
-                  )}
-                </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {activeChannel.type === "voice"
-                    ? "Canal de voz"
-                    : "Canal de texto"}
-                  {activeChannel.name ? ` · ${activeChannel.name}` : ""}
-                </p>
-              </div>
+      <div className="mx-auto w-full mt-4 px-8">
+        <header className="rounded-2xl border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
+          {/* <div className="flex min-w-0 items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
+           */}
+          <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
+            <div className="mr-5">
+              <Link
+                to="/rooms"
+                className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white"
+              >
+                <img
+                  src={theme === "dark" ? logoDark : logo}
+                  alt="Canal de voz"
+                  className="h-15 w-15"
+                />
+                <strong>Nave </strong>
+                Speak
+              </Link>
             </div>
-          </div>
+            {roomsLoading && (
+              <div className=" flex items-center gap-3">
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
+              </div>
+            )}
+            {/* Faixa de servidores - mesmo dado/estilo de avatar de
+              RoomsPage.jsx, com o servidor ABERTO agora marcado (anel azul)
+              e navegação livre entre eles. `min-w-0 flex-1` no wrapper +
+              `overflow-x-auto` só nesta faixa (nunca no cabeçalho inteiro) é
+              o que garante que ela role por dentro em vez de estourar a
+              largura do header; a barra de rolagem em si fica invisível nos
+              três motores (scrollbar-width/-ms-overflow-style/::-webkit-
+              scrollbar), sem tirar a rolagem por arrastar/roda do mouse. */}
+            {!roomsLoading && rooms.length > 0 && (
+              <div className="flex   min-w-0 overflow-hidden items-center gap-3">
+                <div
+                  ref={scrollRef}
+                  onWheel={handleWheel}
+                  className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  {rooms.map((r) => {
+                    const isActive = r.id === roomId;
+                    return (
+                      <div
+                        key={r.id}
+                        className="group relative flex  items-center"
+                      >
+                        <Link
+                          to={`/rooms/${r.id}`}
+                          className={`relative inline-flex  rounded-2xl p-1 transition ${
+                            isActive
+                              ? " ring-2 ring-purple-500"
+                              : "ring-2 ring-transparent hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          <span className="relative inline-flex">
+                            <Avatar
+                              avatarPath={r.icon_path}
+                              username={r.name}
+                              size="lg"
+                            />
+                            {r.unreadCount > 0 && (
+                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-blue-500 dark:ring-slate-900">
+                                {r.unreadCount > 99 ? "99+" : r.unreadCount}
+                              </span>
+                            )}
+                          </span>
+                        </Link>
+                        <span
+                          className=" z-50
+                            absolute left-1/2 top-full  -translate-y-1/2
+                            whitespace-nowrap rounded-md
+                            bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
+                            opacity-0 -translate-x-2 pointer-events-none
+                            transition-all duration-200
+                            group-hover:opacity-100
+                            group-hover:translate-x-0"
+                        >
+                          {room.name}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-          <div className="flex shrink-0 items-center gap-2">
-            <DownloadAppLink />
-
-            <span
-              title="Código de convite"
-              className="rounded-xl bg-slate-200 px-3 py-2 text-xs font-mono font-semibold uppercase tracking-wider text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              {room.invite_code}
-            </span>
-            {/* retirar */}
-            {/* <button
+            <div className="flex shrink-0 items-center gap-2">
+              <DownloadAppLink />
+              {/* O código de convite único (room.invite_code) sumiu daqui de
+            propósito: mostrava o link pra QUALQUER membro, mesmo sem
+            CREATE_INVITE, furando a regra de permissão. Servidor agora
+            suporta múltiplos convites (server_invites) - ver "Convidar para
+            o servidor" no menu do servidor e a aba Convites de
+            ServerSettingsModal.jsx, ambos já checando a permissão. */}
+              {/* retirar */}
+              {/* <button
               onClick={toggleMembersSidebar}
               title={
                 membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
@@ -595,7 +736,7 @@ export default function RoomPage() {
             >
               {membersSidebarVisible ? <PanelRightClose /> : <PanelRightOpen />}
             </button> */}
-            {canOpenSettings && (
+              {/* {canOpenSettings && (
               <button
                 onClick={() => setSettingsOpen(true)}
                 title="Configurações do servidor"
@@ -604,10 +745,11 @@ export default function RoomPage() {
               >
                 <Settings />
               </button>
-            )}
+            )} */}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      </div>
 
       {settingsOpen && (
         <ServerSettingsModal
@@ -618,8 +760,23 @@ export default function RoomPage() {
           settings={settings}
           myPermissions={myPermissions}
           isOwner={isOwner}
-          onClose={() => setSettingsOpen(false)}
+          initialTab={settingsInitialTab}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsInitialTab(null);
+          }}
           onRefresh={refresh}
+        />
+      )}
+      {inviteOpen && (
+        <ServerUserInvite
+          room={room}
+          onClose={() => setInviteOpen(false)}
+          onManageInvites={() => {
+            setInviteOpen(false);
+            setSettingsInitialTab("invites");
+            setSettingsOpen(true);
+          }}
         />
       )}
       {createChannelOpen && (
@@ -646,6 +803,87 @@ export default function RoomPage() {
       >
         {/* <aside className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"> */}
         <section className="lg:flex lg:min-h-0 lg:flex-col">
+          <div className="relative flex items-center justify-between max-h-[40px] mb-2 flex-1 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+            <span className="font-medium">{room.name}</span>
+            <button
+              onClick={() => setServerMenuOpen((prev) => !prev)}
+              title="Menu do servidor"
+              aria-label="Menu do servidor"
+              aria-haspopup="menu"
+              aria-expanded={serverMenuOpen}
+              className="cursor-pointer rounded-full dark:hover:bg-slate-700 "
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            {serverMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+              >
+                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                    {room.name}
+                  </p>
+                </div>
+                <div className="p-1">
+                  {canOpenSettings ? (
+                    <button
+                      onClick={() => {
+                        setServerMenuOpen(false);
+                        setSettingsOpen(true);
+                      }}
+                      role="menuitem"
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <Settings className="size-4" />
+                      Configurações do servidor
+                    </button>
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
+                      Nenhuma opção disponível.
+                    </p>
+                  )}
+                  {canInvite && (
+                    <button
+                      onClick={() => {
+                        setServerMenuOpen(false);
+                        setInviteOpen(true);
+                      }}
+                      role="menuitem"
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <UserRoundPlus className="size-4" />
+                      Convidar para o servidor
+                    </button>
+                  )}
+                  {canManageChannels && (
+                    <button
+                      onClick={() => {
+                        setServerMenuOpen(false);
+                        setCreateChannelOpen(true);
+                      }}
+                      role="menuitem"
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    >
+                      <Plus className="size-4" />
+                      Criar Canal
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setServerMenuOpen(false);
+                      //setSettingsOpen(true);
+                    }}
+                    role="menuitem"
+                    className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <Bookmark className="size-4" />
+                    Criar Categoria
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <aside className="flex min-h-0 flex-1 flex-col rounded-t-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
             <div className="flex shrink-0 justify-between  ">
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -870,7 +1108,7 @@ export default function RoomPage() {
               cantos arredondados (não precisa clipar nada) e estava
               cortando o popover do ConnectionStatusButton, que abre pra
               CIMA (bottom-full) e precisa extrapolar essa caixa. */}
-          {media.connected ? (
+          {media.connected && (
             <div className="flex p-2   ring-slate-200 shadow-sm ring-1  border-slate-700  dark:bg-slate-800 dark:ring-slate-800 ">
               <div className="flex flex-1 gap-2 justify-between items-center">
                 {/* Estatísticas de conexão (ping/perda de pacote) - ver
@@ -922,8 +1160,6 @@ export default function RoomPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            ""
           )}
           {openUserStatus && (
             <div className=" fixed w-50 left-50 bottom-60 rounded-full">

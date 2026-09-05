@@ -1,23 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { Check, Copy, Trash2, Ban } from "lucide-react";
 import Avatar, { avatarSrc } from "./Avatar.jsx";
-import { updateRoom, updateServerSettings, regenerateInvite, kickMember, banMember, unbanMember, listBans } from "../api/rooms.js";
+import {
+  updateRoom,
+  updateServerSettings,
+  listInvites,
+  createInvite,
+  revokeInvite,
+  deleteInvite,
+  kickMember,
+  banMember,
+  unbanMember,
+  listBans,
+} from "../api/rooms.js";
 import { createRole, updateRole, deleteRole, assignRole, unassignRole } from "../api/roles.js";
 import { createChannel, updateChannel, deleteChannel } from "../api/channels.js";
 import { PERMISSION_LABELS, PERMISSION_KEYS, hasPermission } from "../api/roles.js";
 
 const TABS = [
   { id: "general", label: "Geral", permission: "MANAGE_SERVER" },
+  { id: "invites", label: "Convites", permission: "CREATE_INVITE" },
   { id: "roles", label: "Roles", permission: "ADMINISTRATOR" },
   { id: "channels", label: "Canais", permission: "MANAGE_CHANNELS" },
   { id: "members", label: "Membros", permission: "BAN_MEMBERS" },
 ];
 
 // Modal de "Configurações do servidor" - só abre a partir do botão de
-// engrenagem no header de RoomPage.jsx, que já filtra por ter QUALQUER
-// permissão de admin (dono sempre vê). Cada aba individualmente checa de
-// novo a permissão específica dela (myPermissions), pra nunca mostrar ações
-// que o servidor recusaria.
+// engrenagem (ou de "Gerenciar convites" em ServerUserInvite.jsx, que usa
+// `initialTab="invites"`) no header de RoomPage.jsx, que já filtra por ter
+// QUALQUER permissão de admin (dono sempre vê). Cada aba individualmente
+// checa de novo a permissão específica dela (myPermissions), pra nunca
+// mostrar ações que o servidor recusaria.
 export default function ServerSettingsModal({
   room,
   roles,
@@ -26,11 +40,14 @@ export default function ServerSettingsModal({
   settings,
   myPermissions,
   isOwner,
+  initialTab,
   onClose,
   onRefresh,
 }) {
   const availableTabs = TABS.filter((t) => hasPermission(myPermissions, t.permission));
-  const [tab, setTab] = useState(availableTabs[0]?.id ?? "general");
+  const [tab, setTab] = useState(
+    (initialTab && availableTabs.some((t) => t.id === initialTab) ? initialTab : availableTabs[0]?.id) ?? "general"
+  );
 
   return createPortal(
     <div
@@ -74,6 +91,7 @@ export default function ServerSettingsModal({
           {tab === "general" && (
             <GeneralTab room={room} settings={settings} onRefresh={onRefresh} />
           )}
+          {tab === "invites" && <InvitesTab room={room} />}
           {tab === "roles" && <RolesTab room={room} roles={roles} members={members} onRefresh={onRefresh} />}
           {tab === "channels" && <ChannelsTab room={room} roles={roles} channels={channels} onRefresh={onRefresh} />}
           {tab === "members" && (
@@ -101,12 +119,12 @@ const inputClass =
 
 function GeneralTab({ room, settings, onRefresh }) {
   const [name, setName] = useState(room.name);
+  const [description, setDescription] = useState(room.description ?? "");
   // undefined = não mexeu no ícone (mantém o atual); string = novo ícone
   // (preview + o que será enviado); null = removido.
   const [iconDataUrl, setIconDataUrl] = useState(undefined);
   const iconPreview = iconDataUrl === undefined ? avatarSrc(room.icon_path) : iconDataUrl;
   const [memberListMode, setMemberListMode] = useState(settings.memberListMode);
-  const [inviteCode, setInviteCode] = useState(room.invite_code);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -122,24 +140,13 @@ function GeneralTab({ room, settings, onRefresh }) {
     setSaving(true);
     setError(null);
     try {
-      await updateRoom(room.id, { name, icon: iconDataUrl });
+      await updateRoom(room.id, { name, icon: iconDataUrl, description: description.trim() || null });
       await updateServerSettings(room.id, { memberListMode });
       await onRefresh();
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleRegenerateInvite() {
-    setError(null);
-    try {
-      const { room: updated } = await regenerateInvite(room.id);
-      setInviteCode(updated.invite_code);
-      await onRefresh();
-    } catch (err) {
-      setError(err.message);
     }
   }
 
@@ -166,6 +173,21 @@ function GeneralTab({ room, settings, onRefresh }) {
       </div>
 
       <div>
+        {fieldLabel("Descrição (opcional)")}
+        <textarea
+          className={`${inputClass} resize-none`}
+          rows={2}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          maxLength={300}
+          placeholder="Sobre o que é este servidor?"
+        />
+        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+          Aparece na página de convite (/join/:code).
+        </p>
+      </div>
+
+      <div>
         {fieldLabel("Lista de membros")}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -187,21 +209,6 @@ function GeneralTab({ room, settings, onRefresh }) {
         </div>
       </div>
 
-      <div>
-        {fieldLabel("Convite")}
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm dark:bg-slate-800">
-            {inviteCode}
-          </span>
-          <button
-            onClick={handleRegenerateInvite}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            Gerar novo
-          </button>
-        </div>
-      </div>
-
       <button
         onClick={handleSave}
         disabled={saving}
@@ -209,6 +216,208 @@ function GeneralTab({ room, settings, onRefresh }) {
       >
         {saving ? "Salvando..." : "Salvar"}
       </button>
+    </div>
+  );
+}
+
+// --- Convites ------------------------------------------------------------
+
+// Gerência completa dos convites do servidor - lista TODOS (ativos,
+// expirados, revogados), quem criou cada um e quem entrou por ele
+// (histórico auditado, vem de server_invite_uses via GET /rooms/:roomId/
+// invites). Só acessível com CREATE_INVITE (ver TABS acima); "Gerar
+// convite" nunca mexe nos existentes - são múltiplos convites por servidor,
+// não um só que se regenera.
+function InvitesTab({ room }) {
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const { invites: data } = await listInvites(room.id);
+      setInvites(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.id]);
+
+  async function handleCreate() {
+    setCreating(true);
+    setError(null);
+    try {
+      await createInvite(room.id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleCopy(invite) {
+    try {
+      await navigator.clipboard.writeText(invite.link);
+      setCopiedId(invite.id);
+      setTimeout(() => setCopiedId((prev) => (prev === invite.id ? null : prev)), 1500);
+    } catch {
+      window.prompt("Copie o link do convite:", invite.link);
+    }
+  }
+
+  async function handleRevoke(invite) {
+    if (!confirm(`Revogar o convite ${invite.code}? Ele para de funcionar imediatamente, mas continua listado aqui.`)) return;
+    setBusyId(invite.id);
+    try {
+      await revokeInvite(room.id, invite.id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(invite) {
+    if (!confirm(`Excluir o convite ${invite.code}? Isso apaga também o histórico de quem entrou por ele.`)) return;
+    setBusyId(invite.id);
+    try {
+      await deleteInvite(room.id, invite.id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function statusLabel(invite) {
+    if (invite.revokedAt) return { text: "Revogado", className: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300" };
+    if (!invite.usable) return { text: "Expirado", className: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" };
+    return { text: "Ativo", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Convites</h3>
+        <button
+          onClick={handleCreate}
+          disabled={creating}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {creating ? "Gerando..." : "+ Gerar convite"}
+        </button>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Todo convite expira 30 dias após ser gerado. Gerar um novo não afeta os já existentes.
+      </p>
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      {loading ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p>
+      ) : invites.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum convite gerado ainda.</p>
+      ) : (
+        <ul className="space-y-2">
+          {invites.map((invite) => {
+            const status = statusLabel(invite);
+            const expanded = expandedId === invite.id;
+            return (
+              <li key={invite.id} className="rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm text-slate-800 dark:text-slate-100">{invite.code}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${status.className}`}>
+                        {status.text}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      Criado por {invite.createdByTag} em {new Date(invite.createdAt).toLocaleDateString("pt-BR")}
+                      {" · "}
+                      {invite.revokedAt
+                        ? `revogado em ${new Date(invite.revokedAt).toLocaleDateString("pt-BR")}`
+                        : `expira em ${new Date(invite.expiresAt).toLocaleDateString("pt-BR")}`}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      onClick={() => handleCopy(invite)}
+                      title="Copiar link"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      {copiedId === invite.id ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                      {copiedId === invite.id ? "Copiado" : "Copiar"}
+                    </button>
+                    <button
+                      onClick={() => setExpandedId(expanded ? null : invite.id)}
+                      className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Usado por {invite.usedBy.length}
+                    </button>
+                    {invite.usable && (
+                      <button
+                        onClick={() => handleRevoke(invite)}
+                        disabled={busyId === invite.id}
+                        title="Revogar"
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                      >
+                        <Ban className="size-3.5" />
+                        Revogar
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(invite)}
+                      disabled={busyId === invite.id}
+                      title="Excluir"
+                      className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+
+                {expanded && (
+                  <div className="border-t border-slate-200 px-3 py-2.5 dark:border-slate-700">
+                    {invite.usedBy.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Ninguém entrou por este convite ainda.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {invite.usedBy.map((use, idx) => (
+                          <li key={`${use.userId}-${idx}`} className="flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                              <Avatar avatarPath={use.avatarPath} username={use.username} size="xs" />
+                              {use.username}
+                            </span>
+                            <span className="text-slate-400 dark:text-slate-500">
+                              {new Date(use.usedAt).toLocaleString("pt-BR")}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

@@ -14,7 +14,14 @@ export const inviteCodeSchema = z.object({
     .regex(/^[A-F0-9]{12}$/, 'Código de convite inválido.'),
 });
 
+// Mesmo formato de inviteCodeSchema.shape.inviteCode, mas como schema solto
+// (não objeto) - usado pra validar o :code de GET /rooms/invite/:code
+// (parâmetro de rota, não body).
+export const roomInviteCodeParamSchema = inviteCodeSchema.shape.inviteCode;
+
 export const roomIdParamSchema = z.string().uuid('ID de sala inválido.');
+
+export const inviteIdParamSchema = z.string().uuid('ID de convite inválido.');
 
 export const channelIdParamSchema = z.string().uuid('ID de canal inválido.');
 
@@ -106,6 +113,8 @@ export const roomUpdateSchema = z
       .regex(/^data:image\/(png|jpe?g|webp|gif);base64,/, 'Formato de imagem não suportado.')
       .nullable()
       .optional(),
+    // Exibida na página de convite (/join/:code) - null remove a descrição.
+    description: z.string().trim().max(300, 'Descrição muito longa.').nullable().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 
