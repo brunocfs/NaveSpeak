@@ -345,7 +345,10 @@ const MessageInput = forwardRef(function MessageInput(
   };
 
   return (
-    <form onSubmit={handleFormSubmit} className="space-y-2">
+    <form
+      onSubmit={handleFormSubmit}
+      className="space-y-2 m-2 rounded-xl border border-slate-300 bg-white caret-slate-900 transition dark:border-slate-700 dark:bg-slate-800 "
+    >
       {files.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {files.map((f) => (
@@ -400,7 +403,7 @@ const MessageInput = forwardRef(function MessageInput(
         disabled={disabled}
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center">
         <input
           ref={fileInputRef}
           type="file"
@@ -409,14 +412,14 @@ const MessageInput = forwardRef(function MessageInput(
           onChange={handleFilesSelected}
           disabled={disabled}
         />
-        <div className="flex w-full items-end gap-2">
+        <div className="flex w-full items-center gap-2">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
             title="Anexar arquivo"
             aria-label="Anexar arquivo"
-            className="cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            className="ml-2 cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl  bg-white px-3 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60  dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
           >
             <Paperclip className="size-4" />
           </button>
@@ -428,25 +431,34 @@ const MessageInput = forwardRef(function MessageInput(
             title="Formatação de texto"
             aria-label="Formatação de texto"
             aria-pressed={toolbarPinned}
-            className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl border px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
+            className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl  px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
               toolbarPinned
-                ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300"
-                : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                ? " bg-blue-50 text-blue-600  dark:bg-blue-500/10 dark:text-blue-300"
+                : " bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             }`}
           >
             <Type className="size-4" />
           </button>
 
-          <div className="relative w-full">
+          <div
+            className={`relative flex w-full items-center rounded-xl bg-white transition  dark:bg-slate-800   ${
+              disabled ? "opacity-60" : ""
+            }`}
+          >
             {/* Overlay "ao vivo" da formatação - fica atrás do textarea (que
                 fica com texto/fundo transparentes, só o caret visível). Nunca
                 remove caractere, só estiliza - por isso textarea e overlay
                 sempre têm o mesmo comprimento de texto e o caret não
-                desalinha. Ver utils/messageFormatting.jsx. */}
+                desalinha. Ver utils/messageFormatting.jsx.
+                Borda/fundo saíram daqui e do textarea pro wrapper acima -
+                antes os dois tinham bg sólido próprio (bg-white/
+                dark:bg-slate-800) e o textarea ainda pintava texto sólido
+                (text-slate-900/dark:text-white) por cima, cobrindo o preview
+                formatado deste overlay por completo. */}
             <div
               ref={overlayRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-xl border border-transparent px-4 py-3 text-sm leading-relaxed text-slate-900 dark:text-white"
+              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-4 py-3 text-sm leading-relaxed text-slate-900 dark:text-white"
             >
               {content ? renderLiveTokens(content) : null}
             </div>
@@ -454,7 +466,7 @@ const MessageInput = forwardRef(function MessageInput(
             <textarea
               ref={textInputRef}
               rows={1}
-              placeholder="Escreva uma mensagem... (@ pra mencionar, Shift+Enter quebra linha)"
+              placeholder="Lança o papo..."
               maxLength={2000}
               value={content}
               onChange={handleContentChange}
@@ -472,7 +484,7 @@ const MessageInput = forwardRef(function MessageInput(
               role="combobox"
               aria-expanded={mentionMatches.length > 0}
               aria-autocomplete="list"
-              className="relative z-10 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm leading-relaxed  caret-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:caret-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20 dark:text-white text-slate-900"
+              className="relative z-10 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-transparent px-4 py-3 text-sm leading-relaxed text-transparent caret-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed dark:caret-white dark:placeholder:text-slate-500 [&::-webkit-scrollbar]:hidden"
             />
 
             {mentionMatches.length > 0 && (
@@ -516,13 +528,13 @@ const MessageInput = forwardRef(function MessageInput(
           <EmojiPicker onSelect={insertAtCursor} disabled={disabled} />
         </div>
 
-        <button
+        {/* <button
           type="submit"
           disabled={!canSubmit}
           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
         >
           <SendHorizontal />
-        </button>
+        </button> */}
       </div>
 
       {error && (

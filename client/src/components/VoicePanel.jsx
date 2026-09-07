@@ -139,6 +139,9 @@ export default function VoicePanel() {
         username: `${user.username} (você)`,
         avatarPath: user.avatarPath,
         isLocal: true,
+        // Ícone de deafen deste tile = o PRÓPRIO estado (mesmo valor do
+        // `deafened` global, ver comentário em ParticipantTile.jsx).
+        participantDeafened: deafened,
         // `micTransmitting` já cobre mute manual + trava de moderador +
         // push-to-talk (tecla solta = não transmitindo) - ver
         // MediaSessionContext.jsx.
@@ -183,6 +186,11 @@ export default function VoicePanel() {
         username: p.username,
         avatarPath: p.avatarPath,
         isLocal: false,
+        // Ícone de deafen deste participante = o dele mesmo (`p.deafened`
+        // do roster, transmitido pelo servidor via media:setDeafened - ver
+        // MediaSessionContext.jsx), nunca o `deafened` global de quem está
+        // vendo a chamada.
+        participantDeafened: Boolean(p.deafened),
         micMuted: micEntry?.paused ?? false,
         videoStream: cameraEntry?.stream ?? null,
         micStream: micEntry?.stream ?? null,
@@ -203,6 +211,7 @@ export default function VoicePanel() {
     cameraOn,
     localCameraStream,
     localMicStream,
+    deafened,
     autoplayCamera,
     manuallyStartedKeys,
     isMediaHidden,

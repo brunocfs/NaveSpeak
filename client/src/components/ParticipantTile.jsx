@@ -28,7 +28,16 @@ export default function ParticipantTile({
   micStream = null,
   micMuted = false,
   isLocal = false,
+  // Estado de deafen de QUEM ESTÁ VENDO este painel (sempre o usuário
+  // LOCAL, o mesmo valor em todo tile) - controla só `playbackMuted`
+  // abaixo (silenciar a REPRODUÇÃO recebida). Nunca usar pra decidir o
+  // ícone de um participante REMOTO - ver `participantDeafened`.
   deafened = false,
+  // Estado de deafen DESTE participante específico (self ou remoto,
+  // resolvido em VoicePanel.jsx a partir de `p.deafened` do roster) - só
+  // decide o ÍCONE exibido no tile, nunca a reprodução de áudio de quem
+  // está vendo.
+  participantDeafened = false,
   kind = "person",
   pinned = false,
   onTogglePin,
@@ -95,11 +104,25 @@ export default function ParticipantTile({
   // inteira de bug.
   const gated = hasVideo && (hiddenMedia || needsManualStart);
 
+  // Anel do tile: mesmo indicador visual pra "falando" e pros status de
+  // áudio deste participante (visível pra TODOS, não só localmente - vem de
+  // `participantDeafened`/`micMuted`, que já chegam resolvidos por
+  // participante desde VoicePanel.jsx). Prioridade: deafened (vermelho
+  // sólido, o mais severo - nem ouve nem fala) > mic mudo (vermelho claro)
+  // > falando (verde) > neutro. Só faz sentido pra kind='person' - tela
+  // compartilhada não tem mic/deafen próprio.
+  const ringClass =
+    kind === "person" && participantDeafened
+      ? "ring-red-500"
+      : kind === "person" && micMuted
+        ? "ring-red-300"
+        : speaking
+          ? "ring-green-400"
+          : "ring-transparent";
+
   return (
     <div
-      className={`group relative aspect-video w-full  items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-3 transition ${
-        speaking ? "ring-green-400" : "ring-transparent"
-      } ${className}`}
+      className={`group relative aspect-video w-full  items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-3 transition ${ringClass} ${className}`}
       style={style}
     >
       {hasVideo && (
@@ -156,7 +179,7 @@ export default function ParticipantTile({
           {kind === "person" && micMuted && (
             <MicOff className="size-3.5 shrink-0 text-red-400" />
           )}
-          {kind === "person" && deafened && (
+          {kind === "person" && participantDeafened && (
             <HeadphoneOff className="size-3.5 shrink-0 text-red-400" />
           )}
           {kind === "person" && locallyMuted && (

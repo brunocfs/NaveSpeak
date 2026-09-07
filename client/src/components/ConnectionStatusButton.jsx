@@ -10,7 +10,7 @@ const QUALITY_COLOR = {
 };
 
 const QUALITY_LABEL = {
-  good: "Online",
+  good: "Voz Conectada",
   fair: "Conexão instável",
   poor: "Conexão ruim",
   unknown: "Medindo conexão...",
@@ -18,9 +18,7 @@ const QUALITY_LABEL = {
 
 // Ícone de estado da chamada de voz - cor segue media.networkStats.quality
 // (MediaSessionContext, calculado via getStats() dos transports mediasoup).
-// Clicar abre um popover com o detalhe (ping/perda de pacote); nada disso
-// existia antes - o lugar era ocupado por um <span>Online!</span> fixo, sem
-// ligação nenhuma com o estado real da chamada.
+// Clicar abre um popover com o detalhe (ping/perda de pacote)
 export default function ConnectionStatusButton() {
   const media = useMediaSession();
   const [open, setOpen] = useState(false);

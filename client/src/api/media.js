@@ -154,6 +154,14 @@ export async function requestScreenStream(sourceId, { withAudio = false } = {}) 
       mandatory: {
         chromeMediaSource: 'desktop',
         chromeMediaSourceId: sourceId,
+        // fps/resolução mínimos conservadores (evita OverconstrainedError em
+        // notebooks/telas pequenas) - máximos cobrem jogo em 1080p60.
+        minFrameRate: 30,
+        maxFrameRate: 60,
+        minWidth: 1280,
+        maxWidth: 1920,
+        minHeight: 720,
+        maxHeight: 1080,
       },
     };
     if (withAudio) {
@@ -175,7 +183,18 @@ export async function requestScreenStream(sourceId, { withAudio = false } = {}) 
   // Navegador comum: isso só deve ser chamado a partir de um gesto explícito
   // do usuário (onClick do botão "Compartilhar tela") - nunca automaticamente
   // ao carregar a página, senão o navegador bloqueia o pedido de permissão.
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: withAudio });
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: {
+      // "ideal" (não "exact") - navegador faz melhor esforço sem falhar em
+      // telas menores/4K. Sem isso o Chrome escolhe fps/resolução sozinho,
+      // muitas vezes mal pra conteúdo de alto movimento (jogos).
+      frameRate: { ideal: 30, max: 60 },
+      width: { ideal: 1920, max: 1920 },
+      height: { ideal: 1080, max: 1080 },
+      cursor: 'always',
+    },
+    audio: withAudio,
+  });
   return { stream, hasAudio: stream.getAudioTracks().length > 0 };
 }
 

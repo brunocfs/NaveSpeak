@@ -202,15 +202,13 @@ export default function RoomsPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      {/*   <header className=" shrink-0 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80"> */}
+      
       <div className="mx-auto w-full mt-4 px-8">
         <header className="rounded-2xl  border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
           <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
             <div className="mr-5">
               <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                {/* <div
-                className={`shrink-0 rounded-full object-cover ${theme === "dark" ? "bg-slate-800" : "bg-slate-200"}`}
-              > */}
+                
                 <img
                   src={theme === "dark" ? logoDark : logo}
                   alt="Canal de voz"
@@ -248,8 +246,8 @@ export default function RoomsPage() {
                             size="lg"
                           />
                           {room.unreadCount > 0 && (
-                            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-blue-500 dark:ring-slate-900">
-                              {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
+                              {room.unreadCount > 9 ? "99+" : room.unreadCount}
                             </span>
                           )}
                         </span>

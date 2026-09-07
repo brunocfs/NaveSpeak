@@ -5,17 +5,9 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PictureInPicture2,
-  Mic,
-  MicOff,
-  HeadphoneOff,
-  Headphones,
-  Camera,
-  CameraOff,
-  ScreenShare,
-  RefreshCw,
-  PhoneOff,
   UserRoundPlus,
   Bookmark,
+  Volume2,
 } from "lucide-react";
 import {
   Link,
@@ -30,6 +22,7 @@ import ChatPanel from "../components/ChatPanel.jsx";
 import StatusDot, { statusLabel } from "../components/StatusDot.jsx";
 import Avatar from "../components/Avatar.jsx";
 import VoiceRosterEntry from "../components/VoiceRosterEntry.jsx";
+import VoiceControlBar from "../components/VoiceControlBar.jsx";
 import ServerSettingsModal from "../components/ServerSettingsModal.jsx";
 import CreateChannelModal from "../components/CreateChannelModal.jsx";
 import ServerUserInvite from "../components/ServerUserInvite.jsx";
@@ -39,10 +32,7 @@ import { useNotifications } from "../context/NotificationContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
-import PreferencesModal from "../components/PreferencesModal.jsx";
 import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
-import ConnectionStatusButton from "../components/ConnectionStatusButton.jsx";
-import StatusSelector from "../components/StatusSelector.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
 import logo from "../assets/nvspk.svg";
 import logoDark from "../assets/nvspk-dark.svg";
@@ -77,8 +67,8 @@ export default function RoomPage() {
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState(null);
   const [selectedChannelId, setSelectedChannelId] = useState(null);
+  const [idServerVoiceActive, setIdServerVoiceActive] = useState(null);
   const [online, setOnline] = useState([]);
-  const [openUserStatus, setOpenUserStatus] = useState(false);
   // Status de presença global por usuário (independente de canal/servidor) -
   // distinto de `online` acima, que é só quem está vendo o canal ativo.
   // Mapa { userId: 'online'|'busy'|'away' } - quem não aparece aqui está
@@ -160,6 +150,7 @@ export default function RoomPage() {
   }
 
   function openVoiceChannel(channelId) {
+    setIdServerVoiceActive(roomId);
     setActiveChannelId(channelId);
     if (media.voiceChannelId !== channelId) {
       media.joinVoice(channelId, {
@@ -628,10 +619,8 @@ export default function RoomPage() {
     <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
       <div className="mx-auto w-full mt-4 px-8">
         <header className="rounded-2xl border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
-          {/* <div className="flex min-w-0 items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
-           */}
           <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="mr-5">
+            <div className="mr-10">
               <Link
                 to="/rooms"
                 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white"
@@ -682,6 +671,12 @@ export default function RoomPage() {
                               : "ring-2 ring-transparent hover:bg-slate-100 dark:hover:bg-slate-800"
                           }`}
                         >
+                          {r.id === idServerVoiceActive && (
+                            <span className="z-49 absolute -left-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
+                              <Volume2 className="w-3 h-3" />
+                            </span>
+                          )}
+
                           <span className="relative inline-flex">
                             <Avatar
                               avatarPath={r.icon_path}
@@ -689,7 +684,7 @@ export default function RoomPage() {
                               size="lg"
                             />
                             {r.unreadCount > 0 && (
-                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-blue-500 dark:ring-slate-900">
+                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
                                 {r.unreadCount > 99 ? "99+" : r.unreadCount}
                               </span>
                             )}
@@ -697,7 +692,7 @@ export default function RoomPage() {
                         </Link>
                         <span
                           className=" z-50
-                            absolute left-1/2 top-full  -translate-y-1/2
+                            absolute left-1/2   -translate-y-1/2
                             whitespace-nowrap rounded-md
                             bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
                             opacity-0 -translate-x-2 pointer-events-none
@@ -705,12 +700,21 @@ export default function RoomPage() {
                             group-hover:opacity-100
                             group-hover:translate-x-0"
                         >
-                          {room.name}
+                          {r.name}
                         </span>
                       </div>
                     );
                   })}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setAddServerOpen(true)}
+                  title="Criar ou entrar em um servidor"
+                  aria-label="Criar ou entrar em um servidor"
+                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
+                >
+                  <Plus />
+                </button>
               </div>
             )}
 
@@ -1104,131 +1108,10 @@ export default function RoomPage() {
               </div>
             </div>
           </aside>
-          {/* overflow-hidden removido de propósito: essa barra não tem
-              cantos arredondados (não precisa clipar nada) e estava
-              cortando o popover do ConnectionStatusButton, que abre pra
-              CIMA (bottom-full) e precisa extrapolar essa caixa. */}
-          {media.connected && (
-            <div className="flex p-2   ring-slate-200 shadow-sm ring-1  border-slate-700  dark:bg-slate-800 dark:ring-slate-800 ">
-              <div className="flex flex-1 gap-2 justify-between items-center">
-                {/* Estatísticas de conexão (ping/perda de pacote) - ver
-                  ConnectionStatusButton.jsx, dados vêm de
-                  media.networkStats (MediaSessionContext). */}
-                <ConnectionStatusButton />
-                <div className="flex gap-2  items-center">
-                  <button
-                    onClick={() =>
-                      media.cameraOn ? media.stopCamera() : media.shareCamera()
-                    }
-                    title={media.cameraOn ? "Desligar câmera" : "Ligar câmera"}
-                    className={`rounded-xl px-2 py-2 cursor-pointer transition ${
-                      media.cameraOn
-                        ? "bg-blue-600 hover:bg-blue-500"
-                        : "bg-gray-600 hover:bg-gray-500"
-                    }`}
-                  >
-                    {media.cameraOn ? (
-                      <Camera className="size-4 text-white" />
-                    ) : (
-                      <CameraOff className="size-4 text-white" />
-                    )}
-                  </button>
-                  <button
-                    onClick={toggleScreenShare}
-                    title={
-                      media.sharingScreen
-                        ? "Parar compartilhamento"
-                        : "Compartilhar tela"
-                    }
-                    className={`rounded-xl px-2 py-2 cursor-pointer transition ${
-                      media.sharingScreen
-                        ? "bg-green-600 hover:bg-green-500"
-                        : "bg-gray-600 hover:bg-gray-500"
-                    }`}
-                  >
-                    <ScreenShare className="size-4 text-white" />
-                  </button>
-                  {media.sharingScreen && (
-                    <button
-                      onClick={switchScreenSource}
-                      title="Trocar a tela/janela compartilhada (sem parar o compartilhamento)"
-                      className="rounded-xl px-2 py-2 cursor-pointer bg-gray-600 transition hover:bg-gray-500"
-                    >
-                      <RefreshCw className="size-4 text-white" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          {openUserStatus && (
-            <div className=" fixed w-50 left-50 bottom-60 rounded-full">
-              <button onClick={() => setOpenUserStatus((prev) => !prev)}>
-                <StatusSelector onDot={true} />
-              </button>
-            </div>
-          )}
-          {/* <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1 border-slate-700 overflow-hidden bg-slate-300 dark:bg-slate-800 dark:ring-slate-800 "> */}
-          <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1  overflow-hidden border-slate-100 dark:border-slate-600 ring-slate-200 dark:bg-slate-800 dark:ring-slate-800  ">
-            <div className="hidden items-center gap-2 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex dark:bg-slate-800 dark:text-slate-200 ">
-              <span className="relative inline-flex shrink-0">
-                <button
-                  className="cursor-pointer"
-                  onClick={() => setOpenUserStatus((prev) => !prev)}
-                >
-                  <Avatar
-                    avatarPath={user?.avatarPath}
-                    username={user?.username}
-                    size="md"
-                  />
-                </button>
-                <StatusDot
-                  status={user?.status ?? "offline"}
-                  className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
-                />
-              </span>
-              <PreferencesModal />
-            </div>
-
-            <div class="flex flex-1 gap-2 items-center  ">
-              <button
-                onClick={() => media.toggleMute()}
-                title={media.muted ? "Ativar microfone" : "Silenciar microfone"}
-                className={`rounded-xl px-2 py-2 cursor-pointer transition ${
-                  media.micTransmitting
-                    ? "bg-gray-600 hover:bg-gray-500"
-                    : "bg-red-600 hover:bg-red-500"
-                }`}
-              >
-                {media.micTransmitting ? (
-                  <Mic className="size-5 text-white" />
-                ) : (
-                  <MicOff className="size-5 text-white" />
-                )}
-              </button>
-              <button
-                onClick={() => media.toggleDeafen()}
-                title={media.deafened ? "Ouvir todos" : "Silenciar todos"}
-                className={`rounded-xl px-2 py-2 cursor-pointer transition ${
-                  media.deafened
-                    ? "bg-red-600 hover:bg-red-500"
-                    : "bg-gray-600 hover:bg-gray-500"
-                }`}
-              >
-                {media.deafened ? (
-                  <HeadphoneOff className="size-5 text-white" />
-                ) : (
-                  <Headphones className="size-5 text-white" />
-                )}
-              </button>
-              <button
-                onClick={() => media.leaveVoice()}
-                className={`${media.connected ? "cursor-pointer rounded-xl bg-red-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400" : "cursor-pointer rounded-xl bg-slate-600 px-3 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-red-400"}`}
-              >
-                <PhoneOff></PhoneOff>
-              </button>
-            </div>
-          </div>
+          <VoiceControlBar
+            toggleScreenShare={toggleScreenShare}
+            switchScreenSource={switchScreenSource}
+          />
         </section>
 
         <section className="min-w-0 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col">

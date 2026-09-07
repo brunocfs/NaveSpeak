@@ -15,7 +15,7 @@ export const mediaCodecs = [
     kind: 'video',
     mimeType: 'video/VP8',
     clockRate: 90000,
-    parameters: { 'x-google-start-bitrate': 1000 },
+    parameters: { 'x-google-start-bitrate': 1500 },
   },
   {
     kind: 'video',
@@ -53,5 +53,9 @@ export const webRtcTransportOptions = {
   enableUdp: true,
   enableTcp: true,
   preferUdp: true,
-  initialAvailableOutgoingBitrate: 1_000_000,
+  // Ponto de partida do BWE (não é teto - teto real vem de
+  // encodings.maxBitrate por producer, client-side). Valor baixo fazia o
+  // ramp-up demorar e a tela compartilhada começar "lagada" até a
+  // estimativa de banda subir sozinha.
+  initialAvailableOutgoingBitrate: 3_000_000,
 };

@@ -10,6 +10,7 @@ import {
 } from "../api/media.js";
 import { useMicLevel } from "../hooks/useMicLevel.js";
 import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
+import AccountProfileSettings from "./AccountProfileSettings.jsx";
 
 // Faixa de dB do medidor/slider de sensibilidade - -70 (bem sensível, capta
 // até sussurro/ruído baixo de sala) a -10 (só voz alta bem perto do mic).
@@ -75,6 +76,7 @@ const hasGlobalPushToTalk =
 const TABS = [
   { id: "general", label: "Geral" },
   { id: "audioVideo", label: "Áudio e Vídeo" },
+  { id: "account", label: "Conta e Perfil" },
 ];
 
 // Botão de engrenagem + modal de preferências, no cabeçalho de RoomsPage.jsx
@@ -1001,6 +1003,8 @@ export default function PreferencesModal() {
                           </div>
                         </>
                       )}
+
+                      {tab === "account" && <AccountProfileSettings />}
                     </div>
                   </div>
                 </div>

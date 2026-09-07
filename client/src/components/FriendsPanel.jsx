@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { getSocket } from "../api/socket.js";
 import { clearConversation, markConversationRead } from "../api/dm.js";
+import { isElectron, listScreenSources } from "../api/media.js";
 import StatusDot from "./StatusDot.jsx";
 import Avatar from "./Avatar.jsx";
+import VoiceControlBar from "./VoiceControlBar.jsx";
+import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
 import {
   listFriends,
   listFriendRequests,
@@ -36,6 +40,10 @@ function compareFriends(a, b) {
 export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
   const { user } = useAuth();
   const ownUserId = user?.id;
+  // Chamada de voz é global (MediaSessionProvider em App.jsx) - continua
+  // ativa mesmo navegando pra fora de uma sala, então o VoiceControlBar
+  // abaixo da lista de amigos precisa ler o mesmo estado de mídia.
+  const media = useMediaSession();
 
   const [addExpanded, setAddExpanded] = useState(false);
   const [friends, setFriends] = useState([]);
@@ -49,6 +57,15 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
 
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
+
+  // Fontes de tela/janela do Electron pro botão de compartilhar tela do
+  // VoiceControlBar - mesma lógica (duplicada de propósito, ver comentário
+  // equivalente em RoomPage.jsx/VoiceStatusBar.jsx) de listar fontes e abrir
+  // o <ScreenSourcePicker> modal; fora do Electron, getDisplayMedia já
+  // mostra o seletor nativo do navegador e isso nunca é usado.
+  const [screenPickerSources, setScreenPickerSources] = useState(null);
+  const [screenPickerMode, setScreenPickerMode] = useState("share");
+  const [screenPickerError, setScreenPickerError] = useState(null);
 
   // Lido dentro do listener de socket (registrado uma vez, ver efeito
   // abaixo) sem recriar a subscrição a cada troca de amigo selecionado.
@@ -174,6 +191,37 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  async function openSourcePicker(mode) {
+    try {
+      const sources = await listScreenSources();
+      setScreenPickerMode(mode);
+      setScreenPickerSources(sources ?? []);
+    } catch (err) {
+      console.error("[screen-share] Falha ao listar fontes de tela:", err);
+      setScreenPickerError(
+        err.message ?? "Não foi possível listar as telas/janelas disponíveis.",
+      );
+    }
+  }
+  function toggleScreenShare() {
+    if (media.sharingScreen) {
+      media.stopScreenShare();
+      return;
+    }
+    if (isElectron()) {
+      openSourcePicker("share");
+      return;
+    }
+    media.shareScreen(undefined, { withAudio: true });
+  }
+  function switchScreenSource() {
+    if (isElectron()) {
+      openSourcePicker("switch");
+      return;
+    }
+    media.switchScreenSource(undefined, { withAudio: true });
+  }
+
   async function handleAddFriend(e) {
     e.preventDefault();
     const tag = usernameInput.trim();
@@ -277,7 +325,7 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
   }
   //   <div className="flex h-full min-h-0 flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300">
   return (
-    <div className="flex h-full min-h-0 flex-col   overflow-hidden transition-all duration-300">
+    <div className="flex h-full min-h-0 flex-col transition-all duration-300">
       {/* Cabeçalho clicável - mesmo padrão do card "Criar / Entrar em um
           servidor" (RoomsPage.jsx): só a parte de ADICIONAR colapsa;
           solicitações e a lista de amigos abaixo ficam sempre visíveis, no
@@ -526,6 +574,43 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
           </ul>
         </div>
       </div>
+
+      <VoiceControlBar
+        toggleScreenShare={toggleScreenShare}
+        switchScreenSource={switchScreenSource}
+      />
+
+      {screenPickerSources && (
+        <ScreenSourcePicker
+          sources={screenPickerSources}
+          title={
+            screenPickerMode === "switch"
+              ? "Trocar para qual fonte?"
+              : "Escolha o que compartilhar"
+          }
+          defaultWithAudio={
+            screenPickerMode === "switch" ? media.screenAudioEnabled : false
+          }
+          onSelect={(sourceId, withAudio) => {
+            setScreenPickerSources(null);
+            if (screenPickerMode === "switch")
+              media.switchScreenSource(sourceId, { withAudio });
+            else media.shareScreen(sourceId, { withAudio });
+          }}
+          onCancel={() => setScreenPickerSources(null)}
+        />
+      )}
+
+      {screenPickerError && (
+        <div
+          className="fixed bottom-24 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-xl bg-red-600 px-4 py-2 text-sm text-white shadow-lg"
+          role="alert"
+          title="Clique para fechar"
+          onClick={() => setScreenPickerError(null)}
+        >
+          {screenPickerError}
+        </div>
+      )}
     </div>
   );
 }

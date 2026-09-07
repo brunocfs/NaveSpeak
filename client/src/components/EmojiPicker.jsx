@@ -46,10 +46,10 @@ export default function EmojiPicker({ onSelect, disabled }) {
         title="Inserir emoji"
         aria-label="Inserir emoji"
         aria-expanded={open}
-        className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl border px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
           open
             ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300"
-            : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
         }`}
       >
         <Smile className="size-4" />

@@ -16,6 +16,16 @@ import { createNoiseGateStream } from '../audio/noiseGate.js';
 import { createGainStream } from '../audio/gainStream.js';
 import { playSound } from '../utils/sounds.js';
 
+// Bitrate/fps do producer de tela: conteúdo de jogo (alto movimento) precisa
+// de bem mais banda que uma webcam pra não "lagar" pra quem assiste. 3 Mbps
+// é ponto de partida seguro (servidor não é o limite - VPS com banda de
+// sobra); a estimativa de banda (BWE) do WebRTC reduz sozinha se a rede real
+// de quem compartilha não aguentar.
+const SCREEN_MAX_BITRATE = 3_000_000; // bps, vai em encodings.maxBitrate
+const SCREEN_MAX_FRAMERATE = 60;
+const SCREEN_START_BITRATE_KBPS = 1500; // kbps, vai em codecOptions.videoGoogleStartBitrate
+const SCREEN_MAX_BITRATE_KBPS = 3000; // kbps, vai em codecOptions.videoGoogleMaxBitrate
+
 // Push-to-talk: ignora o próprio código da tecla quando o foco está num
 // campo de texto (chat, busca etc.) - sem isso, atribuir uma tecla comum
 // (ex.: "V") faria qualquer letra digitada também abrir/fechar o mic
@@ -1200,6 +1210,7 @@ export function MediaSessionProvider({ children }) {
       try {
         const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio });
         const [track] = stream.getVideoTracks();
+        track.contentHint = 'motion'; // otimiza o encoder pra conteúdo de alto movimento (jogos)
         activeScreenVideoTrackRef.current = track;
 
         // Se o usuário parar a captura pelo controle nativo do navegador/SO
@@ -1213,6 +1224,11 @@ export function MediaSessionProvider({ children }) {
 
         const producer = await sendTransportRef.current.produce({
           track,
+          encodings: [{ maxBitrate: SCREEN_MAX_BITRATE, maxFramerate: SCREEN_MAX_FRAMERATE }],
+          codecOptions: {
+            videoGoogleStartBitrate: SCREEN_START_BITRATE_KBPS,
+            videoGoogleMaxBitrate: SCREEN_MAX_BITRATE_KBPS,
+          },
           appData: { source: 'screen' },
         });
         screenProducerRef.current = producer;
@@ -1270,6 +1286,7 @@ export function MediaSessionProvider({ children }) {
       try {
         const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio: wantAudio });
         const [newTrack] = stream.getVideoTracks();
+        newTrack.contentHint = 'motion'; // mesmo tuning de shareScreen acima
         // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
         // atribuição que faz o 'ended' dela ser ignorado como "própria
         // troca", ver comentário de activeScreenVideoTrackRef no topo.

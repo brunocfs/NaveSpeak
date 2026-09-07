@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import Avatar from "./Avatar.jsx";
 import {
@@ -36,7 +38,8 @@ import {
 // nenhuma, RoomPage passa pra QUALQUER participante que não seja o próprio
 // usuário logado (é só preferência de audição local, não afeta ninguém mais,
 // ver RemoteAudioPlayers.jsx/PreferencesContext). Sozinho já é suficiente
-// pra abrir o menu ⋮, mesmo sem nenhuma permissão de moderação.
+// pra habilitar o menu (clique direito), mesmo sem nenhuma permissão de
+// moderação.
 //
 // `localControls` (opcional, mesma régua de volumeControl - sem permissão
 // nenhuma, nunca pro próprio usuário) reúne mute-local do mic e ocultar
@@ -58,8 +61,41 @@ export default function VoiceRosterEntry({
   localControls,
 }) {
   const speaking = useSpeaking(micStream);
+  const hasMenu = Boolean(moderation || volumeControl || localControls);
+  const [menuPos, setMenuPos] = useState(null);
+  const menuRef = useRef(null);
+
+  // Menu agora abre só com clique direito (botão ⋮ foi removido - ver
+  // pedido do usuário). Posição vem do próprio evento de contexto e o menu
+  // é renderizado num portal pra `document.body`: assim ele nunca fica
+  // cortado pelo `overflow-y-auto`/`overflow-hidden` dos containers da
+  // lista (RoomPage.jsx) e sempre fica acima de qualquer card (z-index de
+  // portal não compete com o stacking context dos ancestrais).
+  function handleContextMenu(e) {
+    if (!hasMenu) return;
+    e.preventDefault();
+    const menuWidth = 224; // w-56
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
+    const y = Math.min(e.clientY, window.innerHeight - 8);
+    setMenuPos({ x: Math.max(8, x), y });
+  }
+
+  useEffect(() => {
+    if (!menuPos) return;
+    function handlePointerDown(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuPos(null);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [menuPos]);
+
   return (
-    <li className="flex items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+    <li
+      onContextMenu={handleContextMenu}
+      className=" cursor-pointer flex rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+    >
       <Avatar
         avatarPath={avatarPath}
         username={username}
@@ -147,12 +183,14 @@ export default function VoiceRosterEntry({
         )
       ) : null}
 
-      {(moderation || volumeControl || localControls) && (
-        <details className="group relative ml-auto shrink-0">
-          <summary className="cursor-pointer list-none rounded px-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100">
-            ⋮
-          </summary>
-          <div className="absolute right-0 z-10 mt-1 w-56 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800">
+      {hasMenu &&
+        menuPos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", left: menuPos.x, top: menuPos.y }}
+            className="z-[9999] w-56 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800"
+          >
             {localControls && (
               <>
                 <button
@@ -208,7 +246,9 @@ export default function VoiceRosterEntry({
                   max="100"
                   step="5"
                   value={volumeControl.value}
-                  onChange={(e) => volumeControl.onChange(Number(e.target.value))}
+                  onChange={(e) =>
+                    volumeControl.onChange(Number(e.target.value))
+                  }
                   className="mt-1 w-full accent-emerald-500"
                 />
               </label>
@@ -219,19 +259,19 @@ export default function VoiceRosterEntry({
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onMute(true, "once")}
                 >
-                  Mutar
+                  Silenciar voz no servidor
                 </button>
                 <button
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onMute(true, "lock")}
                 >
-                  Mutar e travar 🔒
+                  Desativar voz no servidor
                 </button>
                 <button
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onMute(false, "lock")}
                 >
-                  Destravar áudio
+                  Ativar áudio
                 </button>
               </>
             )}
@@ -247,13 +287,13 @@ export default function VoiceRosterEntry({
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onDisableMedia(true, "lock")}
                 >
-                  Desligar mídia e travar 🔒
+                  Desativar mídia
                 </button>
                 <button
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onDisableMedia(false, "lock")}
                 >
-                  Destravar mídia
+                  Rativar mídia
                 </button>
               </>
             )}
@@ -286,9 +326,9 @@ export default function VoiceRosterEntry({
                 Desconectar
               </button>
             )}
-          </div>
-        </details>
-      )}
+          </div>,
+          document.body,
+        )}
     </li>
   );
 }
