@@ -25,8 +25,40 @@ function getAudioContext() {
   if (!audioCtx) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     audioCtx = new Ctx();
+    applySinkId(); // contexto acabou de nascer - aplica saída pendente (ver setNotificationOutputDevice) na hora
   }
   return audioCtx;
+}
+
+// Volume master dos efeitos sonoros (Preferências > Geral > "Volume das
+// notificações"), SEPARADO do volume de voz da chamada (esse é por-usuário,
+// ver userVolumes em PreferencesContext/RemoteAudioPlayers.jsx - dois
+// conceitos diferentes: aqui é join/leave/mute/mensagem etc., lá é o mic dos
+// outros participantes). 0..1, PreferencesContext empurra aqui via
+// setNotificationVolume sempre que a preferência muda.
+let notificationVolume = 1;
+export function setNotificationVolume(volumePercent) {
+  notificationVolume = Math.min(100, Math.max(0, volumePercent)) / 100;
+}
+
+// Dispositivo de saída dos efeitos sonoros (Preferências > Geral >
+// "Reproduzir notificações em uma saída de áudio diferente") - `null` = saída
+// padrão (mesma lógica de reset do HTMLMediaElement.setSinkId('') em
+// RemoteAudioPlayers.jsx, só que aqui É preciso poder VOLTAR ao padrão, já
+// que esta troca pode ser ligada e desligada em runtime, diferente do
+// outputDeviceId de chamada que nunca volta a null depois de setado).
+// `AudioContext.setSinkId` é uma API mais nova que `HTMLMediaElement.
+// setSinkId` (mesmo grupo Chrome/Edge, mas checado à parte) - se o navegador
+// não suportar, fica tocando no padrão do sistema e a troca é ignorada em
+// silêncio.
+let pendingSinkId = null;
+function applySinkId() {
+  if (!audioCtx || typeof audioCtx.setSinkId !== 'function') return;
+  audioCtx.setSinkId(pendingSinkId ?? '').catch(() => {});
+}
+export function setNotificationOutputDevice(deviceId) {
+  pendingSinkId = deviceId || null;
+  applySinkId();
 }
 
 // O navegador cria o AudioContext em estado "suspended" até a primeira
@@ -185,7 +217,7 @@ export async function playSound(name, { volume = 1, loop = false } = {}) {
     if (loop && onset > 0) source.loopStart = onset;
 
     const gain = ctx.createGain();
-    gain.gain.value = volume;
+    gain.gain.value = volume * notificationVolume;
     source.connect(gain).connect(ctx.destination);
     source.start(0, onset);
 

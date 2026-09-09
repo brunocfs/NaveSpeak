@@ -87,6 +87,8 @@ export default function VoicePanel() {
     screenAudioEnabled,
     screenAudioVolume,
     setLocalScreenAudioVolume,
+    screenViewers,
+    setWatchingScreen,
     localMicStream,
     micTransmitting,
     voiceRoster: participants,
@@ -239,6 +241,10 @@ export default function VoicePanel() {
         audioVolume: screenAudioVolume,
         audioVolumeMax: 200,
         onAudioVolumeChange: setLocalScreenAudioVolume,
+        // Quem está assistindo ESTA tela agora, agregado pelo servidor -
+        // nunca inclui o próprio compartilhador (ver setWatchingScreen: só
+        // tiles REMOTOS reportam assistir, ver efeito abaixo).
+        viewers: screenViewers[user?.id] ?? [],
       });
     }
     for (const s of remoteStreams) {
@@ -273,6 +279,7 @@ export default function VoicePanel() {
         onToggleHiddenMedia: () => toggleMediaHidden(s.userId, "screen"),
         needsManualStart,
         onStartWatching: () => startWatching(key),
+        viewers: screenViewers[s.userId] ?? [],
       });
     }
     return tiles;
@@ -281,6 +288,7 @@ export default function VoicePanel() {
     sharingScreen,
     localScreenStream,
     user,
+    screenViewers,
     screenAudioEnabled,
     screenAudioVolume,
     setLocalScreenAudioVolume,
@@ -291,6 +299,43 @@ export default function VoicePanel() {
     isMediaHidden,
     toggleMediaHidden,
   ]);
+
+  // Reporta ao servidor quais telas REMOTAS este cliente está de fato
+  // assistindo agora (vídeo visível E tocando - nem oculta, nem esperando
+  // clique manual, ver `hiddenMedia`/`needsManualStart` acima) - é isso que
+  // alimenta o indicador "N assistindo" no tile de quem compartilha (ver
+  // ParticipantTile.jsx/MediaSessionContext.jsx). Só emite quando o
+  // conjunto muda de fato (guardado em `reportedWatchingRef`, não a cada
+  // render) - `screenViewers` entra nas deps de `screenTiles` acima, então
+  // este efeito reroda a cada atualização de espectadores só pra achar o
+  // mesmo conjunto de novo (comparação abaixo não emite nada nesse caso).
+  const reportedWatchingRef = useRef(new Set());
+  useEffect(() => {
+    const watchingNow = new Set(
+      screenTiles
+        .filter((t) => !t.isLocal && t.videoStream && !t.hiddenMedia && !t.needsManualStart)
+        .map((t) => t.userId),
+    );
+    const prev = reportedWatchingRef.current;
+    for (const targetUserId of watchingNow) {
+      if (!prev.has(targetUserId)) setWatchingScreen(targetUserId, true);
+    }
+    for (const targetUserId of prev) {
+      if (!watchingNow.has(targetUserId)) setWatchingScreen(targetUserId, false);
+    }
+    reportedWatchingRef.current = watchingNow;
+  }, [screenTiles, setWatchingScreen]);
+
+  // VoicePanel nunca desmonta durante a chamada (é global, ver comentário no
+  // topo do arquivo) - então o cleanup do efeito acima nunca dispara nem ao
+  // trocar de canal. Só ao sair de vez da chamada (leaveVoice já reseta
+  // `screenViewers` no servidor via clearScreenViewer, ver
+  // mediasoup.handler.js) o estado reportado precisa zerar aqui também, pra
+  // uma PRÓXIMA chamada não nascer com o Set antigo e nunca reportar nada de
+  // novo (o efeito acima só emite em cima de MUDANÇA de conjunto).
+  useEffect(() => {
+    if (!connected) reportedWatchingRef.current = new Set();
+  }, [connected]);
 
   // Um <audio> por compartilhamento de tela REMOTO com áudio - consumido por
   // RemoteAudioPlayers junto do mic de todo mundo (nunca filtrado por

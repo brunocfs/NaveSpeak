@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Paperclip } from "lucide-react";
 import { API_URL } from "../api/config.js";
 import { renderMessageTokens } from "../utils/messageFormatting.jsx";
+import ImagePreviewModal from "./ImagePreviewModal.jsx";
 
 // URL de imagem "solta" no texto (sem attachment) - regra: termina numa
 // extensão de imagem conhecida, com querystring opcional (ex.: CDN com
@@ -50,18 +52,22 @@ function MessageText({ text, mentionableUsernames }) {
   return renderMessageTokens(text, mentionableUsernames);
 }
 
-function AttachmentItem({ attachment }) {
+function AttachmentItem({ attachment, onPreview }) {
   const src = attachmentSrc(attachment.path);
 
   if (attachment.mime.startsWith("image/")) {
     return (
-      <a href={src} target="_blank" rel="noopener noreferrer">
+      <button
+        type="button"
+        className="block p-0"
+        onClick={() => onPreview({ src, name: attachment.name, size: attachment.size })}
+      >
         <img
           src={src}
           alt={attachment.name}
-          className="max-h-60 rounded-lg border border-slate-200 object-contain dark:border-slate-700"
+          className="max-h-60 cursor-zoom-in rounded-lg border border-slate-200 object-contain dark:border-slate-700"
         />
-      </a>
+      </button>
     );
   }
   if (attachment.mime.startsWith("video/")) {
@@ -102,6 +108,11 @@ export default function MessageContent({ content, attachments = [], mentionableU
   const youtubeId = !imageUrl && trimmed ? extractYoutubeId(trimmed) : null;
   const mentionableSet = new Set(mentionableUsernames.map((u) => u.toLowerCase()));
 
+  // Imagem em preview (lightbox) - null = nenhuma aberta. Guarda {src, name,
+  // size}: `size` só existe pra anexo de verdade (attachment.size), imagem
+  // solta por URL no texto não tem esse dado (ver ImagePreviewModal).
+  const [previewImage, setPreviewImage] = useState(null);
+
   return (
     <div className="space-y-2">
       {trimmed && (
@@ -111,14 +122,14 @@ export default function MessageContent({ content, attachments = [], mentionableU
       )}
 
       {imageUrl && (
-        <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+        <button type="button" className="block p-0" onClick={() => setPreviewImage({ src: imageUrl })}>
           <img
             src={imageUrl}
             alt=""
             loading="lazy"
-            className="max-h-60 rounded-lg border border-slate-200 object-contain dark:border-slate-700"
+            className="max-h-60 cursor-zoom-in rounded-lg border border-slate-200 object-contain dark:border-slate-700"
           />
-        </a>
+        </button>
       )}
 
       {youtubeId && (
@@ -140,9 +151,22 @@ export default function MessageContent({ content, attachments = [], mentionableU
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {attachments.map((attachment) => (
-            <AttachmentItem key={attachment.path} attachment={attachment} />
+            <AttachmentItem
+              key={attachment.path}
+              attachment={attachment}
+              onPreview={setPreviewImage}
+            />
           ))}
         </div>
+      )}
+
+      {previewImage && (
+        <ImagePreviewModal
+          src={previewImage.src}
+          name={previewImage.name}
+          size={previewImage.size}
+          onClose={() => setPreviewImage(null)}
+        />
       )}
     </div>
   );

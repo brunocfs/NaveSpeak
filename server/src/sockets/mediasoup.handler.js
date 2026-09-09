@@ -57,6 +57,76 @@ function setLock(channelId, userId, patch) {
   return next;
 }
 
+// Quem está ASSISTINDO a tela compartilhada de cada usuário, por canal - pro
+// indicador de "N pessoas vendo"/lista de espectadores no tile de
+// compartilhamento (ver ParticipantTile.jsx/VoicePanel.jsx). Client-driven
+// (media:setScreenViewer): "assistindo" é decisão 100% de quem VÊ (mídia
+// oculta, ou aguardando clique com autoplay desligado - ver VoicePanel.jsx),
+// o servidor só agrega e distribui pra todo mundo no canal. Sem isso só
+// existiria consumer ativo/inativo (que não reflete a UI: o consumer de
+// tela fica ligado independente de o vídeo estar sendo mostrado ou não) -
+// mesma motivação de setVoiceMediaState pro deafened, mas em memória local
+// ao processo (mesma limitação de voiceLocks acima: não sobrevive a um
+// restart, mas é só um indicador social da chamada ATIVA, não precisa).
+const screenViewers = new Map(); // `${channelId}:${targetUserId}` -> Map<viewerUserId, viewerUsername>
+
+function viewerKey(channelId, targetUserId) {
+  return `${channelId}:${targetUserId}`;
+}
+
+function getScreenViewersList(channelId, targetUserId) {
+  const viewers = screenViewers.get(viewerKey(channelId, targetUserId));
+  if (!viewers) return [];
+  return Array.from(viewers.entries()).map(([userId, username]) => ({ userId, username }));
+}
+
+function broadcastScreenViewers(io, channelId, targetUserId) {
+  io.to(voiceRoomOf(channelId)).emit('voice:screenViewers', {
+    targetUserId,
+    viewers: getScreenViewersList(channelId, targetUserId),
+  });
+}
+
+// Marca/desmarca `viewerUserId` como assistindo a tela de `targetUserId` -
+// devolve `true` só se a lista mudou de fato, pra quem chama decidir se vale
+// a pena rebroadcastar (media:setScreenViewer pode chegar repetido, ex.: dois
+// re-renders seguidos do mesmo estado).
+function setScreenViewer(channelId, targetUserId, viewerUserId, viewerUsername, watching) {
+  const key = viewerKey(channelId, targetUserId);
+  const viewers = screenViewers.get(key);
+  if (watching) {
+    if (viewers?.get(viewerUserId) === viewerUsername) return false;
+    if (viewers) viewers.set(viewerUserId, viewerUsername);
+    else screenViewers.set(key, new Map([[viewerUserId, viewerUsername]]));
+    return true;
+  }
+  if (!viewers?.has(viewerUserId)) return false;
+  viewers.delete(viewerUserId);
+  if (viewers.size === 0) screenViewers.delete(key);
+  return true;
+}
+
+// `targetUserId` parou de compartilhar tela (producer fechado, ou saiu da
+// chamada) - todo mundo que estava "assistindo" ele some da lista de uma vez,
+// pra um NOVO compartilhamento dele não nascer com espectadores fantasmas da
+// sessão anterior.
+function clearScreenViewersOfTarget(io, channelId, targetUserId) {
+  if (!screenViewers.delete(viewerKey(channelId, targetUserId))) return;
+  broadcastScreenViewers(io, channelId, targetUserId);
+}
+
+// Tira `viewerUserId` de QUALQUER lista de espectadores deste canal (ele
+// saiu da chamada) - varre só as chaves deste canal, avisa cada alvo afetado.
+function clearScreenViewer(io, channelId, viewerUserId) {
+  const prefix = `${channelId}:`;
+  for (const [key, viewers] of screenViewers.entries()) {
+    if (!key.startsWith(prefix) || !viewers.delete(viewerUserId)) continue;
+    const targetUserId = key.slice(prefix.length);
+    if (viewers.size === 0) screenViewers.delete(key);
+    broadcastScreenViewers(io, channelId, targetUserId);
+  }
+}
+
 // Avisa quem está conectado na chamada e, quando dá pra saber o servidor
 // (serverId), TODO MUNDO que tem o servidor aberto (server:join) - mesmo sem
 // ter entrado nesse canal específico - sobre a lista atual de participantes
@@ -80,6 +150,11 @@ async function leaveVoiceChannel(io, { channelId, socketId, userId }) {
     io.to(voiceRoomOf(channelId)).except(socketId).emit('media:producerClosed', { producerId });
   }
   await removeVoicePresence(channelId, userId, socketId);
+  // Ele parou de assistir tudo que estava vendo, e se estava compartilhando
+  // tela os espectadores dele também somem (ver comentário em
+  // clearScreenViewersOfTarget acima).
+  clearScreenViewer(io, channelId, userId);
+  clearScreenViewersOfTarget(io, channelId, userId);
   io.sockets.sockets.get(socketId)?.leave(voiceRoomOf(channelId));
   if (isCallChannel(channelId)) await handleCallLeave(io, channelId, userId);
 }
@@ -410,6 +485,9 @@ export function registerMediasoupHandlers(io, socket) {
       await setVoiceMediaState(channelId, user.id, { [mediaField]: false });
       await broadcastVoicePresence(io, channelId, socket.data.voiceServerId);
     }
+    // Parou de compartilhar ESTA tela - espectadores da sessão anterior não
+    // podem "vazar" pra um compartilhamento futuro dele no mesmo canal.
+    if (mediaField === 'sharingScreen') clearScreenViewersOfTarget(io, channelId, user.id);
     return ack({ ok: true });
   });
 
@@ -428,6 +506,30 @@ export function registerMediasoupHandlers(io, socket) {
 
     await setVoiceMediaState(parsed.data, user.id, { deafened: Boolean(deafened) });
     await broadcastVoicePresence(io, parsed.data, socket.data.voiceServerId);
+  });
+
+  // Reporta "estou assistindo (ou parei de assistir) a tela compartilhada de
+  // targetUserId" - quem decide isso é o CLIENTE (VoicePanel.jsx: mídia
+  // oculta, ou aguardando clique com autoplay desligado, não conta como
+  // assistindo), aqui só agrega entre espectadores e distribui pra todo
+  // mundo no canal via voice:screenViewers, pro indicador no tile de quem
+  // compartilha. Fire-and-forget igual media:setDeafened acima - sem ação a
+  // desfazer se isto não chegar.
+  socket.on('media:setScreenViewer', ({ channelId, targetUserId, watching } = {}) => {
+    const parsedChannel = mediaChannelIdSchema.safeParse(channelId);
+    const parsedTarget = userIdParamSchema.safeParse(targetUserId);
+    if (!parsedChannel.success || !parsedTarget.success) return;
+    // Só conta espectador quem de fato está na chamada deste canal.
+    if (!getPeer(parsedChannel.data, socket.id)) return;
+
+    const changed = setScreenViewer(
+      parsedChannel.data,
+      parsedTarget.data,
+      user.id,
+      user.username,
+      Boolean(watching),
+    );
+    if (changed) broadcastScreenViewers(io, parsedChannel.data, parsedTarget.data);
   });
 
   socket.on('media:leave', async (channelId, callback) => {
@@ -527,6 +629,7 @@ export function registerMediasoupHandlers(io, socket) {
         sharingScreen: false,
       });
       await broadcastVoicePresence(io, parsedChannel.data, auth.channel.server_id);
+      clearScreenViewersOfTarget(io, parsedChannel.data, parsedTarget.data);
     }
 
     io.to(`user:${parsedTarget.data}`).emit('voice:mediaModerated', {

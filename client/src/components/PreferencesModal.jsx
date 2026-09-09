@@ -75,6 +75,7 @@ const hasGlobalPushToTalk =
 // (dispositivos, supressor de ruído, sensibilidade do microfone).
 const TABS = [
   { id: "general", label: "Geral" },
+  { id: "notifications", label: "Notificações" },
   { id: "audioVideo", label: "Áudio e Vídeo" },
   { id: "account", label: "Conta e Perfil" },
 ];
@@ -115,6 +116,9 @@ export default function PreferencesModal() {
     pushToTalkKey,
     autoplayCamera,
     autoplayScreenShare,
+    notificationVolume,
+    notificationOutputEnabled,
+    notificationOutputDeviceId,
   } = preferences;
 
   // Teste de microfone (sensibilidade) - stream à parte do `draft`, só existe
@@ -182,7 +186,11 @@ export default function PreferencesModal() {
   // <select> de microfone/webcam. `labelsUnlocked` reflete se o navegador já
   // liberou os `label` reais (getUserMedia concedido em algum momento) -
   // sem isso enumerateDevices devolve os deviceId mas com nome vazio.
-  const [devices, setDevices] = useState({ mics: [], cameras: [], speakers: [] });
+  const [devices, setDevices] = useState({
+    mics: [],
+    cameras: [],
+    speakers: [],
+  });
   const [labelsUnlocked, setLabelsUnlocked] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -247,6 +255,9 @@ export default function PreferencesModal() {
       pushToTalkKey,
       autoplayCamera,
       autoplayScreenShare,
+      notificationVolume,
+      notificationOutputEnabled,
+      notificationOutputDeviceId,
     });
     setTab(TABS[0].id);
     setOpen(true);
@@ -276,6 +287,11 @@ export default function PreferencesModal() {
     preferences.setPushToTalkKey(draft.pushToTalkKey);
     preferences.setAutoplayCamera(draft.autoplayCamera);
     preferences.setAutoplayScreenShare(draft.autoplayScreenShare);
+    preferences.setNotificationVolume(draft.notificationVolume);
+    preferences.setNotificationOutputEnabled(draft.notificationOutputEnabled);
+    preferences.setNotificationOutputDeviceId(
+      draft.notificationOutputDeviceId || null,
+    );
     handleClose();
   }
 
@@ -472,8 +488,10 @@ export default function PreferencesModal() {
                               - a preferência já fica salva para quando estiver.
                             </p>
                           </div>
-
-                          {/* Notificações desktop */}
+                        </>
+                      )}
+                      {tab === "notifications" && (
+                        <>
                           <label className="flex cursor-pointer items-center justify-between gap-3">
                             <span>
                               <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -500,9 +518,105 @@ export default function PreferencesModal() {
                               <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
                             </span>
                           </label>
+                          <label className="block">
+                            <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
+                              Volume das notificações
+                              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
+                                {draft.notificationVolume}%
+                              </span>
+                            </span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={draft.notificationVolume}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  notificationVolume: Number(e.target.value),
+                                }))
+                              }
+                              className="mt-1.5 w-full accent-blue-600"
+                            />
+                            <span className="block text-xs text-slate-400 dark:text-slate-500">
+                              Sons de entrar/sair de canal, silenciar, mensagem
+                              nova etc. - não afeta o volume dos participantes
+                              de uma chamada.
+                            </span>
+                          </label>
+
+                          {supportsAudioOutputSelection && (
+                            <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                              <label className="flex cursor-pointer items-center justify-between gap-3">
+                                <span>
+                                  <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Reproduzir notificações em uma saída de
+                                    áudio diferente
+                                  </span>
+                                  <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                    Toca os efeitos sonoros acima em outro
+                                    alto-falante/fone - o áudio dos
+                                    participantes de uma chamada continua saindo
+                                    pela saída normal
+                                  </span>
+                                </span>
+                                <span className="relative inline-flex shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.notificationOutputEnabled}
+                                    onChange={(e) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        notificationOutputEnabled:
+                                          e.target.checked,
+                                      }))
+                                    }
+                                    className="peer sr-only"
+                                  />
+                                  <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                                </span>
+                              </label>
+
+                              {draft.notificationOutputEnabled && (
+                                <select
+                                  aria-label="Saída de áudio das notificações"
+                                  value={
+                                    draft.notificationOutputDeviceId ??
+                                    SYSTEM_DEFAULT
+                                  }
+                                  disabled={devicesLoading}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      notificationOutputDeviceId:
+                                        e.target.value || null,
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                                >
+                                  <option value={SYSTEM_DEFAULT}>
+                                    Padrão do sistema
+                                  </option>
+                                  {withSavedFallback(
+                                    devices.speakers,
+                                    draft.notificationOutputDeviceId,
+                                  ).map((device, index) => (
+                                    <option
+                                      key={device.deviceId}
+                                      value={device.deviceId}
+                                      disabled={device.missing}
+                                    >
+                                      {deviceLabel(device, index, "Saída")}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
-
                       {tab === "audioVideo" && (
                         <>
                           {/* Dispositivos - microfone/webcam usados ao entrar na voz
@@ -651,8 +765,8 @@ export default function PreferencesModal() {
                             ) : (
                               <p className="text-xs text-slate-400 dark:text-slate-500">
                                 Escolher saída de áudio não é suportado neste
-                                navegador (só Chrome/Edge por enquanto) - o
-                                app usa o alto-falante/fone padrão do sistema.
+                                navegador (só Chrome/Edge por enquanto) - o app
+                                usa o alto-falante/fone padrão do sistema.
                               </p>
                             )}
 
@@ -663,8 +777,8 @@ export default function PreferencesModal() {
                               da próxima vez que entrar na voz/ligar a câmera;
                               trocar de mic/webcam ENQUANTO já está em uma
                               chamada também aplica na hora (ver
-                              MediaSessionContext.jsx) - só a saída de áudio
-                              não depende disso, já era sempre imediata.
+                              MediaSessionContext.jsx) - só a saída de áudio não
+                              depende disso, já era sempre imediata.
                             </p>
                           </div>
 
@@ -680,11 +794,11 @@ export default function PreferencesModal() {
                               Reprodução automática de mídia
                             </p>
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Decide se a webcam/tela dos OUTROS participantes já
-                              toca sozinha quando eles ligam, ou se fica esperando
-                              você clicar em "Assistir". Nunca afeta o áudio (mic) e
-                              nunca a SUA própria mídia - só o que você assiste dos
-                              demais.
+                              Decide se a webcam/tela dos OUTROS participantes
+                              já toca sozinha quando eles ligam, ou se fica
+                              esperando você clicar em "Assistir". Nunca afeta o
+                              áudio (mic) e nunca a SUA própria mídia - só o que
+                              você assiste dos demais.
                             </p>
 
                             <label className="flex cursor-pointer items-center justify-between gap-3">
@@ -740,10 +854,10 @@ export default function PreferencesModal() {
                             </label>
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Ocultar a mídia de alguém especificamente, ou mutar
-                              o áudio dele só pra você, fica no menu ⋮ da lista de
-                              participantes ou direto no quadradinho dele durante
-                              a chamada.
+                              Ocultar a mídia de alguém especificamente, ou
+                              mutar o áudio dele só pra você, fica no menu ⋮ da
+                              lista de participantes ou direto no quadradinho
+                              dele durante a chamada.
                             </p>
                           </div>
 
@@ -771,7 +885,10 @@ export default function PreferencesModal() {
                                 { value: "native", label: "Nativo" },
                                 { value: "rnnoise", label: "RNNoise" },
                                 { value: "gtcrn", label: "GTCRN" },
-                                { value: "deepfilternet", label: "DeepFilterNet3" },
+                                {
+                                  value: "deepfilternet",
+                                  label: "DeepFilterNet3",
+                                },
                               ].map((opt) => (
                                 <button
                                   key={opt.value}
@@ -788,7 +905,9 @@ export default function PreferencesModal() {
                                   className={`rounded-xl border px-2 py-2 text-xs font-medium transition ${
                                     // Cinco opções numa grade de duas colunas: a
                                     // última ocupa a linha inteira sozinha.
-                                    opt.value === "deepfilternet" ? "col-span-2 " : ""
+                                    opt.value === "deepfilternet"
+                                      ? "col-span-2 "
+                                      : ""
                                   }${
                                     draft.noiseSuppressionMode === opt.value
                                       ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300"
@@ -802,7 +921,8 @@ export default function PreferencesModal() {
 
                             {(draft.noiseSuppressionMode === "rnnoise" ||
                               draft.noiseSuppressionMode === "gtcrn" ||
-                              draft.noiseSuppressionMode === "deepfilternet") && (
+                              draft.noiseSuppressionMode ===
+                                "deepfilternet") && (
                               <label className="block">
                                 <span className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-400">
                                   Nível
@@ -1001,6 +1121,108 @@ export default function PreferencesModal() {
                                 " No app desktop a tecla funciona mesmo com a janela sem foco/minimizada."}
                             </p>
                           </div>
+
+                          {/* Volume dos efeitos sonoros (join/leave/mute/mensagem
+                    etc.) - SEPARADO do volume de voz de cada participante
+                    (esse fica no próprio tile/roster, ver VoiceRosterEntry.jsx),
+                    ver utils/sounds.js. */}
+                          <label className="block">
+                            <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
+                              Volume das notificações
+                              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
+                                {draft.notificationVolume}%
+                              </span>
+                            </span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={draft.notificationVolume}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  notificationVolume: Number(e.target.value),
+                                }))
+                              }
+                              className="mt-1.5 w-full accent-blue-600"
+                            />
+                            <span className="block text-xs text-slate-400 dark:text-slate-500">
+                              Sons de entrar/sair de canal, silenciar, mensagem
+                              nova etc. - não afeta o volume dos participantes
+                              de uma chamada.
+                            </span>
+                          </label>
+
+                          {supportsAudioOutputSelection && (
+                            <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                              <label className="flex cursor-pointer items-center justify-between gap-3">
+                                <span>
+                                  <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Reproduzir notificações em uma saída de
+                                    áudio diferente
+                                  </span>
+                                  <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                    Toca os efeitos sonoros acima em outro
+                                    alto-falante/fone - o áudio dos
+                                    participantes de uma chamada continua saindo
+                                    pela saída normal
+                                  </span>
+                                </span>
+                                <span className="relative inline-flex shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.notificationOutputEnabled}
+                                    onChange={(e) =>
+                                      setDraft((prev) => ({
+                                        ...prev,
+                                        notificationOutputEnabled:
+                                          e.target.checked,
+                                      }))
+                                    }
+                                    className="peer sr-only"
+                                  />
+                                  <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                                </span>
+                              </label>
+
+                              {draft.notificationOutputEnabled && (
+                                <select
+                                  aria-label="Saída de áudio das notificações"
+                                  value={
+                                    draft.notificationOutputDeviceId ??
+                                    SYSTEM_DEFAULT
+                                  }
+                                  disabled={devicesLoading}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      notificationOutputDeviceId:
+                                        e.target.value || null,
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+                                >
+                                  <option value={SYSTEM_DEFAULT}>
+                                    Padrão do sistema
+                                  </option>
+                                  {withSavedFallback(
+                                    devices.speakers,
+                                    draft.notificationOutputDeviceId,
+                                  ).map((device, index) => (
+                                    <option
+                                      key={device.deviceId}
+                                      value={device.deviceId}
+                                      disabled={device.missing}
+                                    >
+                                      {deviceLabel(device, index, "Saída")}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
 

@@ -192,9 +192,16 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
   }, []);
 
   async function openSourcePicker(mode) {
+    setScreenPickerMode(mode);
+    // Fora do Electron não existe lista de fontes pra buscar (o seletor de
+    // janela é o NATIVO do getDisplayMedia, só aparece ao confirmar) - o
+    // picker abre mesmo assim, só pra escolher qualidade (resolução/fps).
+    if (!isElectron()) {
+      setScreenPickerSources([]);
+      return;
+    }
     try {
       const sources = await listScreenSources();
-      setScreenPickerMode(mode);
       setScreenPickerSources(sources ?? []);
     } catch (err) {
       console.error("[screen-share] Falha ao listar fontes de tela:", err);
@@ -208,18 +215,10 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
       media.stopScreenShare();
       return;
     }
-    if (isElectron()) {
-      openSourcePicker("share");
-      return;
-    }
-    media.shareScreen(undefined, { withAudio: true });
+    openSourcePicker("share");
   }
   function switchScreenSource() {
-    if (isElectron()) {
-      openSourcePicker("switch");
-      return;
-    }
-    media.switchScreenSource(undefined, { withAudio: true });
+    openSourcePicker("switch");
   }
 
   async function handleAddFriend(e) {
@@ -591,11 +590,11 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
           defaultWithAudio={
             screenPickerMode === "switch" ? media.screenAudioEnabled : false
           }
-          onSelect={(sourceId, withAudio) => {
+          onSelect={(sourceId, withAudio, quality) => {
             setScreenPickerSources(null);
             if (screenPickerMode === "switch")
-              media.switchScreenSource(sourceId, { withAudio });
-            else media.shareScreen(sourceId, { withAudio });
+              media.switchScreenSource(sourceId, { withAudio, quality });
+            else media.shareScreen(sourceId, { withAudio, quality });
           }}
           onCancel={() => setScreenPickerSources(null)}
         />

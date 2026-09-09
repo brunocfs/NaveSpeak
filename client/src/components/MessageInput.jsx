@@ -238,6 +238,26 @@ const MessageInput = forwardRef(function MessageInput(
     addFiles(imageFiles, { autoUpload: true });
   }
 
+  // Libera a URL local de preview de imagem (URL.createObjectURL, ver
+  // addFiles abaixo) - sem isso cada imagem arrastada/colada/selecionada
+  // vaza memória até a aba fechar (o browser não coleta sozinho, precisa do
+  // revoke explícito). Chamado explicitamente em removeFile/submit (não dá
+  // pra depender só de um efeito de unmount: o usuário normalmente remove ou
+  // envia SEM desmontar o componente).
+  function revokePreview(entry) {
+    if (entry?.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+  }
+
+  // `files` muda a cada status (pending -> uploading -> done), então um
+  // efeito com `[files]` como dep revogaria o preview no meio da troca de
+  // status - por isso a lista mais atual fica só numa ref, lida apenas no
+  // cleanup de desmontagem de verdade (deps vazias).
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => {
+    return () => filesRef.current.forEach(revokePreview);
+  }, []);
+
   function updateFile(id, patch) {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }
@@ -264,6 +284,14 @@ const MessageInput = forwardRef(function MessageInput(
 
     for (const file of incoming) {
       const id = nextFileId++;
+      // Preview local ANTES de qualquer upload - URL.createObjectURL lê
+      // direto do File em memória, então funciona pro chip mesmo com o
+      // arquivo ainda 'pending'/'uploading' (é literalmente o pedido: ver
+      // se colou/arrastou a imagem certa antes dela terminar de subir).
+      // `null` pra tipo não-imagem, o chip cai no ícone de clipe de sempre.
+      const previewUrl = file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : null;
 
       if (file.size > MAX_ATTACHMENT_BYTES) {
         setFiles((prev) => [
@@ -273,6 +301,7 @@ const MessageInput = forwardRef(function MessageInput(
             file,
             name: file.name,
             size: file.size,
+            previewUrl,
             status: "error",
             error: "Arquivo maior que 20MB.",
           },
@@ -287,6 +316,7 @@ const MessageInput = forwardRef(function MessageInput(
           file,
           name: file.name,
           size: file.size,
+          previewUrl,
           status: autoUpload ? "uploading" : "pending",
         },
       ]);
@@ -309,7 +339,10 @@ const MessageInput = forwardRef(function MessageInput(
   }
 
   function removeFile(id) {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setFiles((prev) => {
+      revokePreview(prev.find((f) => f.id === id));
+      return prev.filter((f) => f.id !== id);
+    });
   }
 
   async function submit() {
@@ -324,6 +357,7 @@ const MessageInput = forwardRef(function MessageInput(
     }
 
     setContent("");
+    files.forEach(revokePreview);
     setFiles([]);
     setMention(null);
     setHasSelection(false);
@@ -354,11 +388,18 @@ const MessageInput = forwardRef(function MessageInput(
           {files.map((f) => (
             <div
               key={f.id}
-              className={`flex max-w-[240px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${
+              className={`flex flex-wrap max-w-[240px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${
                 CHIP_STYLES[f.status] ?? CHIP_STYLES.default
               }`}
               title={f.status === "error" ? f.error : f.name}
             >
+              {f.previewUrl && (
+                <img
+                  src={f.previewUrl}
+                  alt=""
+                  className="size-54 shrink-0 rounded object-cover"
+                />
+              )}
               {f.status === "uploading" && (
                 <Loader2 className="size-3.5 shrink-0 animate-spin" />
               )}

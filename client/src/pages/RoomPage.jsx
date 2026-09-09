@@ -165,11 +165,18 @@ export default function RoomPage() {
     // era renderizado nesta tela (só existia em VoiceStatusBar.jsx) - clicar
     // em "Compartilhar tela" listava as fontes e ficava preso num estado sem
     // UI nenhuma pra mostrar, sem erro nenhum (a promise resolvia normal).
-    // Ver <ScreenSourcePicker> montado abaixo, e o try/catch aqui pra caso a
-    // listagem em si falhe.
+    // Ver <ScreenSourcePicker> montado abaixo.
+    //
+    // Fora do Electron não existe lista de fontes pra buscar (o seletor de
+    // janela é o NATIVO do getDisplayMedia, só aparece ao confirmar) - o
+    // picker abre mesmo assim, só pra escolher qualidade (resolução/fps).
+    setScreenPickerMode(mode);
+    if (!isElectron()) {
+      setScreenPickerSources([]);
+      return;
+    }
     try {
       const sources = await listScreenSources();
-      setScreenPickerMode(mode);
       setScreenPickerSources(sources ?? []);
     } catch (err) {
       // NÃO usa `setError` daqui - esse `error` (acima) troca a tela
@@ -188,21 +195,10 @@ export default function RoomPage() {
       media.stopScreenShare();
       return;
     }
-    if (isElectron()) {
-      openSourcePicker("share");
-      return;
-    }
-    // Navegador comum: getDisplayMedia({ audio: true }) só faz o seletor
-    // NATIVO mostrar a opção "Compartilhar áudio" - quem decide de verdade
-    // se ela vem é o usuário ali (ver requestScreenStream em api/media.js).
-    media.shareScreen(undefined, { withAudio: true });
+    openSourcePicker("share");
   }
   function switchScreenSource() {
-    if (isElectron()) {
-      openSourcePicker("switch");
-      return;
-    }
-    media.switchScreenSource(undefined, { withAudio: true });
+    openSourcePicker("switch");
   }
   const showingVoicePanel =
     isVoice && media.voiceChannelId === activeChannel?.id && media.connected;
@@ -1315,11 +1311,11 @@ export default function RoomPage() {
           defaultWithAudio={
             screenPickerMode === "switch" ? media.screenAudioEnabled : false
           }
-          onSelect={(sourceId, withAudio) => {
+          onSelect={(sourceId, withAudio, quality) => {
             setScreenPickerSources(null);
             if (screenPickerMode === "switch")
-              media.switchScreenSource(sourceId, { withAudio });
-            else media.shareScreen(sourceId, { withAudio });
+              media.switchScreenSource(sourceId, { withAudio, quality });
+            else media.shareScreen(sourceId, { withAudio, quality });
           }}
           onCancel={() => setScreenPickerSources(null)}
         />

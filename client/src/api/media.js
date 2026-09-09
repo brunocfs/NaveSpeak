@@ -26,6 +26,31 @@ function assertMediaDevicesAvailable() {
   }
 }
 
+// Presets de qualidade pro compartilhamento de tela - usados pelo
+// <ScreenSourcePicker> (seleção do usuário) e por requestScreenStream/
+// MediaSessionContext (aplicar os constraints/bitrate escolhidos). Um só
+// lugar de verdade pra resolução/fps/bitrate sugerido, pra picker e captura
+// nunca ficarem dessincronizados.
+export const SCREEN_RESOLUTIONS = [
+  { value: '720p', label: '720p', width: 1280, height: 720 },
+  { value: '1080p', label: '1080p', width: 1920, height: 1080 },
+  { value: '1440p', label: '1440p', width: 2560, height: 1440 },
+];
+export const SCREEN_FRAMERATES = [15, 30, 60];
+export const DEFAULT_SCREEN_QUALITY = { resolution: '1080p', frameRate: 30 };
+
+const SCREEN_BITRATE_SUGGESTIONS_KBPS = {
+  '720p:15': 1000, '720p:30': 1500, '720p:60': 2500,
+  '1080p:15': 1500, '1080p:30': 2500, '1080p:60': 4000,
+  '1440p:15': 2500, '1440p:30': 4000, '1440p:60': 6000,
+};
+
+// Bitrate sugerido (kbps) pra combinação resolução+fps - ponto de partida
+// razoável quando o usuário não mexe nas configurações avançadas.
+export function suggestScreenBitrateKbps(resolution, frameRate) {
+  return SCREEN_BITRATE_SUGGESTIONS_KBPS[`${resolution}:${frameRate}`] ?? 3000;
+}
+
 export async function listScreenSources() {
   if (!isElectron()) return null;
   return window.naveSpeak.getScreenSources();
@@ -145,8 +170,14 @@ export async function requestMicStream(deviceId, { noiseSuppressionMode = "nativ
 //   foi pedido).
 //
 // Devolve `{ stream, hasAudio }` - `hasAudio` reflete o que REALMENTE veio.
-export async function requestScreenStream(sourceId, { withAudio = false } = {}) {
+// `resolution`/`frameRate`: escolhidos pelo usuário no <ScreenSourcePicker>
+// (ver SCREEN_RESOLUTIONS/SCREEN_FRAMERATES/DEFAULT_SCREEN_QUALITY acima).
+export async function requestScreenStream(
+  sourceId,
+  { withAudio = false, resolution = DEFAULT_SCREEN_QUALITY.resolution, frameRate = DEFAULT_SCREEN_QUALITY.frameRate } = {}
+) {
   assertMediaDevicesAvailable();
+  const preset = SCREEN_RESOLUTIONS.find((r) => r.value === resolution) ?? SCREEN_RESOLUTIONS[1];
 
   if (isElectron()) {
     if (!sourceId) throw new Error('Selecione uma janela ou tela para compartilhar.');
@@ -154,14 +185,15 @@ export async function requestScreenStream(sourceId, { withAudio = false } = {}) 
       mandatory: {
         chromeMediaSource: 'desktop',
         chromeMediaSourceId: sourceId,
-        // fps/resolução mínimos conservadores (evita OverconstrainedError em
-        // notebooks/telas pequenas) - máximos cobrem jogo em 1080p60.
-        minFrameRate: 30,
-        maxFrameRate: 60,
-        minWidth: 1280,
-        maxWidth: 1920,
-        minHeight: 720,
-        maxHeight: 1080,
+        // Mínimos genéricos baixos (evita OverconstrainedError em
+        // notebooks/telas pequenas) - máximos seguem o que o usuário
+        // escolheu no picker.
+        minFrameRate: 5,
+        maxFrameRate: frameRate,
+        minWidth: 640,
+        maxWidth: preset.width,
+        minHeight: 360,
+        maxHeight: preset.height,
       },
     };
     if (withAudio) {
@@ -188,9 +220,9 @@ export async function requestScreenStream(sourceId, { withAudio = false } = {}) 
       // "ideal" (não "exact") - navegador faz melhor esforço sem falhar em
       // telas menores/4K. Sem isso o Chrome escolhe fps/resolução sozinho,
       // muitas vezes mal pra conteúdo de alto movimento (jogos).
-      frameRate: { ideal: 30, max: 60 },
-      width: { ideal: 1920, max: 1920 },
-      height: { ideal: 1080, max: 1080 },
+      frameRate: { ideal: frameRate, max: frameRate },
+      width: { ideal: preset.width, max: preset.width },
+      height: { ideal: preset.height, max: preset.height },
       cursor: 'always',
     },
     audio: withAudio,

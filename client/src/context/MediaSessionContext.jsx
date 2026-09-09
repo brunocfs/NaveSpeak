@@ -6,6 +6,8 @@ import {
   requestCameraStream,
   requestMicStream,
   assertMediaDevicesAvailable,
+  DEFAULT_SCREEN_QUALITY,
+  suggestScreenBitrateKbps,
 } from '../api/media.js';
 import { useWindowPopout } from '../hooks/useWindowPopout.js';
 import { usePreferences } from './PreferencesContext.jsx';
@@ -16,15 +18,23 @@ import { createNoiseGateStream } from '../audio/noiseGate.js';
 import { createGainStream } from '../audio/gainStream.js';
 import { playSound } from '../utils/sounds.js';
 
-// Bitrate/fps do producer de tela: conteúdo de jogo (alto movimento) precisa
-// de bem mais banda que uma webcam pra não "lagar" pra quem assiste. 3 Mbps
-// é ponto de partida seguro (servidor não é o limite - VPS com banda de
-// sobra); a estimativa de banda (BWE) do WebRTC reduz sozinha se a rede real
-// de quem compartilha não aguentar.
-const SCREEN_MAX_BITRATE = 3_000_000; // bps, vai em encodings.maxBitrate
-const SCREEN_MAX_FRAMERATE = 60;
-const SCREEN_START_BITRATE_KBPS = 1500; // kbps, vai em codecOptions.videoGoogleStartBitrate
-const SCREEN_MAX_BITRATE_KBPS = 3000; // kbps, vai em codecOptions.videoGoogleMaxBitrate
+// Producer de tela: bitrate/fps agora vêm da qualidade escolhida pelo
+// usuário no <ScreenSourcePicker> (resolução/fps + bitrate avançado
+// opcional) - ver screenProduceOptions abaixo. Conteúdo de jogo (alto
+// movimento) precisa de bem mais banda que uma webcam pra não "lagar" pra
+// quem assiste; a estimativa de banda (BWE) do WebRTC reduz sozinha se a
+// rede real de quem compartilha não aguentar o bitrate pedido.
+function screenProduceOptions(quality) {
+  const { resolution, frameRate, bitrateKbps } = { ...DEFAULT_SCREEN_QUALITY, ...quality };
+  const maxBitrateKbps = bitrateKbps ?? suggestScreenBitrateKbps(resolution, frameRate);
+  return {
+    encodings: [{ maxBitrate: maxBitrateKbps * 1000, maxFramerate: frameRate }],
+    codecOptions: {
+      videoGoogleStartBitrate: Math.min(1500, maxBitrateKbps),
+      videoGoogleMaxBitrate: maxBitrateKbps,
+    },
+  };
+}
 
 // Push-to-talk: ignora o próprio código da tecla quando o foco está num
 // campo de texto (chat, busca etc.) - sem isso, atribuir uma tecla comum
@@ -208,6 +218,15 @@ export function MediaSessionProvider({ children }) {
   // usuário antes do deafen (guardado em wasMutedBeforeDeafenRef).
   const [deafened, setDeafened] = useState(false);
   const wasMutedBeforeDeafenRef = useRef(false);
+  // Quem está assistindo a tela compartilhada de cada usuário (chave =
+  // userId de quem compartilha, valor = [{userId, username}] de quem
+  // assiste) - agregado pelo SERVIDOR (voice:screenViewers, ver
+  // mediasoup.handler.js) a partir do que cada cliente reporta via
+  // setWatchingScreen (VoicePanel.jsx decide "assistindo ou não": mídia
+  // oculta/aguardando clique com autoplay desligado NÃO conta). Por isso
+  // não é algo que dá pra derivar só do consumer local: o consumer de tela
+  // fica ativo independente da UI estar mostrando o vídeo ou não.
+  const [screenViewers, setScreenViewers] = useState({});
   // Espelham `muted`/`deafened` sempre atualizados, pra handleReconnect (mais
   // abaixo) ler o valor ATUAL sem precisar re-registrar os listeners de
   // socket a cada toggle (ele vive num useEffect com deps fixas, então uma
@@ -371,6 +390,12 @@ export function MediaSessionProvider({ children }) {
     function handleStateChanged({ producerId, paused }) {
       setRemoteStreams((prev) => prev.map((s) => (s.producerId === producerId ? { ...s, paused } : s)));
     }
+    // Lista de espectadores da tela de `targetUserId` mudou (alguém começou/
+    // parou de assistir) - vem já pronta do servidor, agregada entre todo
+    // mundo do canal (ver mediasoup.handler.js), só espelha por userId.
+    function handleScreenViewers({ targetUserId, viewers }) {
+      setScreenViewers((prev) => ({ ...prev, [targetUserId]: viewers ?? [] }));
+    }
     // Roster do canal de voz conectado - só atualiza se for o canal em que
     // estamos (o servidor manda voice:update de todo canal de voz do
     // servidor, RoomPage usa o mesmo evento pra popular a barra lateral).
@@ -525,6 +550,7 @@ export function MediaSessionProvider({ children }) {
     socket.on('media:producerClosed', handleProducerClosed);
     socket.on('media:producerStateChanged', handleStateChanged);
     socket.on('voice:update', handleVoiceUpdate);
+    socket.on('voice:screenViewers', handleScreenViewers);
     socket.on('voice:audioModerated', handleAudioModerated);
     socket.on('voice:mediaModerated', handleMediaModerated);
     socket.on('voice:kicked', handleKicked);
@@ -536,6 +562,7 @@ export function MediaSessionProvider({ children }) {
       socket.off('media:producerClosed', handleProducerClosed);
       socket.off('media:producerStateChanged', handleStateChanged);
       socket.off('voice:update', handleVoiceUpdate);
+      socket.off('voice:screenViewers', handleScreenViewers);
       socket.off('voice:audioModerated', handleAudioModerated);
       socket.off('voice:mediaModerated', handleMediaModerated);
       socket.off('voice:kicked', handleKicked);
@@ -606,6 +633,7 @@ export function MediaSessionProvider({ children }) {
       setCameraOn(false);
       setDeafened(false);
       wasMutedBeforeDeafenRef.current = false;
+      setScreenViewers({});
       setAudioLocked(false);
       setMediaLocked(false);
       setLocalScreenStream((stream) => {
@@ -1111,6 +1139,23 @@ export function MediaSessionProvider({ children }) {
     }
   }, [deafened, muted, toggleMute, socket]);
 
+  // Avisa o servidor que este cliente começou/parou de assistir a tela
+  // compartilhada de `targetUserId` - fire-and-forget (mesmo padrão de
+  // toggleDeafen/media:setDeafened logo acima: o toggle local já é decidido
+  // por VoicePanel.jsx, não há o que desfazer se isto não chegar). O
+  // servidor agrega entre todos os espectadores e devolve pra TODO MUNDO no
+  // canal via voice:screenViewers - é assim que o indicador "N assistindo"
+  // no tile de quem compartilha (ParticipantTile.jsx) enxerga gente além do
+  // próprio usuário.
+  const setWatchingScreen = useCallback(
+    (targetUserId, watching) => {
+      const channelId = channelIdRef.current;
+      if (!channelId) return;
+      socket.emit('media:setScreenViewer', { channelId, targetUserId, watching: Boolean(watching) });
+    },
+    [socket],
+  );
+
   const closeProducer = useCallback(
     async (producer) => {
       if (!producer) return;
@@ -1197,7 +1242,7 @@ export function MediaSessionProvider({ children }) {
   // `withAudio` pede o áudio do sistema/app junto (ver requestScreenStream
   // em api/media.js) - sempre opcional, sem áudio nenhum se omitido/recusado.
   const shareScreen = useCallback(
-    async (sourceId, { withAudio = false } = {}) => {
+    async (sourceId, { withAudio = false, quality } = {}) => {
       if (!sendTransportRef.current) {
         setError('Entre na voz antes de compartilhar a tela.');
         return;
@@ -1208,7 +1253,7 @@ export function MediaSessionProvider({ children }) {
       }
       setError(null);
       try {
-        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio });
+        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio, ...quality });
         const [track] = stream.getVideoTracks();
         track.contentHint = 'motion'; // otimiza o encoder pra conteúdo de alto movimento (jogos)
         activeScreenVideoTrackRef.current = track;
@@ -1224,11 +1269,7 @@ export function MediaSessionProvider({ children }) {
 
         const producer = await sendTransportRef.current.produce({
           track,
-          encodings: [{ maxBitrate: SCREEN_MAX_BITRATE, maxFramerate: SCREEN_MAX_FRAMERATE }],
-          codecOptions: {
-            videoGoogleStartBitrate: SCREEN_START_BITRATE_KBPS,
-            videoGoogleMaxBitrate: SCREEN_MAX_BITRATE_KBPS,
-          },
+          ...screenProduceOptions(quality),
           appData: { source: 'screen' },
         });
         screenProducerRef.current = producer;
@@ -1276,15 +1317,15 @@ export function MediaSessionProvider({ children }) {
   // não existe, nem "remover" áudio sem fechar o producer de verdade) - mas
   // isso nunca afeta o vídeo, que já trocou por replaceTrack acima.
   const switchScreenSource = useCallback(
-    async (sourceId, { withAudio } = {}) => {
+    async (sourceId, { withAudio, quality } = {}) => {
       if (!screenProducerRef.current) {
         // Sem compartilhamento ativo pra trocar - trata como um início normal.
-        return shareScreen(sourceId, { withAudio });
+        return shareScreen(sourceId, { withAudio, quality });
       }
       setError(null);
       const wantAudio = withAudio ?? screenAudioEnabled;
       try {
-        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio: wantAudio });
+        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
         const [newTrack] = stream.getVideoTracks();
         newTrack.contentHint = 'motion'; // mesmo tuning de shareScreen acima
         // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
@@ -1297,6 +1338,22 @@ export function MediaSessionProvider({ children }) {
         });
 
         await screenProducerRef.current.replaceTrack({ track: newTrack });
+
+        // replaceTrack troca só a track, não os parâmetros RTP - se o
+        // usuário escolheu outra qualidade no picker, aplica o novo
+        // maxBitrate/maxFramerate direto no RTCRtpSender por baixo do
+        // producer (API padrão WebRTC, mediasoup-client expõe via
+        // `producer.rtpSender`).
+        if (quality && screenProducerRef.current.rtpSender) {
+          const sender = screenProducerRef.current.rtpSender;
+          const params = sender.getParameters();
+          if (params.encodings?.[0]) {
+            const { maxBitrate, maxFramerate } = screenProduceOptions(quality).encodings[0];
+            params.encodings[0].maxBitrate = maxBitrate;
+            params.encodings[0].maxFramerate = maxFramerate;
+            await sender.setParameters(params);
+          }
+        }
 
         if (screenAudioProducerRef.current) await stopScreenAudioRef.current();
         if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
@@ -1528,6 +1585,8 @@ export function MediaSessionProvider({ children }) {
       screenAudioEnabled,
       screenAudioVolume,
       setLocalScreenAudioVolume,
+      screenViewers,
+      setWatchingScreen,
       cameraOn,
       localCameraStream,
       shareCamera,
@@ -1572,6 +1631,8 @@ export function MediaSessionProvider({ children }) {
       screenAudioEnabled,
       screenAudioVolume,
       setLocalScreenAudioVolume,
+      screenViewers,
+      setWatchingScreen,
       cameraOn,
       localCameraStream,
       shareCamera,

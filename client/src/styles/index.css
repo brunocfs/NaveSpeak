@@ -432,6 +432,42 @@ body {
   opacity: 0.6;
 }
 
+/* Input de bitrate (config. avançada) no ScreenSourcePicker - sem isso fica
+   com o estilo branco padrão do navegador, destoando do .modal-card no dark
+   mode. */
+.modal-card input[type="number"] {
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+/* Seletor de resolução/fps do ScreenSourcePicker, estilo "pills" igual ao
+   seletor de qualidade de tela do Discord (botões segmentados em vez de
+   <select>). */
+.quality-pill-group {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.quality-pill {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.quality-pill[aria-pressed="true"] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
 /* --- LoginPage.jsx: painel de apresentação (branding) ---
    Fica sempre em tema escuro de propósito (uma "janela" fixa pra identidade
    da nave), independente do dark mode escolhido pelo usuário pro resto da

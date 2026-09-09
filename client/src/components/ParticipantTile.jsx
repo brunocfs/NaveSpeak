@@ -8,6 +8,7 @@ import {
   VolumeX,
   Eye,
   EyeOff,
+  Users,
   Play,
 } from "lucide-react";
 import { useSpeaking } from "../hooks/useSpeaking.js";
@@ -51,6 +52,12 @@ export default function ParticipantTile({
   hasAudio = false,
   audioVolume = 100,
   onAudioVolumeChange,
+  // Só em kind='screen': quem está assistindo ESTA tela agora - agregado
+  // pelo SERVIDOR entre todos os espectadores da chamada (media:setScreenViewer/
+  // voice:screenViewers, ver MediaSessionContext.jsx), não é algo que dá pra
+  // derivar só do lado de quem compartilha. [{userId, username}] - a contagem
+  // é só o tamanho da lista, o hover mostra os nomes.
+  viewers = [],
   // 200 pro tile LOCAL (ganho de ENVIO, ver audio/gainStream.js), 100 pros
   // tiles REMOTOS (volume de escuta via el.volume, sem boost - ver
   // RemoteAudioPlayers.jsx).
@@ -187,6 +194,25 @@ export default function ParticipantTile({
               className="size-3.5 shrink-0 text-orange-400"
               title="Mutado localmente (só pra você)"
             />
+          )}
+          {/* Quantidade de espectadores desta tela - sempre visível (mesmo
+              zero), pra QUALQUER um que veja a chamada, não só quem
+              compartilha (ver `viewers` acima). Passar o mouse em cima
+              mostra a lista de nomes, num popover CSS puro (mesmo padrão
+              group-hover do slider de volume ao lado) - sem tooltip nativo
+              (`title`) junto, ficaria duplicado. */}
+          {kind === "screen" && (
+            <div className="group/viewers relative flex items-center gap-1 rounded-full bg-black/50 px-1.5 py-0.5 text-[11px] font-medium text-white">
+              <Users className="size-3 shrink-0" />
+              {viewers.length}
+              <div className="pointer-events-none absolute bottom-full right-0 z-10 mb-1.5 hidden min-w-max max-w-48 flex-col gap-0.5 rounded-lg bg-slate-900/95 px-2 py-1.5 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover/viewers:flex">
+                {viewers.length === 0 ? (
+                  <span className="text-slate-400">Ninguém assistindo ainda</span>
+                ) : (
+                  viewers.map((v) => <span key={v.userId} className="truncate">{v.username}</span>)
+                )}
+              </div>
+            </div>
           )}
           {/* Indicador visual + controle de volume do áudio compartilhado -
               só em tiles de tela que de fato carregam áudio. Slider some por

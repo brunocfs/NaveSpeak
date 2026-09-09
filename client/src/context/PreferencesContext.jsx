@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { setNotificationVolume, setNotificationOutputDevice } from '../utils/sounds.js';
 
 const PreferencesContext = createContext(null);
 
@@ -129,6 +130,22 @@ const DEFAULT_PREFERENCES = {
   // tecla atribuída ainda (push-to-talk fica sem efeito mesmo se
   // `pushToTalkEnabled`, ver MediaSessionContext.jsx).
   pushToTalkKey: null,
+  // Volume master dos efeitos sonoros (join/leave/mute/mensagem etc., ver
+  // utils/sounds.js) - 0-100, SEPARADO do volume de voz da chamada (esse é
+  // por-participante, userVolumes acima). Padrão 100 = sem alteração,
+  // mesma régua dos outros volumes do app.
+  notificationVolume: 100,
+  // "Reproduzir notificações em uma saída de áudio diferente" (Preferências
+  // > Geral) - `false` por padrão: sem isso ligado, os efeitos sonoros tocam
+  // na saída padrão do sistema (nunca seguem outputDeviceId da chamada de
+  // propósito, são coisas independentes - ver applySinkId em
+  // utils/sounds.js). Ligado, `notificationOutputDeviceId` decide o destino.
+  notificationOutputEnabled: false,
+  // Dispositivo de saída só dos efeitos sonoros - null = nenhum escolhido
+  // ainda (cai no padrão do sistema mesmo com notificationOutputEnabled
+  // ligado, até o usuário escolher um). Só Chrome/Edge (AudioContext.
+  // setSinkId), mesmo feature-detect de outputDeviceId.
+  notificationOutputDeviceId: null,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -173,6 +190,21 @@ export function PreferencesProvider({ children }) {
     root.style.colorScheme = preferences.theme;
   }, [preferences.theme]);
 
+  // Empurra pro módulo de sons (singleton fora do React, ver utils/sounds.js)
+  // sempre que a preferência mudar - assim playSound() não precisa saber de
+  // Preferências, só lê o estado que já foi setado aqui. Saída efetiva =
+  // null quando o toggle está desligado, mesmo que um deviceId já tenha sido
+  // escolhido antes (desligar volta pro padrão do sistema na hora).
+  useEffect(() => {
+    setNotificationVolume(preferences.notificationVolume);
+  }, [preferences.notificationVolume]);
+
+  useEffect(() => {
+    setNotificationOutputDevice(
+      preferences.notificationOutputEnabled ? preferences.notificationOutputDeviceId : null
+    );
+  }, [preferences.notificationOutputEnabled, preferences.notificationOutputDeviceId]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
@@ -210,6 +242,9 @@ export function PreferencesProvider({ children }) {
       micGateThresholdDb: preferences.micGateThresholdDb,
       pushToTalkEnabled: preferences.pushToTalkEnabled,
       pushToTalkKey: preferences.pushToTalkKey,
+      notificationVolume: preferences.notificationVolume,
+      notificationOutputEnabled: preferences.notificationOutputEnabled,
+      notificationOutputDeviceId: preferences.notificationOutputDeviceId,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -268,6 +303,12 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, pushToTalkEnabled })),
       setPushToTalkKey: (pushToTalkKey) =>
         setPreferences((prev) => ({ ...prev, pushToTalkKey })),
+      setNotificationVolume: (notificationVolume) =>
+        setPreferences((prev) => ({ ...prev, notificationVolume })),
+      setNotificationOutputEnabled: (notificationOutputEnabled) =>
+        setPreferences((prev) => ({ ...prev, notificationOutputEnabled })),
+      setNotificationOutputDeviceId: (notificationOutputDeviceId) =>
+        setPreferences((prev) => ({ ...prev, notificationOutputDeviceId })),
     }),
     [preferences]
   );

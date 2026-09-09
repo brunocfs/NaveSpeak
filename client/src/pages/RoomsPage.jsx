@@ -202,13 +202,11 @@ export default function RoomsPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      
       <div className="mx-auto w-full mt-4 px-8">
         <header className="rounded-2xl  border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
           <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
             <div className="mr-5">
               <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                
                 <img
                   src={theme === "dark" ? logoDark : logo}
                   alt="Canal de voz"
@@ -226,8 +224,8 @@ export default function RoomsPage() {
                 <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
               </div>
             )}
-            {!loading && rooms.length > 0 && (
-              <div className="flex   min-w-0 overflow-hidden items-center gap-3">
+            <div className="flex   min-w-0 overflow-hidden items-center gap-3">
+              {!loading && rooms.length > 0 && (
                 <div
                   ref={scrollRef}
                   onWheel={handleWheel}
@@ -267,17 +265,27 @@ export default function RoomsPage() {
                     </div>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAddServerOpen(true)}
-                  title="Criar ou entrar em um servidor"
-                  aria-label="Criar ou entrar em um servidor"
-                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
-                >
-                  <Plus />
-                </button>
-                <DownloadAppLink />
-              </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAddServerOpen(true)}
+                title="Criar ou entrar em um servidor"
+                aria-label="Criar ou entrar em um servidor"
+                className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
+              >
+                <Plus />
+              </button>
+              <DownloadAppLink />
+            </div>
+            {user?.isAdmin && (
+              <Link
+                to="/admin/invites"
+                title="Convites"
+                aria-label="Convites"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <ShieldCheck className="h-5 w-5" />
+              </Link>
             )}
             {/* <button
               onClick={handleLogout}
