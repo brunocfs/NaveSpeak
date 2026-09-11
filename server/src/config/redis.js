@@ -70,7 +70,8 @@ redis.defineCommand('presenceAdd', {
     local field = ARGV[1]
     local socketId = ARGV[2]
     local username = ARGV[3]
-    local avatarPath = ARGV[4] or ''
+    local discriminator = ARGV[4] or ''
+    local avatarPath = ARGV[5] or ''
     local raw = redis.call('HGET', key, field)
     local entry
     if raw then
@@ -86,6 +87,7 @@ redis.defineCommand('presenceAdd', {
       table.insert(entry.socketIds, socketId)
     end
     entry.username = username
+    entry.discriminator = discriminator
     entry.avatarPath = avatarPath
     redis.call('HSET', key, field, cjson.encode(entry))
     return 1

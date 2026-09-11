@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+
 import {
   Settings,
   Plus,
@@ -184,7 +185,7 @@ export default function RoomPage() {
       // logo abaixo), reservado pra falha de carregar a sala em si. Um
       // estado próprio, só pra não deixar o clique morrer em silêncio de
       // novo como antes.
-      console.error("[screen-share] Falha ao listar fontes de tela:", err);
+      //console.error("[screen-share] Falha ao listar fontes de tela:", err);
       setScreenPickerError(
         err.message ?? "Não foi possível listar as telas/janelas disponíveis.",
       );
@@ -1018,6 +1019,7 @@ export default function RoomPage() {
                             <VoiceRosterEntry
                               key={p.userId}
                               username={p.username}
+                              discriminator={p.discriminator}
                               avatarPath={p.avatarPath}
                               micStream={micStream}
                               micMuted={micMuted}

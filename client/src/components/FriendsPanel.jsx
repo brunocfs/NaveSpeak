@@ -474,7 +474,8 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
 
           {!loading && friends.length === 0 && (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Você ainda não tem amigos. Adicione alguém pelo identificador (usuario#12345) acima.
+              Você ainda não tem amigos. Adicione alguém pelo identificador
+              (usuario#12345) acima.
             </p>
           )}
 
@@ -494,7 +495,11 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
                     <span className="relative inline-flex shrink-0">
-                      <Avatar avatarPath={friend.avatarPath} username={friend.username} size="sm" />
+                      <Avatar
+                        avatarPath={friend.avatarPath}
+                        username={friend.username}
+                        size="sm"
+                      />
                       <StatusDot
                         status={friend.status}
                         className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-900"

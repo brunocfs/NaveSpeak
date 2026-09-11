@@ -60,6 +60,7 @@ export function attachSockets(httpServer) {
         id: user.publicId,
         internalId: user.id,
         username: user.username,
+        discriminator: user.discriminator,
         status: user.status,
         avatarPath: user.avatarPath,
       };

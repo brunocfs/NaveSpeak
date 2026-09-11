@@ -19,7 +19,7 @@ export function createRoomPresenceStore(namespace, roomKey) {
 
   async function add(roomId, user, socketId) {
     try {
-      await redis.presenceAdd(roomKey(roomId), user.id, socketId, user.username, user.avatarPath ?? '');
+      await redis.presenceAdd(roomKey(roomId), user.id, socketId, user.username, user.discriminator ?? '', user.avatarPath ?? '');
       await redis.sadd(socketRoomsKey(socketId), roomId);
     } catch {
       // Fail-open: sem Redis, a presença fica desativada mas o join no socket
@@ -76,15 +76,17 @@ export function createRoomPresenceStore(namespace, roomKey) {
       const hash = await redis.hgetall(roomKey(roomId));
       return Object.entries(hash).map(([userId, raw]) => {
         let username = userId;
+        let discriminator = null;
         let avatarPath = null;
         try {
           const entry = JSON.parse(raw);
           username = entry.username ?? userId;
+          discriminator = entry.discriminator || null;
           avatarPath = entry.avatarPath || null;
         } catch {
           /* mantém os fallbacks acima */
         }
-        return { userId, username, avatarPath };
+        return { userId, username, discriminator, avatarPath };
       });
     } catch {
       return [];

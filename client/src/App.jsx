@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { ToastProvider } from "./context/ToastContext.jsx";
 import { PreferencesProvider } from "./context/PreferencesContext.jsx";
 import { PresenceProvider } from "./context/PresenceContext.jsx";
 import { MediaSessionProvider } from "./context/MediaSessionContext.jsx";
@@ -26,6 +27,10 @@ export default function App() {
     // tema precisa se aplicar em qualquer tela, autenticada ou não (Login,
     // Register), e não pode esperar login pra existir - ver
     // PreferencesContext.jsx.
+    // ToastProvider fica no topo de tudo, junto com PreferencesProvider:
+    // popup de loading/confirmação precisa funcionar em QUALQUER tela,
+    // logada ou não (Login/Register incluídos) - ver ToastContext.jsx.
+    <ToastProvider>
     <PreferencesProvider>
       <AuthProvider>
         {/* PresenceProvider fica ACIMA de <Routes> pelo mesmo motivo de
@@ -128,5 +133,6 @@ export default function App() {
         </PresenceProvider>
       </AuthProvider>
     </PreferencesProvider>
+    </ToastProvider>
   );
 }

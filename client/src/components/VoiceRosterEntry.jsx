@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import Avatar from "./Avatar.jsx";
+import { sendFriendRequest, isMyFriend } from "../api/friends.js";
+import { useToast } from "../context/ToastContext.jsx";
 import {
   MicOff,
   Pin,
@@ -50,6 +52,7 @@ import {
 // ainda não tem tile de mídia pra clicar).
 export default function VoiceRosterEntry({
   username,
+  discriminator,
   avatarPath,
   micStream,
   micMuted,
@@ -63,8 +66,9 @@ export default function VoiceRosterEntry({
   const speaking = useSpeaking(micStream);
   const hasMenu = Boolean(moderation || volumeControl || localControls);
   const [menuPos, setMenuPos] = useState(null);
+  const [amIFriend, setAmIFriend] = useState(false);
   const menuRef = useRef(null);
-
+  const { showToast, dismissToast } = useToast();
   // Menu agora abre só com clique direito (botão ⋮ foi removido - ver
   // pedido do usuário). Posição vem do próprio evento de contexto e o menu
   // é renderizado num portal pra `document.body`: assim ele nunca fica
@@ -79,7 +83,28 @@ export default function VoiceRosterEntry({
     const y = Math.min(e.clientY, window.innerHeight - 8);
     setMenuPos({ x: Math.max(8, x), y });
   }
-
+  async function handleAddFriend(username) {
+    if (!username) return;
+    const loadingId = showToast("Em busca de um novo amigo... ", {
+      type: "loading",
+      duration: 5000,
+    });
+    try {
+      await sendFriendRequest(username);
+      showToast("Feito. Aguardando ansiosamente pelo novo amigo", {
+        type: "success",
+      });
+      //setUsernameInput("");
+    } catch (err) {
+      //dismissToast(loadingId);
+      console.log(err);
+      showToast(`Oh no! Ficarei sozinho neste planeta?  ${err.message}`, {
+        type: "error",
+      });
+    } finally {
+      //dismissToast(loadingId);
+    }
+  }
   useEffect(() => {
     if (!menuPos) return;
     function handlePointerDown(e) {
@@ -90,6 +115,20 @@ export default function VoiceRosterEntry({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [menuPos]);
+
+  useEffect(() => {
+    if (!menuPos) return;
+    let cancelled = false;
+    isMyFriend(`${username}#${discriminator}`)
+      .then((result) => {
+        console.log(result);
+        if (!cancelled) setAmIFriend(result);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [menuPos, username, discriminator]);
 
   return (
     <li
@@ -189,12 +228,29 @@ export default function VoiceRosterEntry({
           <div
             ref={menuRef}
             style={{ position: "fixed", left: menuPos.x, top: menuPos.y }}
-            className="z-[9999] w-56 space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-800"
+            className="z-[9999]  space-y-1 rounded-lg border border-slate-200 bg-white p-3  shadow-lg dark:border-slate-700 dark:bg-slate-800"
           >
+            <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
+              Perfil
+            </button>
+            <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
+              Mensagem
+            </button>
+            <button
+              className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+              onClick={() => {
+                //console.log(username + " " + discriminator);
+
+                handleAddFriend(username + "#" + discriminator);
+              }}
+            >
+              {console.log(amIFriend)}
+              {amIFriend ? "Remover Amigo" : "Adicionar Amigo"}
+            </button>
             {localControls && (
               <>
                 <button
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={localControls.onToggleLocalMute}
                 >
                   {localControls.locallyMuted ? (
@@ -207,7 +263,7 @@ export default function VoiceRosterEntry({
                     : "Mutar localmente (só pra você)"}
                 </button>
                 <button
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={localControls.onToggleCameraHidden}
                 >
                   {localControls.cameraHidden ? (
@@ -220,7 +276,7 @@ export default function VoiceRosterEntry({
                     : "Ocultar webcam (só pra você)"}
                 </button>
                 <button
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={localControls.onToggleScreenHidden}
                 >
                   {localControls.screenHidden ? (
@@ -236,7 +292,7 @@ export default function VoiceRosterEntry({
             )}
             {volumeControl && (
               <label className="block px-2 py-1">
-                <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <span className="flex items-center gap-1.5 text-slate-500 dark:text-white">
                   <Volume2 className="size-3.5 shrink-0" />
                   Volume ({volumeControl.value}%)
                 </span>
@@ -249,14 +305,14 @@ export default function VoiceRosterEntry({
                   onChange={(e) =>
                     volumeControl.onChange(Number(e.target.value))
                   }
-                  className="mt-1 w-full accent-emerald-500"
+                  className=" cursor-pointer mt-1 w-full accent-green-700 border-0"
                 />
               </label>
             )}
             {moderation?.canMute && (
               <>
                 <button
-                  className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onMute(true, "once")}
                 >
                   Silenciar voz no servidor
