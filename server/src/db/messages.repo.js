@@ -1,5 +1,6 @@
 import { pool } from "../config/db.js";
 import { redis } from "../config/redis.js";
+import { metrics } from "../observability/metrics.js";
 
 const MESSAGE_CACHE_TTL_SECONDS = 30;
 
@@ -82,9 +83,11 @@ export async function listMessagesForChannel(
   const cacheKey = `messages:${channelId}:${cappedLimit}:${beforeId ?? "latest"}`;
   try {
     const cached = await redis.get(cacheKey);
+    metrics.cacheRequests.inc({ cache: "messages", result: cached ? "hit" : "miss" });
     if (cached) return JSON.parse(cached);
   } catch {
     /* cache miss / erro - segue para o banco */
+    metrics.cacheRequests.inc({ cache: "messages", result: "error" });
   }
 
   const { rows } = await pool.query(

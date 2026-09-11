@@ -15,6 +15,7 @@ import {
 } from '../db/invites.repo.js';
 import { sendInviteEmail } from '../utils/mailer.js';
 import { formatTag } from '../utils/discriminator.js';
+import { audit } from '../observability/logger.js';
 
 const router = Router();
 
@@ -73,6 +74,15 @@ router.post('/', validateBody(inviteCreateSchema), async (req, res, next) => {
       createdBy: req.user.internalId,
     });
     const link = inviteLink(invite.code);
+    // Sem código/link/email de destino no log - só metadados do convite.
+    audit('registration_invite_created', {
+      admin_action: true,
+      resource_type: 'registration_invite',
+      resource_id: invite.id,
+      invite_type: type,
+      max_uses: maxUses,
+      expires_in_days: expiresInDays,
+    });
 
     let emailResult = null;
     if (type === 'email') {
@@ -96,6 +106,7 @@ router.delete('/:id', async (req, res, next) => {
 
     const revoked = await revokeInvite(parsed.data);
     if (!revoked) return res.status(404).json({ error: 'Convite não encontrado ou já revogado.' });
+    audit('registration_invite_revoked', { admin_action: true, resource_type: 'registration_invite', resource_id: parsed.data });
 
     return res.status(204).send();
   } catch (err) {

@@ -1,10 +1,20 @@
 import { mediaCodecs } from './config.js';
 import { getNextWorker } from './workers.js';
+import { metrics } from '../observability/metrics.js';
 
 // roomId -> { router, peers: Map<socketId, PeerState> }
-// PeerState = { userId, username, transports: Map<id, Transport>,
-//               producers: Map<id, Producer>, consumers: Map<id, Consumer> }
+// PeerState = { userId, username, sessionId, serverId, joinedAt,
+//               transports: Map<id, Transport>, producers: Map<id, Producer>,
+//               consumers: Map<id, Consumer> }
 const rooms = new Map();
+
+// Recontado a cada entrada/saída (poucas salas por instância) - evita
+// gauge "derivando" quando o mesmo socket repete media:join.
+function updateSessionGauge() {
+  let peers = 0;
+  for (const room of rooms.values()) peers += room.peers.size;
+  metrics.voiceSessionsActive.set(peers);
+}
 
 export async function getOrCreateRoom(roomId) {
   let room = rooms.get(roomId);
@@ -14,6 +24,7 @@ export async function getOrCreateRoom(roomId) {
   const router = await worker.createRouter({ mediaCodecs });
   room = { router, peers: new Map() };
   rooms.set(roomId, room);
+  metrics.voiceRoomsActive.set(rooms.size);
   return room;
 }
 
@@ -21,11 +32,21 @@ export function getRoom(roomId) {
   return rooms.get(roomId) ?? null;
 }
 
-export function addPeer(roomId, socketId, { userId, username }) {
+export function addPeer(roomId, socketId, { userId, username, sessionId = null, serverId = null }) {
   const room = rooms.get(roomId);
   if (!room) return null;
-  const peer = { userId, username, transports: new Map(), producers: new Map(), consumers: new Map() };
+  const peer = {
+    userId,
+    username,
+    sessionId,
+    serverId,
+    joinedAt: Date.now(),
+    transports: new Map(),
+    producers: new Map(),
+    consumers: new Map(),
+  };
   room.peers.set(socketId, peer);
+  updateSessionGauge();
   return peer;
 }
 
@@ -49,10 +70,12 @@ export function removePeer(roomId, socketId) {
     transport.close();
   }
   room.peers.delete(socketId);
+  updateSessionGauge();
 
   if (room.peers.size === 0) {
     room.router.close();
     rooms.delete(roomId);
+    metrics.voiceRoomsActive.set(rooms.size);
   }
 
   return closedProducerIds;

@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 import { getAccessToken } from './http.js';
 import { API_URL } from './config.js';
+import { reportClientEvent } from '../observability/telemetry.js';
 
 let socket = null;
 
@@ -16,6 +17,12 @@ export function getSocket() {
     socket = io(API_URL || undefined, {
       autoConnect: false,
       auth: (cb) => cb({ token: getAccessToken() }),
+    });
+    // Falha de conexão (servidor fora, token recusado) - amostrada em telemetry.js.
+    socket.on('connect_error', (err) => {
+      reportClientEvent('client_websocket_error', {
+        error_code: err?.message === 'unauthorized' ? 'WS_UNAUTHORIZED' : 'WS_CONNECT_ERROR',
+      });
     });
   }
   return socket;

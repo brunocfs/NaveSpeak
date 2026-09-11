@@ -3,6 +3,7 @@
 // heap do processo em execução, não simplesmente ler o storage. O refresh
 // token nem chega ao JavaScript: fica em um cookie httpOnly.
 import { API_URL } from './config.js';
+import { reportClientEvent, normalizePath } from '../observability/telemetry.js';
 
 let accessToken = null;
 
@@ -46,13 +47,19 @@ async function tryRefresh() {
 }
 
 export async function apiRequest(path, options = {}) {
-  let res = await rawRequest(path, options);
+  let res;
+  try {
+    res = await rawRequest(path, options);
 
-  if (res.status === 401 && path !== '/auth/refresh' && path !== '/auth/login') {
-    const refreshed = await tryRefresh();
-    if (refreshed) {
-      res = await rawRequest(path, options);
+    if (res.status === 401 && path !== '/auth/refresh' && path !== '/auth/login') {
+      const refreshed = await tryRefresh();
+      if (refreshed) {
+        res = await rawRequest(path, options);
+      }
     }
+  } catch (err) {
+    reportClientEvent('client_http_error', { error_code: 'NETWORK_ERROR', http_route: normalizePath(path) });
+    throw err;
   }
 
   if (!res.ok) {
@@ -65,6 +72,16 @@ export async function apiRequest(path, options = {}) {
     const error = new Error(payload?.error ?? `Erro na requisição (${res.status}).`);
     error.status = res.status;
     error.details = payload?.details;
+    // ID de correlação do backend - é o que o suporte usa pra achar o log.
+    error.requestId = res.headers.get('X-Request-Id') ?? payload?.requestId ?? null;
+    if (res.status >= 500) {
+      reportClientEvent('client_http_error', {
+        error_code: `HTTP_${res.status}`,
+        http_status: res.status,
+        http_route: normalizePath(path),
+        request_id: error.requestId ?? undefined,
+      });
+    }
     throw error;
   }
 

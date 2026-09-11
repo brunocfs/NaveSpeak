@@ -6,8 +6,15 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import { trace } from '@opentelemetry/api';
 import { env } from './config/env.js';
-import { assertDbConnection } from './config/db.js';
+import { pool, assertDbConnection } from './config/db.js';
+import { redis, resetEphemeralPresenceOnBoot } from './config/redis.js';
+import { logger, flushLogs } from './observability/logger.js';
+import { requestContext, metricsHandler } from './observability/http.js';
+import { createReadinessCheck } from './observability/health.js';
+import { installProcessHandlers, isShuttingDown, onShutdown } from './observability/shutdown.js';
+import { classifyError } from './observability/errors.js';
 import authRoutes from './routes/auth.routes.js';
 import roomsRoutes from './routes/rooms.routes.js';
 import channelsRoutes from './routes/channels.routes.js';
@@ -19,10 +26,13 @@ import usersRoutes from './routes/users.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
 import attachmentsRoutes from './routes/attachments.routes.js';
+import clientErrorsRoutes from './routes/clientErrors.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { attachSockets } from './sockets/index.js';
-import { createWorkers } from './mediasoup/workers.js';
-import { resetEphemeralPresenceOnBoot } from './config/redis.js';
+import { createWorkers, getWorkers, closeWorkers } from './mediasoup/workers.js';
+
+// SIGTERM/SIGINT, uncaughtException e unhandledRejection - ver observability/shutdown.js.
+installProcessHandlers({ timeoutMs: env.SHUTDOWN_TIMEOUT_MS });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDistDir = path.join(__dirname, '..', '..', 'client', 'dist');
@@ -30,6 +40,14 @@ const uploadsDir = path.join(__dirname, '..', 'uploads');
 const updatesDir = path.join(__dirname, '..', 'updates');
 
 const app = express();
+
+// Atrás do Nginx (deploy.md), TRUST_PROXY=1 faz req.ip ser o IP real do
+// cliente (X-Forwarded-For) - base do rate limit por IP e do source_ip dos
+// logs. false (padrão) = IP da conexão TCP, comportamento de antes.
+app.set('trust proxy', env.TRUST_PROXY);
+
+// Primeiro middleware: request_id/trace_id, contexto de log e access log/métricas.
+app.use(requestContext);
 
 // CORS restrito a uma única origem conhecida, com credentials habilitado só
 // para essa origem - nunca "*" quando cookies estão em jogo. Só importa
@@ -39,6 +57,8 @@ app.use(
   cors({
     origin: env.CORS_ORIGIN,
     credentials: true,
+    // Pro client conseguir ler o ID de correlação em dev (origem cruzada).
+    exposedHeaders: ['X-Request-Id'],
   })
 );
 // CSP: os padrões do helmet servem pra tudo, MENOS pelo `script-src 'self'`
@@ -81,6 +101,36 @@ app.use(
     },
   })
 );
+
+// ---- Health checks e métricas (antes dos body parsers e da API) ----
+// live: só "o processo responde" - nunca depende de banco (senão um Postgres
+// lento faria o supervisor reiniciar um processo saudável).
+// ready: PostgreSQL e mediasoup são essenciais; Redis fora deixa o serviço
+// "degraded" (continua recebendo tráfego - rate limit/presença já são fail-open).
+const readiness = createReadinessCheck(
+  {
+    database: { essential: true, run: () => pool.query('SELECT 1') },
+    mediasoup: {
+      essential: true,
+      run: () => {
+        const workers = getWorkers();
+        if (workers.length === 0 || workers.some((worker) => worker.closed)) throw new Error('mediasoup workers unavailable');
+      },
+    },
+    redis: { essential: false, run: () => redis.ping() },
+  },
+  { isShuttingDown }
+);
+app.get('/health/live', (req, res) => res.set('Cache-Control', 'no-store').json({ status: 'ok' }));
+app.get('/health/ready', async (req, res) => {
+  const report = await readiness();
+  res
+    .set('Cache-Control', 'no-store')
+    .status(report.ready ? 200 : 503)
+    .json(env.HEALTH_DETAILS_ENABLED ? report : { status: report.status });
+});
+app.get('/metrics', metricsHandler);
+
 // Limite de corpo maior só para o upload de avatar (imagem em base64 dentro
 // do JSON, sem multer/multipart - ver users.routes.js) - precisa vir ANTES
 // do express.json global (100kb): o body-parser marca req._body assim que
@@ -125,6 +175,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/invites', invitesRoutes);
 app.use('/api/attachments', attachmentsRoutes);
+app.use('/api/client-errors', clientErrorsRoutes);
 
 // Avatares enviados por usuário (users.routes.js) - fora de /api de
 // propósito, são arquivos estáticos, não respostas JSON.
@@ -209,6 +260,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const httpServer = http.createServer(app);
+// Registra o passo 'socket_io' do shutdown (fecha sockets + httpServer).
 const io = attachSockets(httpServer);
 // A sinalização do mediasoup (voz/tela) também se anexa a este mesmo
 // httpServer, através do mesmo servidor Socket.IO retornado acima.
@@ -219,22 +271,36 @@ const io = attachSockets(httpServer);
 // via req.app.get('io') no momento da requisição, não na definição da rota.
 app.set('io', io);
 
+// Ordem de encerramento (depois de 'socket_io'): mídia, exporter de traces,
+// e por último as dependências que os handlers de disconnect ainda usam.
+onShutdown('mediasoup_workers', () => closeWorkers());
+onShutdown('telemetry_exporter', async () => {
+  const provider = trace.getTracerProvider();
+  const delegate = provider.getDelegate?.() ?? provider;
+  await delegate.forceFlush?.();
+  await delegate.shutdown?.();
+});
+onShutdown('postgres_pool', () => pool.end());
+onShutdown('redis', () => (redis.status === 'ready' ? redis.quit() : redis.disconnect()));
+
+function startupFailed(component, errorCode, err, message) {
+  logger.fatal({ event: 'service_startup_failed', component, error_code: errorCode, error: err }, message);
+  flushLogs();
+  process.exit(1);
+}
+
 async function start() {
   try {
     await assertDbConnection();
-    console.log('Conexão com o PostgreSQL OK.');
+    logger.info({ event: 'database_connection_verified', database_system: 'postgresql' }, 'PostgreSQL connection verified');
   } catch (err) {
-    console.error('Não foi possível conectar ao PostgreSQL. Confira DB_HOST/DB_USER/DB_PASSWORD no .env.');
-    console.error(err.message);
-    process.exit(1);
+    return startupFailed('postgresql', classifyError(err, 'db').error_code, err, 'Could not connect to PostgreSQL; check DB_HOST/DB_USER/DB_PASSWORD');
   }
 
   try {
     await createWorkers();
   } catch (err) {
-    console.error('Não foi possível iniciar os workers do mediasoup (voz/tela).');
-    console.error(err.message);
-    process.exit(1);
+    return startupFailed('mediasoup', 'MEDIASOUP_START_FAILED', err, 'Could not start mediasoup workers (voice/screen)');
   }
 
   // Antes de aceitar qualquer conexão: descarta presença/roster de voz
@@ -243,11 +309,22 @@ async function start() {
   // nenhum socket consegue conectar antes da porta abrir.
   await resetEphemeralPresenceOnBoot();
 
+  httpServer.once('error', (err) =>
+    startupFailed('http_server', err.code === 'EADDRINUSE' ? 'PORT_IN_USE' : 'HTTP_SERVER_ERROR', err, 'HTTP server failed to start')
+  );
   httpServer.listen(env.PORT, () => {
-    console.log(`NaveSpeak server ouvindo em http://localhost:${env.PORT} (CORS: ${env.CORS_ORIGIN})`);
-    if (env.NODE_ENV === 'production') {
-      console.log(`Servindo o client a partir de ${clientDistDir}`);
-    }
+    logger.info(
+      {
+        event: 'service_started',
+        port: env.PORT,
+        cors_origin: env.CORS_ORIGIN,
+        serving_client_bundle: env.NODE_ENV === 'production',
+        trust_proxy: env.TRUST_PROXY,
+        otel_enabled: env.OTEL_ENABLED,
+        node_version: process.version,
+      },
+      'NaveSpeak server listening'
+    );
   });
 }
 

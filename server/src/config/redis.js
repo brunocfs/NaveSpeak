@@ -1,5 +1,8 @@
 import { Redis } from 'ioredis';
 import { env } from './env.js';
+import { logger, serializeError, shouldLog } from '../observability/logger.js';
+import { metrics } from '../observability/metrics.js';
+import { classifyError } from '../observability/errors.js';
 
 // Cliente Redis compartilhado. `maxRetriesPerRequest: null` é exigido pelo
 // @socket.io/redis-adapter (sem ele o adapter reclama). `lazyConnect` evita
@@ -12,11 +15,103 @@ export const redis = new Redis(env.REDIS_URL, {
   enableOfflineQueue: true,
 });
 
-redis.on('error', (err) => {
-  // Não deixamos o processo crashar por erro de Redis - o app precisa continuar
-  // operando (degradado) se o Redis cair.
-  console.error('[redis] erro de conexão:', err.message);
-});
+// Instrumentação de um cliente ioredis (o principal e os duplicates do
+// adapter): conexão logada só na TRANSIÇÃO (conectou/caiu/voltou),
+// reconexão e erro com limite de volume (o ioredis re-emite a cada tentativa),
+// latência/erro por comando com o NOME do comando apenas - nunca chave, valor
+// ou argumentos. O listener de 'error' também é o que impede o processo de
+// crashar por erro de Redis - o app precisa continuar operando (degradado).
+export function instrumentRedis(client, name) {
+  let ready = false;
+  let everReady = false;
+  metrics.redisUp.set({ client: name }, 0);
+
+  client.on('ready', () => {
+    ready = true;
+    metrics.redisUp.set({ client: name }, 1);
+    logger.info(
+      { event: everReady ? 'redis_connection_restored' : 'redis_connected', redis_client: name },
+      everReady ? 'Redis connection restored' : 'Redis connected'
+    );
+    everReady = true;
+  });
+  client.on('close', () => {
+    if (!ready) return;
+    ready = false;
+    metrics.redisUp.set({ client: name }, 0);
+    logger.warn({ event: 'redis_connection_lost', redis_client: name }, 'Redis connection lost');
+  });
+  client.on('reconnecting', (delayMs) => {
+    metrics.redisReconnects.inc({ client: name });
+    const gate = shouldLog(`redis_reconnecting:${name}`, { max: 5 });
+    if (gate) logger.warn({ ...gate, event: 'redis_reconnecting', redis_client: name, retry_delay_ms: delayMs }, 'Reconnecting to Redis');
+  });
+  client.on('error', (err) => {
+    const c = classifyError(err, 'redis');
+    metrics.redisErrors.inc({ client: name, error_code: c.error_code });
+    const gate = shouldLog(`redis_connection_error:${name}:${c.error_code}`, { max: 5 });
+    if (gate) {
+      logger.error(
+        { ...gate, event: 'redis_connection_error', redis_client: name, error_code: c.error_code, retryable: c.retryable, error: serializeError(err, { stack: false }) },
+        'Redis client error'
+      );
+    }
+  });
+
+  const sendCommand = client.sendCommand.bind(client);
+  client.sendCommand = (command, ...rest) => {
+    const startedAt = performance.now();
+    const result = sendCommand(command, ...rest);
+    const operation = String(command?.name ?? 'unknown').toLowerCase();
+    const observe = () => {
+      const durationMs = performance.now() - startedAt;
+      metrics.redisDuration.observe({ command: operation }, durationMs / 1000);
+      return durationMs;
+    };
+    command?.promise?.then(
+      () => {
+        const durationMs = observe();
+        if (durationMs >= env.LOG_SLOW_REDIS_COMMAND_MS) {
+          const gate = shouldLog(`redis_command_slow:${name}:${operation}`);
+          if (gate) {
+            logger.warn(
+              { ...gate, event: 'redis_command_slow', redis_client: name, operation, duration_ms: Math.round(durationMs), threshold_ms: env.LOG_SLOW_REDIS_COMMAND_MS },
+              'Slow Redis command'
+            );
+          }
+        }
+      },
+      (err) => {
+        const durationMs = observe();
+        // O próprio ioredis manda CLIENT SETINFO ao conectar e ignora a
+        // recusa de Redis < 7.2 - não é falha da aplicação.
+        if (operation === 'client' && err?.name === 'ReplyError') return;
+        const c = classifyError(err, 'redis');
+        metrics.redisErrors.inc({ client: name, error_code: c.error_code });
+        const gate = shouldLog(`redis_command_failed:${name}:${operation}:${c.error_code}`, { max: 10 });
+        if (gate) {
+          logger.warn(
+            {
+              ...gate,
+              event: 'redis_command_failed',
+              redis_client: name,
+              operation,
+              duration_ms: Math.round(durationMs),
+              error_code: c.error_code,
+              retryable: c.retryable,
+              error: serializeError(err, { stack: false }),
+            },
+            'Redis command failed'
+          );
+        }
+      }
+    );
+    return result;
+  };
+  return client;
+}
+
+instrumentRedis(redis, 'main');
 
 // ---- Reconciliação no boot: limpa presença "fantasma" ----
 //
@@ -46,12 +141,19 @@ export async function resetEphemeralPresenceOnBoot() {
     const allKeys = [...presenceKeys, ...voiceKeys, ...sockKeys];
     if (allKeys.length > 0) {
       await redis.del(...allKeys);
-      console.log(`[redis] presença/roster de voz de uma execução anterior limpos (${allKeys.length} chave(s)).`);
+      logger.info(
+        { event: 'redis_ephemeral_presence_reset', keys_deleted: allKeys.length },
+        'Stale presence and voice roster keys from a previous run were removed'
+      );
     }
   } catch (err) {
     // Fail-open: se o Redis não estiver acessível agora, os próprios
     // chamadores de presença já tratam erro individualmente depois.
-    console.error('[redis] falha ao limpar presença antiga no boot:', err.message);
+    const c = classifyError(err, 'redis');
+    logger.warn(
+      { event: 'redis_ephemeral_presence_reset_failed', error_code: c.error_code, retryable: c.retryable, error: serializeError(err, { stack: false }) },
+      'Could not reset stale presence keys on boot'
+    );
   }
 }
 

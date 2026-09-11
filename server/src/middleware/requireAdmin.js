@@ -6,6 +6,7 @@
 // database/schema-postgre.sql).
 export function requireAdmin(req, res, next) {
   if (!req.user?.isAdmin) {
+    res.locals.log = { event: 'authorization_denied', reason_code: 'admin_required', level: 'warn', security_relevant: true };
     return res.status(403).json({ error: 'Acesso restrito a administradores.' });
   }
   return next();

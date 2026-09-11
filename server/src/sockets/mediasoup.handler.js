@@ -15,9 +15,94 @@ import { isCallChannel, handleCallLeave } from './calls.handler.js';
 import { isCallParticipant, setStatus as setCallStatus } from './callsStore.js';
 import { getUserPermissionBitmask, listRoleIdsForUser } from '../db/roles.repo.js';
 import { PERMISSIONS, checkPermission, canAccessChannel } from '../utils/permissions.js';
+import { randomUUID } from 'node:crypto';
+import { logger, audit } from '../observability/logger.js';
+import { metrics } from '../observability/metrics.js';
+import { logError } from '../observability/errors.js';
+import { permissionName } from '../middleware/permissions.js';
 
 function wrapAck(callback) {
   return typeof callback === 'function' ? callback : () => {};
+}
+
+// ---- Observabilidade de voz/WebRTC ----------------------------------------
+// Só metadados: IDs, estados, contagens, durações. Nunca iceParameters,
+// iceCandidates, dtlsParameters, rtpParameters/capabilities ou mídia.
+
+const MEDIA_SOURCES = new Set(['mic', 'camera', 'screen', 'screen-audio']);
+const mediaSourceLabel = (source) => (MEDIA_SOURCES.has(source) ? source : 'other');
+
+// Recusa de entrada na voz: o motivo real vai pro log/métrica; o cliente
+// continua recebendo a mesma mensagem de antes.
+const SUSPICIOUS_JOIN_DENIALS = new Set(['not_room_member', 'no_channel_access', 'not_call_participant']);
+function denyJoin(ack, reasonCode, publicMessage, fields = {}) {
+  metrics.voiceJoinDenied.inc({ reason: reasonCode });
+  if (SUSPICIOUS_JOIN_DENIALS.has(reasonCode)) {
+    audit('room_join_denied', { outcome: 'denied', reason_code: reasonCode, throttleKey: reasonCode, ...fields });
+  } else {
+    logger.info({ event: 'room_join_denied', outcome: 'denied', reason_code: reasonCode, ...fields }, 'Voice room join denied');
+  }
+  return ack({ error: publicMessage });
+}
+
+function logWebrtcFailure(stage, err, fields = {}) {
+  metrics.webrtcFailures.inc({ stage });
+  logError(
+    'webrtc_negotiation_failed',
+    err,
+    { stage, error_code: `WEBRTC_${stage.toUpperCase()}_FAILED`, ...fields },
+    'WebRTC negotiation step failed'
+  );
+}
+
+// Eventos do transporte chegam do worker mediasoup, fora do contexto do
+// socket - por isso os campos de correlação vão explícitos.
+function instrumentTransport(transport, fields) {
+  let iceState = transport.iceState;
+  let degraded = false;
+  transport.on('icestatechange', (state) => {
+    metrics.webrtcStateChanges.inc({ type: 'ice', state });
+    const previous = iceState;
+    iceState = state;
+    const recovered = degraded && (state === 'connected' || state === 'completed');
+    logger[recovered ? 'info' : 'debug'](
+      { ...fields, event: 'webrtc_ice_connection_state_changed', previous_state: previous, new_state: state },
+      'WebRTC ICE state changed'
+    );
+    if (state === 'disconnected') {
+      degraded = true;
+      logger.warn({ ...fields, event: 'media_session_degraded', reason_code: 'ice_disconnected' }, 'Media session degraded');
+    } else if (recovered) {
+      degraded = false;
+    }
+  });
+  transport.on('dtlsstatechange', (state) => {
+    metrics.webrtcStateChanges.inc({ type: 'dtls', state });
+    if (state === 'failed') {
+      metrics.webrtcFailures.inc({ stage: 'dtls' });
+      logger.warn(
+        { ...fields, event: 'webrtc_peer_connection_failed', reason_code: 'dtls_failed', error_code: 'WEBRTC_DTLS_FAILED' },
+        'WebRTC transport DTLS handshake failed'
+      );
+    }
+  });
+  logger.debug({ ...fields, event: 'webrtc_transport_created' }, 'WebRTC transport created');
+}
+
+function logVoiceSessionEnded(peer, { channelId, socketId, reason, producersClosed }) {
+  const durationMs = Date.now() - peer.joinedAt;
+  metrics.voiceSessionDuration.observe({ reason }, durationMs / 1000);
+  const fields = {
+    connection_id: socketId,
+    user_id: peer.userId,
+    channel_id: channelId,
+    room_id: peer.serverId ?? undefined,
+    session_id: peer.sessionId,
+    reason_code: reason,
+    duration_ms: durationMs,
+  };
+  logger.info({ event: 'room_leave', ...fields }, 'Voice room left');
+  logger.info({ event: 'voice_session_ended', ...fields, producers_closed: producersClosed }, 'Voice session ended');
 }
 
 // Room do socket.io dedicada a quem está DE FATO conectado à chamada de um
@@ -144,8 +229,10 @@ async function broadcastVoicePresence(io, channelId, serverId) {
 // (o próprio usuário saindo), 'disconnect' (socket caiu) e
 // 'voice:moderateDisconnect' (um moderador desconectando outro usuário):
 // mesma limpeza de estado nos três casos, só muda QUEM disparou.
-async function leaveVoiceChannel(io, { channelId, socketId, userId }) {
+async function leaveVoiceChannel(io, { channelId, socketId, userId, reason = 'unknown' }) {
+  const peer = getPeer(channelId, socketId);
   const closedProducerIds = removePeer(channelId, socketId);
+  if (peer) logVoiceSessionEnded(peer, { channelId, socketId, reason, producersClosed: closedProducerIds.length });
   for (const producerId of closedProducerIds) {
     io.to(voiceRoomOf(channelId)).except(socketId).emit('media:producerClosed', { producerId });
   }
@@ -175,7 +262,16 @@ async function authorizeModeration(user, channelId, flag) {
 
   const bitmask = await getUserPermissionBitmask(channel.server_id, user.internalId);
   const allowed = checkPermission({ room, user, bitmask, flag });
-  if (!allowed) return { error: 'Você não tem permissão para isso.' };
+  if (!allowed) {
+    audit('authorization_denied', {
+      outcome: 'denied',
+      reason_code: 'missing_permission',
+      permission: permissionName(flag),
+      channel_id: channelId,
+      room_id: channel.server_id,
+    });
+    return { error: 'Você não tem permissão para isso.' };
+  }
 
   return { channel, room };
 }
@@ -215,24 +311,27 @@ export function registerMediasoupHandlers(io, socket) {
   socket.on('media:join', async (channelId, callback) => {
     const ack = wrapAck(callback);
     const parsed = mediaChannelIdSchema.safeParse(channelId);
-    if (!parsed.success) return ack({ error: 'ID de canal inválido.' });
+    if (!parsed.success) return denyJoin(ack, 'invalid_channel_id', 'ID de canal inválido.');
     const id = parsed.data;
+    logger.debug({ event: 'room_join_requested', channel_id: id }, 'Voice room join requested');
 
     let serverId = null;
     if (isCallChannel(id)) {
       if (!(await isCallParticipant(id, user.id))) {
-        return ack({ error: 'Você não faz parte dessa chamada.' });
+        return denyJoin(ack, 'not_call_participant', 'Você não faz parte dessa chamada.', { channel_id: id });
       }
       // media:join sozinho já conta como aceite - cobre quem entra direto
       // (reentrada) sem passar de novo por call:accept.
       await setCallStatus(id, user.id, 'accepted');
     } else {
       const channel = await findChannelById(id);
-      if (!channel) return ack({ error: 'Canal não encontrado.' });
-      if (channel.type !== 'voice') return ack({ error: 'Este canal não é de voz.' });
+      if (!channel) return denyJoin(ack, 'channel_not_found', 'Canal não encontrado.', { channel_id: id });
+      if (channel.type !== 'voice') return denyJoin(ack, 'not_voice_channel', 'Este canal não é de voz.', { channel_id: id });
 
       const member = await isRoomMember(channel.server_id, user.internalId);
-      if (!member) return ack({ error: 'Você não é membro desse servidor.' });
+      if (!member) {
+        return denyJoin(ack, 'not_room_member', 'Você não é membro desse servidor.', { channel_id: id, room_id: channel.server_id });
+      }
 
       const room = await findRoomById(channel.server_id);
       const [bitmask, roleIds] = await Promise.all([
@@ -240,14 +339,17 @@ export function registerMediasoupHandlers(io, socket) {
         listRoleIdsForUser(channel.server_id, user.internalId),
       ]);
       const canView = canAccessChannel({ channel, room, user, bitmask, roleIds, action: 'view' });
-      if (!canView) return ack({ error: 'Você não tem acesso a este canal.' });
+      if (!canView) {
+        return denyJoin(ack, 'no_channel_access', 'Você não tem acesso a este canal.', { channel_id: id, room_id: channel.server_id });
+      }
 
       serverId = channel.server_id;
     }
 
     try {
       const room = await getOrCreateRoom(id);
-      addPeer(id, socket.id, { userId: user.id, username: user.username });
+      const sessionId = `vs-${randomUUID()}`;
+      addPeer(id, socket.id, { userId: user.id, username: user.username, sessionId, serverId });
       await addVoicePresence(id, user, socket.id);
       socket.data.voiceChannelId = id;
       socket.data.voiceServerId = serverId;
@@ -257,6 +359,15 @@ export function registerMediasoupHandlers(io, socket) {
       socket.join(voiceRoomOf(id));
       await broadcastVoicePresence(io, id, serverId);
 
+      const sessionFields = {
+        channel_id: id,
+        room_id: serverId ?? undefined,
+        session_id: sessionId,
+        voice_room_type: isCallChannel(id) ? 'private_call' : 'server_channel',
+      };
+      logger.info({ event: 'room_join_succeeded', outcome: 'success', ...sessionFields }, 'Voice room joined');
+      logger.info({ event: 'voice_session_started', ...sessionFields }, 'Voice session started');
+
       const lock = getLock(id, user.id);
       return ack({
         rtpCapabilities: room.router.rtpCapabilities,
@@ -265,7 +376,7 @@ export function registerMediasoupHandlers(io, socket) {
         mediaLocked: lock.mediaLocked,
       });
     } catch (err) {
-      console.error(err);
+      logWebrtcFailure('join', err, { channel_id: id });
       return ack({ error: 'Não foi possível entrar na sala de voz.' });
     }
   });
@@ -280,6 +391,13 @@ export function registerMediasoupHandlers(io, socket) {
     try {
       const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
       peer.transports.set(transport.id, transport);
+      instrumentTransport(transport, {
+        connection_id: socket.id,
+        user_id: user.id,
+        channel_id: channelId,
+        session_id: peer.sessionId,
+        transport_direction: direction,
+      });
 
       transport.on('dtlsstatechange', (state) => {
         if (state === 'closed' || state === 'failed') transport.close();
@@ -292,7 +410,7 @@ export function registerMediasoupHandlers(io, socket) {
         dtlsParameters: transport.dtlsParameters,
       });
     } catch (err) {
-      console.error(err);
+      logWebrtcFailure('create_transport', err, { channel_id: channelId, transport_direction: direction });
       return ack({ error: 'Não foi possível criar o transporte de mídia.' });
     }
   });
@@ -307,7 +425,7 @@ export function registerMediasoupHandlers(io, socket) {
       await transport.connect({ dtlsParameters });
       return ack({ ok: true });
     } catch (err) {
-      console.error(err);
+      logWebrtcFailure('connect_transport', err, { channel_id: channelId, session_id: peer.sessionId });
       return ack({ error: 'Falha ao conectar transporte.' });
     }
   });
@@ -395,9 +513,13 @@ export function registerMediasoupHandlers(io, socket) {
         await broadcastVoicePresence(io, channelId, socket.data.voiceServerId);
       }
 
+      logger.debug(
+        { event: 'webrtc_producer_created', channel_id: channelId, session_id: peer.sessionId, media_kind: kind, media_source: mediaSourceLabel(appData?.source), paused: producer.paused },
+        'WebRTC producer created'
+      );
       return ack({ id: producer.id });
     } catch (err) {
-      console.error(err);
+      logWebrtcFailure('produce', err, { channel_id: channelId, session_id: peer.sessionId, media_kind: kind });
       return ack({ error: 'Não foi possível transmitir mídia.' });
     }
   });
@@ -410,6 +532,7 @@ export function registerMediasoupHandlers(io, socket) {
     if (!room || !transport) return ack({ error: 'Transporte não encontrado.' });
 
     if (!room.router.canConsume({ producerId, rtpCapabilities })) {
+      metrics.webrtcFailures.inc({ stage: 'can_consume' });
       return ack({ error: 'Não é possível consumir essa mídia.' });
     }
 
@@ -422,6 +545,10 @@ export function registerMediasoupHandlers(io, socket) {
         socket.emit('media:producerClosed', { producerId });
       });
 
+      logger.debug(
+        { event: 'webrtc_consumer_created', channel_id: channelId, session_id: peer.sessionId, media_kind: consumer.kind },
+        'WebRTC consumer created'
+      );
       return ack({
         id: consumer.id,
         producerId,
@@ -429,7 +556,7 @@ export function registerMediasoupHandlers(io, socket) {
         rtpParameters: consumer.rtpParameters,
       });
     } catch (err) {
-      console.error(err);
+      logWebrtcFailure('consume', err, { channel_id: channelId, session_id: peer.sessionId });
       return ack({ error: 'Não foi possível consumir mídia.' });
     }
   });
@@ -535,7 +662,7 @@ export function registerMediasoupHandlers(io, socket) {
   socket.on('media:leave', async (channelId, callback) => {
     const ack = wrapAck(callback);
     const serverId = socket.data.voiceServerId;
-    await leaveVoiceChannel(io, { channelId, socketId: socket.id, userId: user.id });
+    await leaveVoiceChannel(io, { channelId, socketId: socket.id, userId: user.id, reason: 'user_left' });
     if (socket.data.voiceChannelId === channelId) {
       socket.data.voiceChannelId = null;
       socket.data.voiceServerId = null;
@@ -548,7 +675,7 @@ export function registerMediasoupHandlers(io, socket) {
     const channelId = socket.data.voiceChannelId;
     if (!channelId) return;
     const serverId = socket.data.voiceServerId;
-    await leaveVoiceChannel(io, { channelId, socketId: socket.id, userId: user.id });
+    await leaveVoiceChannel(io, { channelId, socketId: socket.id, userId: user.id, reason: 'disconnected' });
     await broadcastVoicePresence(io, channelId, serverId);
   });
 
@@ -585,6 +712,14 @@ export function registerMediasoupHandlers(io, socket) {
     await setVoiceMediaState(parsedChannel.data, parsedTarget.data, { micMuted: Boolean(muted) });
     await broadcastVoicePresence(io, parsedChannel.data, auth.channel.server_id);
 
+    audit('voice_moderation_applied', {
+      action: 'mute',
+      mode: isLockMode ? 'lock' : 'once',
+      enabled: Boolean(muted),
+      target_user_id: parsedTarget.data,
+      channel_id: parsedChannel.data,
+      room_id: auth.channel.server_id,
+    });
     io.to(`user:${parsedTarget.data}`).emit('voice:audioModerated', {
       channelId: parsedChannel.data,
       muted: Boolean(muted),
@@ -632,6 +767,14 @@ export function registerMediasoupHandlers(io, socket) {
       clearScreenViewersOfTarget(io, parsedChannel.data, parsedTarget.data);
     }
 
+    audit('voice_moderation_applied', {
+      action: 'disable_media',
+      mode: isLockMode ? 'lock' : 'once',
+      enabled: Boolean(disabled),
+      target_user_id: parsedTarget.data,
+      channel_id: parsedChannel.data,
+      room_id: auth.channel.server_id,
+    });
     io.to(`user:${parsedTarget.data}`).emit('voice:mediaModerated', {
       channelId: parsedChannel.data,
       disabled: Boolean(disabled),
@@ -651,7 +794,7 @@ export function registerMediasoupHandlers(io, socket) {
 
     const targetSocketIds = findPeerSocketIds(parsedChannel.data, parsedTarget.data);
     for (const socketId of targetSocketIds) {
-      await leaveVoiceChannel(io, { channelId: parsedChannel.data, socketId, userId: parsedTarget.data });
+      await leaveVoiceChannel(io, { channelId: parsedChannel.data, socketId, userId: parsedTarget.data, reason: 'moderator_disconnect' });
       const targetSocket = io.sockets.sockets.get(socketId);
       if (targetSocket?.data?.voiceChannelId === parsedChannel.data) {
         targetSocket.data.voiceChannelId = null;
@@ -659,6 +802,13 @@ export function registerMediasoupHandlers(io, socket) {
       }
     }
     await broadcastVoicePresence(io, parsedChannel.data, auth.channel.server_id);
+    audit('voice_moderation_applied', {
+      action: 'disconnect',
+      target_user_id: parsedTarget.data,
+      target_sessions: targetSocketIds.length,
+      channel_id: parsedChannel.data,
+      room_id: auth.channel.server_id,
+    });
     io.to(`user:${parsedTarget.data}`).emit('voice:kicked', { channelId: parsedChannel.data });
     return ack({ ok: true });
   });
@@ -683,6 +833,13 @@ export function registerMediasoupHandlers(io, socket) {
     // Não mexe no mediasoup diretamente daqui - o client do ALVO é quem
     // executa leaveVoice()+joinVoice(toChannelId) ao receber este evento,
     // reaproveitando toda a renegociação de transports que ele já sabe fazer.
+    audit('voice_moderation_applied', {
+      action: 'move',
+      target_user_id: parsedTarget.data,
+      channel_id: parsedChannel.data,
+      to_channel_id: parsedTo.data,
+      room_id: auth.channel.server_id,
+    });
     io.to(`user:${parsedTarget.data}`).emit('voice:forceMove', {
       fromChannelId: parsedChannel.data,
       toChannelId: parsedTo.data,

@@ -21,6 +21,7 @@ import {
 } from '../db/roles.repo.js';
 import { findUserByPublicId } from '../db/users.repo.js';
 import { PERMISSIONS } from '../utils/permissions.js';
+import { audit } from '../observability/logger.js';
 
 const router = Router({ mergeParams: true });
 // loadRoomForMember valida o :roomId (servidor) e que o usuário é membro dele.
@@ -55,6 +56,7 @@ router.get('/', async (req, res, next) => {
 router.post('/', requirePermission(PERMISSIONS.ADMINISTRATOR), validateBody(roleCreateSchema), async (req, res, next) => {
   try {
     const role = await createRole({ serverId: req.room.id, ...req.body });
+    audit('role_created', { room_id: req.room.id, resource_type: 'role', resource_id: role?.id });
     return res.status(201).json({ role });
   } catch (err) {
     return next(err);
@@ -69,6 +71,7 @@ router.patch(
   async (req, res, next) => {
     try {
       const role = await updateRole(req.role.id, req.body);
+      audit('role_updated', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, changed_fields: Object.keys(req.body) });
       return res.json({ role });
     } catch (err) {
       return next(err);
@@ -79,6 +82,7 @@ router.patch(
 router.delete('/:roleId', requirePermission(PERMISSIONS.ADMINISTRATOR), loadRole, async (req, res, next) => {
   try {
     await deleteRole(req.role.id);
+    audit('role_deleted', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id });
     return res.status(204).end();
   } catch (err) {
     return next(err);
@@ -109,6 +113,7 @@ router.post(
   async (req, res, next) => {
     try {
       await assignRole(req.role.id, req.targetUser.id);
+      audit('role_assigned', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, target_user_id: req.targetUser.publicId });
       return res.status(204).end();
     } catch (err) {
       return next(err);
@@ -124,6 +129,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await unassignRole(req.role.id, req.targetUser.id);
+      audit('role_unassigned', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, target_user_id: req.targetUser.publicId });
       return res.status(204).end();
     } catch (err) {
       return next(err);

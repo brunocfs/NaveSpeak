@@ -49,6 +49,7 @@ import { findUserByPublicId } from '../db/users.repo.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
 import { PERMISSIONS, canAccessChannel, permissionKeysFor, isServerOwner } from '../utils/permissions.js';
 import { formatTag } from '../utils/discriminator.js';
+import { audit } from '../observability/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
@@ -84,7 +85,9 @@ async function loadRoomForMember(req, res, next) {
 
   const member = await isRoomMember(room.id, req.user.internalId);
   if (!member) {
-    // 404 (não 403) para não confirmar a um não-membro que a sala existe.
+    // 404 (não 403) para não confirmar a um não-membro que a sala existe -
+    // mas no log é uma negação de acesso, não uma rota inexistente.
+    res.locals.log = { event: 'authorization_denied', reason_code: 'not_room_member', room_id: room.id, level: 'warn', security_relevant: true };
     return res.status(404).json({ error: 'Sala não encontrada.' });
   }
 
@@ -117,6 +120,7 @@ router.post('/', validateBody(roomNameSchema), async (req, res, next) => {
     // public_id do criador (req.user.id) no campo created_by.
     const room = await createRoom({ name: req.body.name, createdBy: req.user.internalId });
     room.created_by = req.user.id;
+    audit('room_created', { room_id: room.id, resource_type: 'room', resource_id: room.id });
     return res.status(201).json({ room });
   } catch (err) {
     return next(err);
@@ -127,9 +131,18 @@ router.post('/join', validateBody(inviteCodeSchema), async (req, res, next) => {
   try {
     const invite = await findInviteByCode(req.body.inviteCode);
     if (!invite) {
+      // Código nunca vai pro log (é a credencial de entrada no servidor).
+      audit('server_invite_rejected', { outcome: 'failure', reason_code: 'invalid_code', throttleKey: 'invalid_code' });
       return res.status(404).json({ error: 'Código de convite inválido.' });
     }
     if (!isInviteUsable(invite)) {
+      audit('server_invite_rejected', {
+        outcome: 'failure',
+        level: 'info',
+        reason_code: invite.revokedAt ? 'invite_revoked' : 'invite_expired',
+        resource_type: 'server_invite',
+        resource_id: invite.id,
+      });
       return res.status(410).json({
         error: invite.revokedAt ? 'Este convite foi revogado.' : 'Este convite expirou.',
       });
@@ -139,9 +152,11 @@ router.post('/join', validateBody(inviteCodeSchema), async (req, res, next) => {
       return res.status(404).json({ error: 'Servidor não encontrado.' });
     }
     if (await isBanned(room.id, req.user.internalId)) {
+      audit('server_invite_rejected', { outcome: 'denied', reason_code: 'banned_user', room_id: room.id, resource_type: 'server_invite', resource_id: invite.id });
       return res.status(403).json({ error: 'Você foi banido deste servidor.' });
     }
     await addRoomMember({ roomId: room.id, userId: req.user.internalId });
+    audit('server_invite_accepted', { room_id: room.id, resource_type: 'server_invite', resource_id: invite.id });
     // Histórico auditado de quem entrou por qual convite - ver aba
     // "Convites" de ServerSettingsModal.jsx. Não bloqueia a entrada se, por
     // algum motivo, essa gravação falhar - o membro já foi adicionado acima.
@@ -258,6 +273,7 @@ router.patch(
       }
 
       const room = await updateRoomProfile(req.room.id, { name, iconPath, description });
+      audit('room_updated', { room_id: req.room.id, changed_fields: Object.keys(req.body) });
       return res.json({ room });
     } catch (err) {
       return next(err);
@@ -273,6 +289,7 @@ router.patch(
   async (req, res, next) => {
     try {
       const settings = await updateServerSettings(req.room.id, req.body);
+      audit('server_settings_updated', { room_id: req.room.id, changed_fields: Object.keys(req.body) });
       return res.json({ settings });
     } catch (err) {
       return next(err);
@@ -327,6 +344,7 @@ router.post(
   async (req, res, next) => {
     try {
       const invite = await createServerInvite({ serverId: req.room.id, createdBy: req.user.internalId });
+      audit('server_invite_created', { room_id: req.room.id, resource_type: 'server_invite', resource_id: invite.id });
       return res.status(201).json({
         invite: serializeInvite({
           ...invite,
@@ -363,6 +381,7 @@ router.post(
   async (req, res, next) => {
     try {
       await revokeInvite(req.invite.id, req.user.internalId);
+      audit('server_invite_revoked', { room_id: req.room.id, resource_type: 'server_invite', resource_id: req.invite.id });
       return res.status(204).end();
     } catch (err) {
       return next(err);
@@ -380,6 +399,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await deleteInvite(req.invite.id);
+      audit('server_invite_deleted', { room_id: req.room.id, resource_type: 'server_invite', resource_id: req.invite.id });
       return res.status(204).end();
     } catch (err) {
       return next(err);
@@ -409,9 +429,11 @@ router.delete(
   async (req, res, next) => {
     try {
       if (isServerOwner(req.room, { id: req.targetUser.publicId })) {
+        res.locals.log = { event: 'authorization_denied', reason_code: 'cannot_remove_owner', room_id: req.room.id, level: 'warn', security_relevant: true };
         return res.status(403).json({ error: 'Não é possível expulsar o criador do servidor.' });
       }
       await removeRoomMember(req.room.id, req.targetUser.id);
+      audit('room_member_kicked', { room_id: req.room.id, target_user_id: req.targetUser.publicId });
       req.app.get('io')?.to(`user:${req.targetUser.publicId}`).emit('server:removed', {
         roomId: req.room.id,
         reason: 'kick',
@@ -440,6 +462,7 @@ router.post(
   async (req, res, next) => {
     try {
       if (isServerOwner(req.room, { id: req.targetUser.publicId })) {
+        res.locals.log = { event: 'authorization_denied', reason_code: 'cannot_ban_owner', room_id: req.room.id, level: 'warn', security_relevant: true };
         return res.status(403).json({ error: 'Não é possível banir o criador do servidor.' });
       }
       const rawReason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
@@ -449,6 +472,7 @@ router.post(
         bannedBy: req.user.internalId,
         reason: rawReason ? rawReason.slice(0, 255) : null,
       });
+      audit('room_member_banned', { room_id: req.room.id, target_user_id: req.targetUser.publicId, has_reason: Boolean(rawReason) });
       req.app.get('io')?.to(`user:${req.targetUser.publicId}`).emit('server:removed', {
         roomId: req.room.id,
         reason: 'ban',
@@ -468,6 +492,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await unbanUser(req.room.id, req.targetUser.id);
+      audit('room_member_unbanned', { room_id: req.room.id, target_user_id: req.targetUser.publicId });
       return res.status(204).end();
     } catch (err) {
       return next(err);

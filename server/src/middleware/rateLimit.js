@@ -1,5 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { redis } from "../config/redis.js";
+import { metrics } from "../observability/metrics.js";
 
 // Store de rate limit compartilhado no Redis - assim o limite é consistente
 // entre várias instâncias do servidor (não por-instância como o store padrão
@@ -7,7 +8,7 @@ import { redis } from "../config/redis.js";
 // o limite simplesmente não bloqueia (fail-open) em vez de derrubar a rota.
 // Implementa a interface `Store` do express-rate-limit v7 (increment,
 // decrement, resetKey, init).
-class RedisRateLimitStore {
+export class RedisRateLimitStore {
   constructor(windowMs) {
     this.windowMs = windowMs;
     this.init();
@@ -42,6 +43,23 @@ class RedisRateLimitStore {
   init() {}
 }
 
+// Mesma resposta de antes (status + message do limiter); só acrescenta
+// métrica e o motivo pro access log. Log com limite de volume (throttleKey):
+// um flood de 429 não pode virar um flood de linhas de log.
+export function onLimitReached(limiter) {
+  return (req, res, _next, options) => {
+    metrics.rateLimited.inc({ limiter });
+    res.locals.log = {
+      event: "rate_limit_exceeded",
+      limiter,
+      level: "warn",
+      security_relevant: true,
+      throttleKey: limiter,
+    };
+    res.status(options.statusCode).send(options.message);
+  };
+}
+
 const store = new RedisRateLimitStore(15 * 60 * 1000);
 
 // Limita força bruta contra login/registro por IP. Além disso, users.repo.js
@@ -52,6 +70,7 @@ export const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Muitas tentativas. Tente novamente em alguns minutos." },
+  handler: onLimitReached("auth"),
   // Se o store (Redis) falhar, deixa a requisição passar em vez de quebrar o login.
   passOnStoreError: true,
   store,
@@ -71,7 +90,21 @@ export const attachmentUploadRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Você está enviando arquivos rápido demais. Aguarde um pouco." },
+  handler: onLimitReached("attachment_upload"),
   passOnStoreError: true,
   store: attachmentStore,
   keyGenerator: (req) => `attach:${req.user?.internalId ?? req.ip}`,
+});
+
+// Coleta de erro do client (routes/clientErrors.routes.js), por usuário.
+export const clientErrorsRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas requisições." },
+  handler: onLimitReached("client_errors"),
+  passOnStoreError: true,
+  store: new RedisRateLimitStore(10 * 60 * 1000),
+  keyGenerator: (req) => `client-errors:${req.user?.internalId ?? req.ip}`,
 });

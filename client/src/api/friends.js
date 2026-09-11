@@ -5,7 +5,8 @@ export const listFriendRequests = () => apiRequest("/friends/requests");
 export const listBlockedUsers = () => apiRequest("/friends/blocks");
 // `tag` no formato "usuario#12345" (identificador público único - username
 // sozinho pode se repetir entre contas, ver server/src/db/users.repo.js).
-export const isMyFriend = (tag) => apiRequest(`/friends/isMyFriend/${tag}`);
+export const isMyFriend = (tag) =>
+  apiRequest(`/friends/isMyFriend/${encodeURIComponent(tag)}`);
 export const sendFriendRequest = (tag) =>
   apiRequest("/friends/requests", {
     method: "POST",

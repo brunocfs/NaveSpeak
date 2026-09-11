@@ -10,6 +10,8 @@ import {
   attachmentsArraySchema,
 } from "../validation/schemas.js";
 import { resolveAttachments } from "../utils/resolveAttachments.js";
+import { logSocketRateLimited } from "../observability/sockets.js";
+import { logError } from "../observability/errors.js";
 
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_MESSAGES = 15;
@@ -60,6 +62,7 @@ export function registerChatHandlers(io, socket) {
     const ack = typeof callback === "function" ? callback : () => {};
 
     if (await isRateLimited(socket)) {
+      logSocketRateLimited("chat_message");
       return ack({
         error: "Você está enviando mensagens rápido demais. Aguarde um pouco.",
       });
@@ -138,7 +141,7 @@ export function registerChatHandlers(io, socket) {
       io.to(channelId).to(channel.server_id).emit("chat:message", { ...message, serverId: channel.server_id });
       return ack({ ok: true, message });
     } catch (err) {
-      console.error(err);
+      logError("chat_message_send_failed", err, { channel_id: channelId, room_id: channel.server_id }, "Chat message could not be sent");
       return ack({ error: "Não foi possível enviar a mensagem." });
     }
   });

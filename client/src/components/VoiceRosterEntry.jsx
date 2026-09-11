@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import Avatar from "./Avatar.jsx";
-import { sendFriendRequest, isMyFriend } from "../api/friends.js";
+import {
+  sendFriendRequest,
+  isMyFriend,
+  declineFriendRequest,
+  removeFriend,
+} from "../api/friends.js";
 import { useToast } from "../context/ToastContext.jsx";
 import {
   MicOff,
@@ -51,6 +56,8 @@ import {
 // pra quem prefere a sidebar (ex.: participante sem câmera/tela ligada
 // ainda não tem tile de mídia pra clicar).
 export default function VoiceRosterEntry({
+  userId,
+  isSelf,
   username,
   discriminator,
   avatarPath,
@@ -66,7 +73,8 @@ export default function VoiceRosterEntry({
   const speaking = useSpeaking(micStream);
   const hasMenu = Boolean(moderation || volumeControl || localControls);
   const [menuPos, setMenuPos] = useState(null);
-  const [amIFriend, setAmIFriend] = useState(false);
+  // "none" | "pending" | "accepted" - ver GET /friends/isMyFriend/:tag.
+  const [friendship, setFriendship] = useState({ status: "none" });
   const menuRef = useRef(null);
   const { showToast, dismissToast } = useToast();
   // Menu agora abre só com clique direito (botão ⋮ foi removido - ver
@@ -83,26 +91,50 @@ export default function VoiceRosterEntry({
     const y = Math.min(e.clientY, window.innerHeight - 8);
     setMenuPos({ x: Math.max(8, x), y });
   }
-  async function handleAddFriend(username) {
-    if (!username) return;
-    const loadingId = showToast("Em busca de um novo amigo... ", {
+  async function handleAddFriend(tag) {
+    if (!tag) return;
+    const loadingToast = showToast("Em busca de um novo amigo... ", {
       type: "loading",
-      duration: 5000,
+      duration: 5,
     });
     try {
-      await sendFriendRequest(username);
+      await sendFriendRequest(tag);
+      dismissToast(loadingToast);
       showToast("Feito. Aguardando ansiosamente pelo novo amigo", {
         type: "success",
       });
-      //setUsernameInput("");
+      setFriendship({ status: "pending" });
     } catch (err) {
-      //dismissToast(loadingId);
-      console.log(err);
+      dismissToast(loadingToast);
       showToast(`Oh no! Ficarei sozinho neste planeta?  ${err.message}`, {
         type: "error",
       });
-    } finally {
-      //dismissToast(loadingId);
+    }
+  }
+
+  async function handleCancelRequest(requestId) {
+    if (!requestId) return;
+    try {
+      await declineFriendRequest(requestId);
+      setFriendship({ status: "none" });
+      showToast("Solicitação cancelada.", { type: "success" });
+    } catch (err) {
+      showToast(`Não foi possível cancelar. ${err.message}`, {
+        type: "error",
+      });
+    }
+  }
+
+  async function handleRemoveFriend(targetUserId) {
+    if (!targetUserId) return;
+    try {
+      await removeFriend(targetUserId);
+      setFriendship({ status: "none" });
+      showToast("Amizade desfeita.", { type: "success" });
+    } catch (err) {
+      showToast(`Não foi possível desfazer a amizade. ${err.message}`, {
+        type: "error",
+      });
     }
   }
   useEffect(() => {
@@ -117,18 +149,19 @@ export default function VoiceRosterEntry({
   }, [menuPos]);
 
   useEffect(() => {
-    if (!menuPos) return;
+    if (!menuPos || isSelf) return;
     let cancelled = false;
     isMyFriend(`${username}#${discriminator}`)
       .then((result) => {
-        console.log(result);
-        if (!cancelled) setAmIFriend(result);
+        if (!cancelled) setFriendship(result);
       })
-      .catch(() => {});
+      .catch((e) => {
+        console.log("deu erro" + e);
+      });
     return () => {
       cancelled = true;
     };
-  }, [menuPos, username, discriminator]);
+  }, [menuPos, username, discriminator, isSelf]);
 
   return (
     <li
@@ -236,17 +269,30 @@ export default function VoiceRosterEntry({
             <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
               Mensagem
             </button>
-            <button
-              className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
-              onClick={() => {
-                //console.log(username + " " + discriminator);
-
-                handleAddFriend(username + "#" + discriminator);
-              }}
-            >
-              {console.log(amIFriend)}
-              {amIFriend ? "Remover Amigo" : "Adicionar Amigo"}
-            </button>
+            {!isSelf && friendship.status === "none" && (
+              <button
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={() => handleAddFriend(`${username}#${discriminator}`)}
+              >
+                Adicionar Amigo
+              </button>
+            )}
+            {!isSelf && friendship.status === "pending" && (
+              <button
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={() => handleCancelRequest(friendship.requestId)}
+              >
+                Cancelar Solicitação de Amizade
+              </button>
+            )}
+            {!isSelf && friendship.status === "accepted" && (
+              <button
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={() => handleRemoveFriend(userId)}
+              >
+                Desfazer Amizade
+              </button>
+            )}
             {localControls && (
               <>
                 <button

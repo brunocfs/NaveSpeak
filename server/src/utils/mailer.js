@@ -1,10 +1,12 @@
 // Envio de email para convites (routes/invites.routes.js). Usa SMTP via
-// nodemailer quando configurado (SMTP_HOST no .env); sem isso, cai em
-// fallback (loga o link no console) em vez de falhar - o convite continua
-// criado e válido pelo link, só o envio automático fica indisponível até o
-// operador configurar SMTP_* (ver .env.example).
+// nodemailer quando configurado (SMTP_HOST no .env); sem isso, o convite
+// continua criado e o link volta pro admin na resposta da API - só o envio
+// automático fica indisponível até o operador configurar SMTP_* (ver
+// .env.example). O link e o email NUNCA vão pro log: o link é uma credencial
+// de cadastro e o email é dado pessoal.
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { logger, serializeError } from '../observability/logger.js';
 
 let transporter = null;
 
@@ -27,10 +29,11 @@ function getTransporter() {
 export async function sendInviteEmail({ to, inviteLink, invitedBy }) {
   const client = getTransporter();
   if (!client) {
-    console.log(`[convite] SMTP não configurado - link para ${to}: ${inviteLink}`);
+    logger.warn({ event: 'invite_email_skipped', reason_code: 'smtp_not_configured' }, 'Invite email not sent: SMTP is not configured');
     return { sent: false, reason: 'SMTP não configurado no servidor.' };
   }
 
+  const startedAt = performance.now();
   try {
     await client.sendMail({
       from: env.SMTP_FROM || env.SMTP_USER,
@@ -45,9 +48,19 @@ export async function sendInviteEmail({ to, inviteLink, invitedBy }) {
         `<p><a href="${inviteLink}">Clique aqui para se cadastrar</a></p>` +
         `<p style="color:#888;font-size:12px">Se você não esperava este convite, pode ignorar este email.</p>`,
     });
+    logger.info({ event: 'invite_email_sent', duration_ms: Math.round(performance.now() - startedAt) }, 'Invite email sent');
     return { sent: true };
   } catch (err) {
-    console.error('Falha ao enviar email de convite:', err.message);
+    logger.error(
+      {
+        event: 'invite_email_failed',
+        error_code: err?.code === 'ETIMEDOUT' ? 'SMTP_TIMEOUT' : 'SMTP_SEND_FAILED',
+        retryable: true,
+        duration_ms: Math.round(performance.now() - startedAt),
+        error: serializeError(err, { stack: false }),
+      },
+      'Invite email could not be sent'
+    );
     return { sent: false, reason: 'Não foi possível enviar o email (confira as credenciais SMTP).' };
   }
 }

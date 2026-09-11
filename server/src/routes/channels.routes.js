@@ -18,6 +18,7 @@ import {
 } from '../db/channels.repo.js';
 import { listRoleIdsForUser, getUserPermissionBitmask, assertRolesBelongToServer } from '../db/roles.repo.js';
 import { PERMISSIONS, canAccessChannel } from '../utils/permissions.js';
+import { audit } from '../observability/logger.js';
 
 const router = Router({ mergeParams: true });
 // loadRoomForMember valida o :roomId (servidor) e que o usuário é membro
@@ -59,6 +60,7 @@ router.post(
         sendRoleId: req.body.sendRoleId ?? null,
         shareRoleId: req.body.shareRoleId ?? null,
       });
+      audit('channel_created', { room_id: req.room.id, channel_id: channel.id, channel_type: req.body.type });
       return res.status(201).json({ channel });
     } catch (err) {
       return next(err);
@@ -91,6 +93,7 @@ export async function loadChannelForMember(req, res, next) {
   const member = await isRoomMember(channel.server_id, req.user.internalId);
   if (!member) {
     // 404 (não 403) para não confirmar a um não-membro que o canal existe.
+    res.locals.log = { event: 'authorization_denied', reason_code: 'not_room_member', room_id: channel.server_id, channel_id: channel.id, level: 'warn', security_relevant: true };
     return res.status(404).json({ error: 'Canal não encontrado.' });
   }
 
@@ -103,6 +106,7 @@ export async function loadChannelForMember(req, res, next) {
   if (!canView) {
     // Mesmo raciocínio: 404 em vez de 403, não confirma que o canal existe
     // pra quem não tem a role exigida.
+    res.locals.log = { event: 'authorization_denied', reason_code: 'no_channel_access', room_id: channel.server_id, channel_id: channel.id, level: 'warn', security_relevant: true };
     return res.status(404).json({ error: 'Canal não encontrado.' });
   }
 
@@ -134,6 +138,7 @@ router.patch(
         return res.status(400).json({ error: 'Role inválida para este servidor.' });
       }
       const channel = await updateChannel(existing.id, result.data);
+      audit('channel_updated', { room_id: req.room.id, channel_id: existing.id, changed_fields: Object.keys(result.data) });
       return res.json({ channel });
     } catch (err) {
       return next(err);
@@ -153,6 +158,7 @@ router.delete(
         return res.status(404).json({ error: 'Canal não encontrado.' });
       }
       await deleteChannel(existing.id);
+      audit('channel_deleted', { room_id: req.room.id, channel_id: existing.id, channel_type: existing.type });
       return res.status(204).end();
     } catch (err) {
       return next(err);

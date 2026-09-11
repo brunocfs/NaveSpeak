@@ -33,6 +33,7 @@ import {
   hashRefreshToken,
   refreshTokenExpiryDate,
 } from '../utils/tokens.js';
+import { audit, setContext } from '../observability/logger.js';
 
 const router = Router();
 
@@ -113,10 +114,12 @@ router.post('/register', authRateLimiter, validateBody(registerSchema), async (r
     let invite = null;
     if (env.INVITE_ONLY) {
       if (!inviteCode) {
+        audit('registration_denied', { outcome: 'denied', reason_code: 'invite_required', level: 'info' });
         return res.status(400).json({ error: 'Convite obrigatório para se cadastrar.' });
       }
       invite = await consumeInvite(inviteCode);
       if (!invite) {
+        audit('registration_denied', { outcome: 'denied', reason_code: 'invalid_invite', throttleKey: 'invalid_invite' });
         return res.status(400).json({ error: 'Convite inválido, expirado, revogado ou sem usos restantes.' });
       }
     }
@@ -126,12 +129,18 @@ router.post('/register', authRateLimiter, validateBody(registerSchema), async (r
     // entra mais nessa checagem: pode se repetir entre contas (ver
     // discriminator em users.repo.js#createUser).
     if (await findUserByEmail(email)) {
+      audit('registration_denied', { outcome: 'denied', reason_code: 'email_in_use', level: 'info' });
       return res.status(409).json({ error: 'Não foi possível concluir o cadastro com esses dados.' });
     }
 
     const passwordHash = await hashPassword(password);
     const user = await createUser({ username, email, passwordHash });
-    if (invite) await recordInviteRedemption(invite.id, user.id);
+    setContext({ user_id: user.publicId });
+    if (invite) {
+      await recordInviteRedemption(invite.id, user.id);
+      audit('invite_accepted', { resource_type: 'registration_invite', resource_id: invite.id });
+    }
+    audit('user_registered', { user_id: user.publicId, auth_method: 'password' });
 
     const accessToken = await issueSession(res, user);
 
@@ -149,30 +158,48 @@ router.post('/login', authRateLimiter, validateBody(loginSchema), async (req, re
     // inválido, usuário inexistente, ou senha errada) para não permitir
     // enumerar quais contas existem.
     const genericError = () => res.status(401).json({ error: 'Credenciais inválidas.' });
+    // O motivo real (conta inexistente x senha errada) só vai pro log de
+    // auditoria - nunca pro cliente. Identificador/senha nunca são logados.
+    const loginFailed = (reasonCode, fields = {}) =>
+      audit('login_failed', { outcome: 'failure', auth_method: 'password', reason_code: reasonCode, throttleKey: reasonCode, ...fields });
 
     let user;
     if (identifier.includes('@')) {
       user = await findUserByEmail(identifier.toLowerCase());
     } else {
       const tag = parseTag(identifier);
-      if (!tag) return genericError(); // username sozinho não é mais um identificador válido
+      if (!tag) {
+        loginFailed('invalid_identifier');
+        return genericError(); // username sozinho não é mais um identificador válido
+      }
       user = await findUserByTag(tag.username, tag.discriminator);
     }
 
-    if (!user) return genericError();
+    if (!user) {
+      loginFailed('unknown_account');
+      return genericError();
+    }
 
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      loginFailed('account_locked', { user_id: user.publicId });
       return res.status(423).json({ error: 'Conta temporariamente bloqueada. Tente novamente mais tarde.' });
     }
 
     const validPassword = await verifyPassword(password, user.password_hash);
     if (!validPassword) {
       await registerFailedLogin(user.id);
+      loginFailed('invalid_password', { user_id: user.publicId });
+      // Mesmo limite de users.repo.js#registerFailedLogin (5 tentativas).
+      if ((user.failed_login_attempts ?? 0) + 1 >= 5) {
+        audit('account_locked', { outcome: 'failure', user_id: user.publicId, reason_code: 'too_many_failed_logins' });
+      }
       return genericError();
     }
 
     await clearFailedLogins(user.id);
+    setContext({ user_id: user.publicId });
     const accessToken = await issueSession(res, user);
+    audit('login_succeeded', { user_id: user.publicId, auth_method: 'password' });
     return res.json({
       accessToken,
       user: toPublicUser(user),
@@ -185,11 +212,17 @@ router.post('/login', authRateLimiter, validateBody(loginSchema), async (req, re
 router.post('/refresh', async (req, res, next) => {
   try {
     const token = req.cookies?.[REFRESH_COOKIE];
-    if (!token) return res.status(401).json({ error: 'Sem sessão ativa.' });
+    if (!token) {
+      res.locals.log = { event: 'authentication_required', reason_code: 'missing_refresh_token' };
+      return res.status(401).json({ error: 'Sem sessão ativa.' });
+    }
 
     const hash = hashRefreshToken(token);
     const stored = await findValidRefreshToken(hash);
     if (!stored) {
+      // Refresh token expirado, revogado ou REUTILIZADO depois da rotação
+      // (sinal clássico de token roubado) - vale olhar em volume.
+      audit('token_refresh_failed', { outcome: 'failure', reason_code: 'invalid_or_revoked_refresh_token', throttleKey: 'invalid' });
       res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
       return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
     }
@@ -202,11 +235,14 @@ router.post('/refresh', async (req, res, next) => {
     // stored.user_id é a PK interna (BIGINT) - busca por ela, não pelo UUID.
     const user = await findUserById(stored.user_id);
     if (!user) {
+      audit('token_refresh_failed', { outcome: 'failure', reason_code: 'user_not_found' });
       res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
       return res.status(401).json({ error: 'Usuário não encontrado.' });
     }
 
+    setContext({ user_id: user.publicId });
     const accessToken = await issueSession(res, user);
+    audit('session_refreshed', { user_id: user.publicId });
     return res.json({
       accessToken,
       user: toPublicUser(user),
@@ -222,6 +258,7 @@ router.post('/logout', async (req, res, next) => {
     if (token) {
       await revokeRefreshToken(hashRefreshToken(token));
     }
+    audit('logout', { reason_code: token ? 'session_revoked' : 'no_active_session' });
     res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
     return res.status(204).send();
   } catch (err) {

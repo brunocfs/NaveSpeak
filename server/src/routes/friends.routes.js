@@ -117,16 +117,26 @@ router.get("/blocks", async (req, res, next) => {
 // discriminator em db/users.repo.js). A amizade só se concretiza quando o
 // destinatário aceitar em /requests/:requestId/accept.
 
+// Status da amizade com o alvo pra montar as opções certas no menu de
+// contexto do roster (Adicionar/Cancelar solicitação/Desfazer amizade - ver
+// VoiceRosterEntry.jsx). `status` é "none" (sem relação), "pending"
+// (solicitação em aberto, id vem em `requestId` pra cancelar/aceitar) ou
+// "accepted" (já são amigos).
 router.get("/isMyFriend/:tag", async (req, res, next) => {
   try {
     const parsed = parseTag(req.params.tag);
+
     const target =
       parsed && (await findUserByTag(parsed.username, parsed.discriminator));
-    if (!target) return res.status(200).json(false);
 
-    const result = await findExistingFriendship(req.user.internalId, target.id);
+    if (!target) return res.status(200).json({ status: "none" });
 
-    return res.status(200).json({ friendship: result.row });
+    const friendship = await findExistingFriendship(req.user.internalId, target.id);
+    if (!friendship) return res.status(200).json({ status: "none" });
+
+    return res
+      .status(200)
+      .json({ status: friendship.status, requestId: friendship.id });
   } catch (err) {
     return next(err);
   }

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Device } from 'mediasoup-client';
 import { getSocket } from '../api/socket.js';
+import { reportClientEvent, watchTransportState } from '../observability/telemetry.js';
 import {
   requestScreenStream,
   requestCameraStream,
@@ -451,6 +452,7 @@ export function MediaSessionProvider({ children }) {
     async function handleReconnect() {
       const channelId = channelIdRef.current;
       if (!channelId) return;
+      reportClientEvent('webrtc_reconnect_attempted', { error_code: 'SOCKET_RECONNECTED' });
       // Captura ANTES de leaveVoiceRef - leaveVoice (chamado logo abaixo,
       // mesmo com keepMeta) sempre reseta muted/deafened pra false, porque
       // ele também serve pra sair de vez da chamada. joinVoice, por sua vez,
@@ -876,6 +878,7 @@ export function MediaSessionProvider({ children }) {
             .then(({ id }) => callback({ id }))
             .catch(errback);
         });
+        watchTransportState(sendTransport, 'send');
         sendTransportRef.current = sendTransport;
 
         const recvParams = await emitAsync(socket, 'media:createTransport', {
@@ -892,6 +895,7 @@ export function MediaSessionProvider({ children }) {
             .then(() => callback())
             .catch(errback);
         });
+        watchTransportState(recvTransport, 'recv');
         recvTransportRef.current = recvTransport;
 
         // Captura + supressor de ruído + gate, ver buildMicChain acima -

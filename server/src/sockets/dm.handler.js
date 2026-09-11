@@ -5,6 +5,8 @@ import { createPrivateMessage } from "../db/privateMessages.repo.js";
 import { redis } from "../config/redis.js";
 import { userIdParamSchema, messageContentSchema, attachmentsArraySchema } from "../validation/schemas.js";
 import { resolveAttachments } from "../utils/resolveAttachments.js";
+import { logSocketRateLimited } from "../observability/sockets.js";
+import { logError } from "../observability/errors.js";
 
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX_MESSAGES = 15;
@@ -52,6 +54,7 @@ export function registerDmHandlers(io, socket) {
     const ack = typeof callback === "function" ? callback : () => {};
 
     if (await isRateLimited(socket)) {
+      logSocketRateLimited("direct_message");
       return ack({
         error: "Você está enviando mensagens rápido demais. Aguarde um pouco.",
       });
@@ -116,7 +119,7 @@ export function registerDmHandlers(io, socket) {
       io.to(`user:${user.id}`).to(`user:${peer.publicId}`).emit("dm:message", message);
       return ack({ ok: true, message });
     } catch (err) {
-      console.error(err);
+      logError("direct_message_send_failed", err, {}, "Direct message could not be sent");
       return ack({ error: "Não foi possível enviar a mensagem." });
     }
   });

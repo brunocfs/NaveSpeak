@@ -1,0 +1,32 @@
+// Ambiente mínimo e determinístico para importar os módulos do servidor nos
+// testes - importado ANTES de qualquer módulo de src/ (ver helpers.js). Não
+// abre conexão com PostgreSQL/Redis: pool e cliente Redis são lazy.
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  PORT: '4999',
+  CORS_ORIGIN: 'http://localhost:5173',
+  DB_HOST: '127.0.0.1',
+  DB_PORT: '5432',
+  DB_NAME: 'navespeak_test',
+  DB_USER: 'navespeak_test',
+  DB_PASSWORD: 'test-db-password',
+  JWT_ACCESS_SECRET: 'test-access-secret-0123456789',
+  JWT_REFRESH_SECRET: 'test-refresh-secret-0123456789',
+  REDIS_URL: 'redis://127.0.0.1:6399',
+  ENABLE_REDIS_ADAPTER: 'false',
+  SERVICE_NAME: 'navespeak-api',
+  SERVICE_VERSION: 'test-sha',
+  LOG_LEVEL: 'debug',
+  LOG_PRETTY: 'false',
+  LOG_REDACT_PATHS: 'customSecretField',
+  LOG_REQUEST_BODY: 'false',
+  LOG_RESPONSE_BODY: 'false',
+  LOG_SAMPLE_RATE: '1',
+  LOG_SLOW_REQUEST_MS: '1000',
+  LOG_SLOW_DB_QUERY_MS: '500',
+  OTEL_ENABLED: 'false',
+  METRICS_ENABLED: 'true',
+  METRICS_TOKEN: '',
+  HEALTH_DETAILS_ENABLED: 'false',
+  TRUST_PROXY: 'false',
+});

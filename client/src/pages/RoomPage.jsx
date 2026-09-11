@@ -1018,6 +1018,8 @@ export default function RoomPage() {
                           return (
                             <VoiceRosterEntry
                               key={p.userId}
+                              userId={p.userId}
+                              isSelf={isSelf}
                               username={p.username}
                               discriminator={p.discriminator}
                               avatarPath={p.avatarPath}

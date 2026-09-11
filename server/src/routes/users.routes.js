@@ -26,6 +26,7 @@ import { issueSession } from './auth.routes.js';
 import { setPreference } from '../sockets/onlineStore.js';
 import { broadcastUserStatus } from '../sockets/presenceBroadcast.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
+import { audit } from '../observability/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // server/uploads/avatars - fora de src/, ao lado de package.json (ver
@@ -95,14 +96,17 @@ router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) =>
         return res.status(409).json({ error: 'Esse username com sua tag atual já está em uso - tente outro username.' });
       }
     }
+    let emailChanged = false;
     if (email !== undefined) {
       const existing = await findUserByEmail(email);
       if (existing && existing.id !== req.user.internalId) {
         return res.status(409).json({ error: 'Email já está em uso.' });
       }
+      emailChanged = !existing;
     }
 
     const updated = await updateProfile(req.user.internalId, { username, email, bio });
+    if (emailChanged) audit('email_changed', { user_id: req.user.id });
     return res.json({ user: toPublicProfile(updated) });
   } catch (err) {
     return next(err);
@@ -135,7 +139,10 @@ router.put('/me/password', validateBody(passwordChangeSchema), async (req, res, 
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
     const valid = await verifyPassword(req.body.currentPassword, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Senha atual incorreta.' });
+    if (!valid) {
+      audit('password_change_failed', { outcome: 'failure', user_id: req.user.id, reason_code: 'invalid_current_password' });
+      return res.status(401).json({ error: 'Senha atual incorreta.' });
+    }
 
     const passwordHash = await hashPassword(req.body.newPassword);
     await updatePasswordHash(user.id, passwordHash);
@@ -146,6 +153,7 @@ router.put('/me/password', validateBody(passwordChangeSchema), async (req, res, 
     // trocar, pra não deslogar a própria aba no ato (mesmo fluxo de
     // login/registro, ver issueSession em auth.routes.js).
     await revokeAllRefreshTokensForUser(user.id);
+    audit('password_changed', { user_id: user.publicId, sessions_revoked: true });
     const accessToken = await issueSession(res, user);
 
     return res.json({ accessToken, user: { id: user.publicId, username: user.username } });
