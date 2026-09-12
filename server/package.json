@@ -8,6 +8,7 @@
     "dev": "node --watch src/index.js",
     "start": "node --import ./src/observability/otel.js src/index.js",
     "migrate": "node migrate.js",
+    "seed:system-user": "node seedSystemUser.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
   },
   "dependencies": {

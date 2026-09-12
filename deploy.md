@@ -211,6 +211,16 @@ sudo -u postgres createdb navespeak
 sudo -u postgres psql -d navespeak -f /opt/navespeak/database/schema-postgre.sql
 ```
 
+Criar ZENO
+
+```bash
+cd /opt/navespeak/server
+npm run seed:system-user
+```
+
+Idempotente (não duplica nem sobrescreve se já existir) - seguro rodar de
+novo a cada deploy, sem verificar antes se já rodou.
+
 O próprio `schema-postgre.sql` documenta e (comentado) inclui:
 
 ```sql
@@ -658,7 +668,12 @@ git fetch --tags
 git checkout <tag-da-release>       # ex.: v1.2.0
 
 npm install                          # pega dependências novas, se houver
-npm run migrate --workspace server   # só se a release trouxer migration nova
+
+# só se a release trouxer mudança de schema (ver seção 7 - nunca `npm run
+# migrate` aqui, exige permissão de CREATE/ALTER que navespeak_app não tem):
+sudo -u postgres psql -d navespeak -f /opt/navespeak/database/schema-postgre.sql
+cd server && npm run seed:system-user && cd ..
+
 npm run build:client                 # rebuild do client
 
 pm2 reload navespeak                 # ou: sudo systemctl restart navespeak
