@@ -1,8 +1,8 @@
-version: 0.3.1
+version: 0.3.6
 files:
-  - url: NaveSpeak-Setup-0.3.1.exe
-    sha512: 21xY5WDGxVhYAQG4XHIwIuOsWiRJ6rhDZZJQ43ja+rf+tjx2d/W85NstN0hBaioNWr/+MzXsBjbSMgS4tjb0UQ==
-    size: 100360712
-path: NaveSpeak-Setup-0.3.1.exe
-sha512: 21xY5WDGxVhYAQG4XHIwIuOsWiRJ6rhDZZJQ43ja+rf+tjx2d/W85NstN0hBaioNWr/+MzXsBjbSMgS4tjb0UQ==
-releaseDate: '2026-09-02T12:51:21.850Z'
+  - url: NaveSpeak-Setup-0.3.6.exe
+    sha512: PU+0UzyFWnFjvNx7ol4saRILuthRZ6c6NWg6vhpEFxYNZsaFhsCMPBnEkS8+mX5D6Z3APZYeKbJwBdRjaTi7Jw==
+    size: 100361411
+path: NaveSpeak-Setup-0.3.6.exe
+sha512: PU+0UzyFWnFjvNx7ol4saRILuthRZ6c6NWg6vhpEFxYNZsaFhsCMPBnEkS8+mX5D6Z3APZYeKbJwBdRjaTi7Jw==
+releaseDate: '2026-09-12T22:00:47.666Z'
