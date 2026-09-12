@@ -22,6 +22,9 @@ import rolesRoutes from './routes/roles.routes.js';
 import messagesRoutes from './routes/messages.routes.js';
 import friendsRoutes from './routes/friends.routes.js';
 import dmRoutes from './routes/dm.routes.js';
+import dmConversationsRoutes from './routes/dmConversations.routes.js';
+import adminBroadcastsRoutes from './routes/adminBroadcasts.routes.js';
+import adminSystemUserRoutes from './routes/adminSystemUser.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
@@ -137,6 +140,9 @@ app.get('/metrics', metricsHandler);
 // parseia e o próximo express.json na cadeia simplesmente pula, então só o
 // primeiro a bater com o path é que decide o limite aplicado.
 app.use('/api/users/me/avatar', express.json({ limit: '3mb' }));
+// Mesmo motivo do avatar acima - upload de foto do Zeno (adminSystemUser.routes.js)
+// também manda a imagem em base64 dentro do JSON.
+app.use('/api/admin/system-user/avatar', express.json({ limit: '3mb' }));
 app.use('/api/rooms', express.json({ limit: '3mb' }));
 // Anexo de chat vai de base64 dentro do JSON também (mesmo motivo do
 // comentário acima) - 20MB decodificados vira ~27MB em base64, mais folga
@@ -170,10 +176,15 @@ app.use('/api/rooms/:roomId/channels', channelsRoutes);
 app.use('/api/rooms/:roomId/roles', rolesRoutes);
 app.use('/api/channels/:channelId/messages', messagesRoutes);
 app.use('/api/friends', friendsRoutes);
+// '/api/dm' (lista de conversas) precisa vir ANTES de '/api/dm/:userId'
+// (mergeParams) - senão "conversations" seria lido como :userId.
+app.use('/api/dm', dmConversationsRoutes);
 app.use('/api/dm/:userId', dmRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/invites', invitesRoutes);
+app.use('/api/admin/broadcasts', adminBroadcastsRoutes);
+app.use('/api/admin/system-user', adminSystemUserRoutes);
 app.use('/api/attachments', attachmentsRoutes);
 app.use('/api/client-errors', clientErrorsRoutes);
 

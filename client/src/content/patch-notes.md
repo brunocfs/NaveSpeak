@@ -20,6 +20,25 @@ Reportem qualquer detalhe que possa ser melhorado.
 
 Aproveitem para conhecer a proposta do NaveSpeak.
 
+# Novidades da versão 0.3.6
+
+## Chamadas de voz e vídeo
+
+- Painel flutuante (o card que aparece no canto da tela quando a chamada continua rolando fora do canal de voz) agora mostra só UM participante por vez, escolhido automaticamente por quem está com a câmera ligada e falando - vai alternando sozinho conforme a conversa, bem menos poluído com chamadas grandes.
+- Dê dois cliques no painel flutuante pra ir direto pro servidor e canal de voz conectado.
+- Painel flutuante agora pode ser arrastado com o mouse pra qualquer canto da tela.
+- Modo Livre: além do resize, agora dá pra arrastar cada câmera/tela pra qualquer posição dentro do espaço disponível (pode até sobrepor outra) - nunca mais ultrapassa os limites da tela, mesmo redimensionando manualmente.
+- Novo botão de Tela Cheia no painel de voz (embutido na sala e na janela separada).
+- Novo botão em cada participante/tela pra abrir só aquela mídia numa janela separada, independente do painel principal - dá pra abrir várias ao mesmo tempo.
+- Agora também dá pra ocultar sua PRÓPRIA câmera/tela (mesmo botão de olho que já existia pra ocultar a dos outros).
+- Ao compartilhar sua tela, a pré-visualização dela pausa sozinha quando o NaveSpeak sai de foco (troca de janela/app) - economiza CPU/GPU; o que os outros participantes veem não muda em nada.
+
+## Correções e Melhorias
+
+- Corrigido: minimizar o painel flutuante não funcionava (clique não chegava no botão).
+- Corrigido: painel flutuante arrastado podia ficar "perdido" fora da tela ao redimensionar a janela.
+- Corrigido: com o painel numa janela separada, trocar do modo Livre pra Grade (ou vice-versa) bagunçava as câmeras - ficavam empilhadas em coluna estourando a tela, ou minúsculas sem aproveitar o espaço.
+
 # Novidades da versão 0.3.2
 
 ## Novidades
@@ -31,7 +50,7 @@ Aproveitem para conhecer a proposta do NaveSpeak.
   Solte um arquivo em qualquer lugar do chat pra anexar. Ele fica pendente até você confirmar (✓) ou descartar (✕) - nada sobe sem essa confirmação.
 
 - Preview automático de link
-  Um link de imagem colado na mensagem já mostra a prévia; um link do YouTube mostra a miniatura do vídeo, clicável.
+  Um link de imagem colado na mensagem já mostra a prévia. Um link do YouTube mostra a miniatura - clique nela pra assistir direto ali, num mini player embutido, sem sair do chat.
 
 - Estatísticas de conexão na sala
   Novo ícone na barra de voz mostra o estado da chamada (bom / instável / ruim) e, ao clicar, abre ping e perda de pacotes em tempo real.
@@ -55,6 +74,10 @@ Aproveitem para conhecer a proposta do NaveSpeak.
 
 ## Correções e Melhorias
 
+- Corrigido: menu de participante e prévia de perfil (clique direito/clique na sidebar de voz) ficavam pulando de posição se você clicasse dentro deles.
+- Corrigido: o chat abria com o scroll no topo ou no meio em vez de ir direto pra mensagem mais recente.
+- Scroll do chat agora mantém sua posição ao trocar de conversa e voltar (se você tinha subido pra ler o histórico) e ganhou um botão pra pular direto pro fim quando chega mensagem nova enquanto você lê mensagens antigas.
+- Corrigido: o contador de mensagens não lidas na lista de servidores não descia depois de ler as mensagens do canal.
 
 # Novidades da versão 0.3.0
 

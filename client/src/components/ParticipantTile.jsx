@@ -10,6 +10,7 @@ import {
   EyeOff,
   Users,
   Play,
+  AppWindow,
 } from "lucide-react";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import Avatar from "./Avatar.jsx";
@@ -81,6 +82,13 @@ export default function ParticipantTile({
   // moderação/mute de verdade, outro mecanismo, ver VoiceRosterEntry.jsx).
   locallyMuted = false,
   onToggleLocalMute,
+  // Janela separada (nova aba/janela) SÓ pra este tile - ver
+  // useTilePopouts.js/VoicePanel.jsx. Botão só aparece pra tile REMOTO
+  // (`!isLocal` abaixo) - não faz sentido abrir a PRÓPRIA câmera/tela numa
+  // janela à parte. É sempre quem MONTA o grid (SimpleVideoGrid/
+  // VideoLayoutManager) que passa este prop, nunca o próprio objeto de tile.
+  poppedOut = false,
+  onTogglePopout,
   className = "",
   style,
 }) {
@@ -250,11 +258,20 @@ export default function ParticipantTile({
           persistidas em PreferencesContext. */}
       <div
         className={`absolute right-1.5 top-1.5 flex gap-1 transition ${
-          pinned || hiddenMedia || locallyMuted
+          pinned || hiddenMedia || locallyMuted || poppedOut
             ? "opacity-100"
             : "opacity-0 group-hover:opacity-100"
         }`}
       >
+        {onTogglePopout && !isLocal && (
+          <button
+            onClick={onTogglePopout}
+            title={poppedOut ? "Fechar janela separada" : "Abrir numa janela separada"}
+            className="rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
+          >
+            <AppWindow className={`size-3.5 ${poppedOut ? "text-blue-400" : ""}`} />
+          </button>
+        )}
         {onToggleLocalMute && (
           <button
             onClick={onToggleLocalMute}

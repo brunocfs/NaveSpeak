@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ExternalLink,
   ChevronDown,
@@ -15,15 +16,33 @@ import {
   Grid2x2,
   PanelRightClose,
   PanelRightOpen,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
 import VideoLayoutManager from "./VideoLayoutManager.jsx";
 import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
+import ParticipantTile from "./ParticipantTile.jsx";
 import RemoteAudioPlayers from "./RemoteAudioPlayers.jsx";
 import AddCallParticipant from "./AddCallParticipant.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
+import { useSpeaking } from "../hooks/useSpeaking.js";
+import { useTilePopouts } from "../hooks/useTilePopouts.js";
+
+// Só existe pro PiP flutuante (ver `floating` mais abaixo): reporta se um
+// mic está "falando" agora sem montar o ParticipantTile inteiro, pra
+// VoicePanel decidir QUAL tile mostrar no PiP sem precisar renderizar todos.
+// Não desenha nada (`return null`) - é só ponte entre useSpeaking (por
+// stream) e o Map de estado do painel (por pessoa).
+function SpeakingProbe({ speakerKey, stream, onChange }) {
+  const speaking = useSpeaking(stream);
+  useEffect(() => {
+    onChange(speakerKey, speaking);
+  }, [speakerKey, speaking, onChange]);
+  return null;
+}
 
 // Montado UMA VEZ, globalmente (App.jsx, junto de VoiceStatusBar) - não mais
 // instanciado por RoomPage. Lê tudo (remoteStreams, roster, popout) direto
@@ -92,11 +111,14 @@ export default function VoicePanel() {
     localMicStream,
     micTransmitting,
     voiceRoster: participants,
+    voiceRoomId,
+    voiceChannelId,
     panelAnchor,
     popout,
     openPopout,
     closePopout,
   } = media;
+  const navigate = useNavigate();
 
   // Chaves dos tiles fixados ("spotlight") - 'user:<id>' ou 'screen:<id>'.
   // Set em vez de uma chave só: dá pra fixar vários participantes ao mesmo
@@ -130,6 +152,159 @@ export default function VoicePanel() {
     if (connected) setMinimized(false);
   }, [connected]);
 
+  // Fullscreen do painel embutido/popout (nunca do PiP flutuante, ver
+  // `floating` mais abaixo - card minúsculo de canto não faz sentido em tela
+  // cheia). `contentRef` aponta pro elemento que de fato entra em
+  // fullscreen; como ele pode viver tanto no documento principal quanto no
+  // documento do popout (outra janela inteira - ver comentário no topo do
+  // arquivo), sempre usa `contentRef.current.ownerDocument`, nunca o
+  // `document` global do módulo, pra pedir/sair de fullscreen na janela
+  // CERTA.
+  const contentRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    function syncFullscreen() {
+      setIsFullscreen(
+        Boolean(document.fullscreenElement || popout?.document?.fullscreenElement),
+      );
+    }
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    popout?.document?.addEventListener("fullscreenchange", syncFullscreen);
+    syncFullscreen();
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreen);
+      popout?.document?.removeEventListener("fullscreenchange", syncFullscreen);
+    };
+  }, [popout]);
+  function toggleFullscreen() {
+    const el = contentRef.current;
+    if (!el) return;
+    const doc = el.ownerDocument;
+    if (doc.fullscreenElement) doc.exitFullscreen?.();
+    else el.requestFullscreen?.();
+  }
+
+  // Janelas separadas (uma por TILE - câmera ou tela de um participante,
+  // nunca o painel inteiro) - ver useTilePopouts.js/handleTogglePopoutTile
+  // mais abaixo (depende de `allTiles`, que só existe adiante).
+  const { windows: tilePopoutWindows, open: openTilePopout, close: closeTilePopout } =
+    useTilePopouts();
+
+  // Pausa a PRÓPRIA pré-visualização de tela compartilhada (só o que EU
+  // vejo - o que os outros recebem não muda em nada, o producer continua
+  // mandando normal) sempre que a janela que de fato exibe essa
+  // pré-visualização perder o foco - decodificar+desenhar a própria tela em
+  // tempo real custa CPU/GPU à toa enquanto ninguém tá olhando. `win` é
+  // SEMPRE a janela que atualmente mostra o tile (o popout do painel, se
+  // aberto, senão a principal - nunca as duas, mesma regra de `target` mais
+  // abaixo) - reagir à janela errada (ex.: sempre a principal) deixaria a
+  // pré-visualização pausada por engano com o popout aberto e em foco.
+  const [screenPreviewPaused, setScreenPreviewPaused] = useState(false);
+  useEffect(() => {
+    const win = popout ?? window;
+    function sync() {
+      setScreenPreviewPaused(
+        win.document.visibilityState === "hidden" || !win.document.hasFocus(),
+      );
+    }
+    win.addEventListener("blur", sync);
+    win.addEventListener("focus", sync);
+    win.document.addEventListener("visibilitychange", sync);
+    sync();
+    return () => {
+      win.removeEventListener("blur", sync);
+      win.removeEventListener("focus", sync);
+      win.document.removeEventListener("visibilitychange", sync);
+    };
+  }, [popout]);
+
+  // Só usados pelo PiP flutuante (ver `floating` mais abaixo).
+  // `speakingMap`: chave 'user:self'/'user:<id>' -> falando agora ou não,
+  // alimentado por <SpeakingProbe> (um por pessoa com mic, não por tile -
+  // uma tela compartilhada usa o mesmo mic de quem compartilha). É o
+  // critério de "quanta mídia relevante" cada pessoa tá gerando agora, junto
+  // com ter vídeo (câmera/tela) ligado - ver `activeTileKey` abaixo.
+  const [speakingMap, setSpeakingMap] = useState(() => new Map());
+  const updateSpeaking = useCallback((key, value) => {
+    setSpeakingMap((prev) => {
+      if (prev.get(key) === value) return prev;
+      const next = new Map(prev);
+      next.set(key, value);
+      return next;
+    });
+  }, []);
+
+  // Posição do PiP arrastado (canto padrão é inferior-direito via CSS, só
+  // vira coordenada absoluta depois do primeiro arrastar - ver
+  // handlePipPointerDown/Move abaixo). Guardado fora de qualquer state de
+  // chamada de propósito: arrastar uma vez deve valer pra próxima chamada
+  // também, não resetar a cada reconexão.
+  const [pipPos, setPipPos] = useState(null);
+  const pipDragRef = useRef(null);
+  const pipRef = useRef(null);
+
+  // Reencaixa o PiP arrastado se a janela encolher (resize da janela, girar
+  // celular, etc.) - sem isso a posição em px absoluto ficava fora da tela
+  // (card "perdido") sempre que a nova largura/altura era menor que a
+  // coordenada salva. Só ENCOLHE a posição quando precisa, nunca mexe se o
+  // card já cabe onde está - e não faz nada se nunca foi arrastado (pipPos
+  // null = ainda no canto padrão via CSS, que já é responsivo sozinho).
+  useEffect(() => {
+    function handleResize() {
+      setPipPos((prev) => {
+        if (!prev || !pipRef.current) return prev;
+        const rect = pipRef.current.getBoundingClientRect();
+        const maxTop = Math.max(window.innerHeight - rect.height, 0);
+        const maxLeft = Math.max(window.innerWidth - rect.width, 0);
+        const top = Math.min(prev.top, maxTop);
+        const left = Math.min(prev.left, maxLeft);
+        return top === prev.top && left === prev.left ? prev : { top, left };
+      });
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  function handlePipPointerDown(e) {
+    if (e.button !== 0) return;
+    // Clique num botão (minimizar, mutar localmente, etc.) não deve virar
+    // drag - setPointerCapture abaixo reencaminha até o "click" pro elemento
+    // que capturou (o próprio card), então sem este early return o botão
+    // nunca recebia o clique (era exatamente o bug do minimizar não
+    // funcionar).
+    if (e.target.closest("button")) return;
+    const rect = pipRef.current.getBoundingClientRect();
+    pipDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTop: rect.top,
+      startLeft: rect.left,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function handlePipPointerMove(e) {
+    const drag = pipDragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true;
+    if (!drag.moved) return;
+    const maxTop = window.innerHeight - drag.height;
+    const maxLeft = window.innerWidth - drag.width;
+    setPipPos({
+      top: Math.min(Math.max(drag.startTop + dy, 0), Math.max(maxTop, 0)),
+      left: Math.min(Math.max(drag.startLeft + dx, 0), Math.max(maxLeft, 0)),
+    });
+  }
+  function handlePipPointerUp(e) {
+    lastPipDragMovedRef.current = pipDragRef.current?.moved ?? false;
+    pipDragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
   // Um tile por PESSOA (câmera se estiver ligada, senão avatar com iniciais)
   // - nunca um por stream, para não duplicar quem está só com o mic ligado.
   const personTiles = useMemo(() => {
@@ -149,6 +324,13 @@ export default function VoicePanel() {
         // MediaSessionContext.jsx.
         micMuted: !micTransmitting,
         videoStream: cameraOn ? localCameraStream : null,
+        // Ocultar a PRÓPRIA câmera é só uma preferência de visualização
+        // (não existe "aguardando clique" nem popout pra tile local, ver
+        // onTogglePopout/isLocal em ParticipantTile.jsx) - mesma chave
+        // isMediaHidden/toggleMediaHidden já usada pra ocultar câmera/tela
+        // de outros participantes, agora também pra si mesmo.
+        hiddenMedia: isMediaHidden(user.id, "camera"),
+        onToggleHiddenMedia: () => toggleMediaHidden(user.id, "camera"),
         // Stream crua do próprio mic (MediaSessionContext) - só pro anel de
         // "falando" (useSpeaking em ParticipantTile); ParticipantTile já
         // silencia a REPRODUÇÃO de tiles locais (`isLocal || deafened`), não
@@ -233,7 +415,17 @@ export default function VoicePanel() {
         kind: "screen",
         username: `${user?.username} (sua tela)`,
         isLocal: true,
-        videoStream: localScreenStream,
+        // `screenPreviewPaused` some com o STREAM de verdade (não é só CSS
+        // escondendo, ver comentário na declaração dele acima) - é isso que
+        // economiza recursos de fato enquanto a janela está sem foco. O
+        // producer que os outros recebem nunca lê esse valor, continua
+        // mandando a tela normalmente.
+        videoStream: screenPreviewPaused ? null : localScreenStream,
+        // Ocultar a PRÓPRIA tela é uma preferência à parte (manual,
+        // persistida) - independente do pause automático acima, mesma
+        // chave isMediaHidden/toggleMediaHidden de sempre.
+        hiddenMedia: isMediaHidden(user?.id, "screen"),
+        onToggleHiddenMedia: () => toggleMediaHidden(user?.id, "screen"),
         // Local: o volume é o GANHO DE ENVIO (0-200) que o próprio
         // compartilhador ajusta sobre o que está mandando - ver
         // setLocalScreenAudioVolume em MediaSessionContext.jsx.
@@ -287,6 +479,7 @@ export default function VoicePanel() {
     remoteStreams,
     sharingScreen,
     localScreenStream,
+    screenPreviewPaused,
     user,
     screenViewers,
     screenAudioEnabled,
@@ -357,6 +550,72 @@ export default function VoicePanel() {
     () => [...screenTiles, ...personTiles],
     [screenTiles, personTiles],
   );
+
+  const poppedOutKeys = useMemo(
+    () => new Set(tilePopoutWindows.keys()),
+    [tilePopoutWindows],
+  );
+  function handleTogglePopoutTile(key) {
+    if (tilePopoutWindows.has(key)) {
+      closeTilePopout(key);
+      return;
+    }
+    const tile = allTiles.find((t) => t.key === key);
+    // Defesa extra: o botão já nem aparece pra tile local (ver
+    // ParticipantTile.jsx), mas nunca abre a PRÓPRIA mídia numa janela
+    // separada mesmo se chamado por algum outro caminho.
+    if (!tile || tile.isLocal) return;
+    openTilePopout(key, { title: `${tile.username} - NaveSpeak` });
+  }
+  // Fecha sozinha a janela de um tile quando a mídia dele acaba - saiu da
+  // chamada (tile some de vez) ou desligou a câmera (tile de pessoa continua
+  // existindo, mas sem `videoStream` - só avatar, não há mais o que ver numa
+  // janela à parte). Tela compartilhada já cai no primeiro caso (o tile
+  // 'screen:*' só existe enquanto a pessoa está compartilhando).
+  useEffect(() => {
+    for (const key of tilePopoutWindows.keys()) {
+      const tile = allTiles.find((t) => t.key === key);
+      const mediaEnded = !tile || (tile.kind === "person" && !tile.videoStream);
+      if (mediaEnded) closeTilePopout(key);
+    }
+  }, [allTiles, tilePopoutWindows, closeTilePopout]);
+
+  // Chave de quem "fala" por trás de um tile - pra tela compartilhada é
+  // sempre o mic de quem tá compartilhando, nunca a tela em si (tela não
+  // tem mic próprio). Mesmo formato de personTiles.key ('user:self' /
+  // 'user:<id>'), assim dá pra usar direto como chave de speakingMap.
+  function speakerKeyForTile(t) {
+    if (t.kind === "screen") return t.isLocal ? "user:self" : `user:${t.userId}`;
+    return t.key;
+  }
+
+  // Único tile exibido no PiP flutuante (ver `floating` mais abaixo) -
+  // critério: quem tem vídeo (câmera OU tela) E está falando vence sempre
+  // (score 3); só vídeo ou só falando empatam (score 2 e 1); ninguém com
+  // nada, sobra o que já tava em exibição. Em empate de score, o tile ATUAL
+  // continua vencendo (evita ficar trocando de câmera sem parar entre dois
+  // participantes com o mesmo score) - só troca quando um novo tile supera
+  // de verdade o score do atual.
+  const activeTileKeyRef = useRef(null);
+  const activeTileKey = useMemo(() => {
+    if (allTiles.length === 0) return null;
+    const score = (t) =>
+      (t.videoStream ? 2 : 0) + (speakingMap.get(speakerKeyForTile(t)) ? 1 : 0);
+    const current = allTiles.find((t) => t.key === activeTileKeyRef.current);
+    let best = current ?? allTiles[0];
+    let bestScore = score(best);
+    for (const t of allTiles) {
+      if (score(t) > bestScore) {
+        best = t;
+        bestScore = score(t);
+      }
+    }
+    activeTileKeyRef.current = best.key;
+    return best.key;
+  }, [allTiles, speakingMap]);
+  const activeTile = allTiles.find((t) => t.key === activeTileKey) ?? null;
+  // eslint-disable-next-line no-unused-vars
+  const { key: _activeTileKeyProp, ...activeTileProps } = activeTile ?? {};
 
   // Lista que de fato vai pro grid - com "esconder sem mídia" ligado, tira
   // quem só tem avatar (sem câmera/tela, kind='person' sem videoStream) E
@@ -441,6 +700,17 @@ export default function VoicePanel() {
     else openPopout({ width: 480, height: 680, title: "Voz - NaveSpeak" });
   }
 
+  // Duplo clique no PiP flutuante leva direto pro servidor+canal de voz
+  // conectado (?channel=<id> já é o formato que RoomPage usa pra abrir
+  // direto num canal - ver o próprio RoomPage.jsx). Chamada privada (DM,
+  // `voiceRoomId` nulo) não tem essa rota - ignora o clique.
+  const lastPipDragMovedRef = useRef(false);
+  function handlePipDoubleClick() {
+    if (lastPipDragMovedRef.current) return;
+    if (!voiceRoomId) return;
+    navigate(`/rooms/${voiceRoomId}?channel=${voiceChannelId}`);
+  }
+
   if (!connected) return null;
 
   // Alvo de renderização: a janela de popout se estiver aberta (sobrepõe a
@@ -452,7 +722,7 @@ export default function VoicePanel() {
   const floating = !target;
 
   const content = (
-    <div className="flex h-full flex-col">
+    <div ref={contentRef} className="flex h-full flex-col">
       <div
         className={`${popout ? "justify-center dark:bg-black p-2 rounded-xl" : "justify-between"} mb-3 flex flex-wrap items-center  gap-2`}
       >
@@ -599,6 +869,22 @@ export default function VoicePanel() {
           </button>
 
           <button
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+            className={`rounded-lg p-2 text-white transition ${
+              isFullscreen
+                ? "bg-blue-600 hover:bg-blue-500"
+                : "bg-slate-700 hover:bg-slate-600"
+            }`}
+          >
+            {isFullscreen ? (
+              <Minimize className="size-4" />
+            ) : (
+              <Maximize className="size-4" />
+            )}
+          </button>
+
+          <button
             onClick={toggleMembersSidebar}
             title={
               membersSidebarVisible
@@ -653,6 +939,8 @@ export default function VoicePanel() {
             pinnedKeys={pinnedKeys}
             onTogglePin={togglePin}
             deafened={deafened}
+            poppedOutKeys={poppedOutKeys}
+            onTogglePopout={handleTogglePopoutTile}
           />
         ) : (
           <SimpleVideoGrid
@@ -660,46 +948,117 @@ export default function VoicePanel() {
             pinnedKeys={pinnedKeys}
             onTogglePin={togglePin}
             deafened={deafened}
+            poppedOutKeys={poppedOutKeys}
+            onTogglePopout={handleTogglePopoutTile}
           />
         )}
       </div>
     </div>
   );
 
-  if (floating) {
-    // Minimizado NUNCA desmonta `content` - só esconde via CSS (`hidden`).
-    // Desmontar destruía todo <audio>/<video> dos participantes remotos
-    // (eles vivem dentro de ParticipantTile, que só existe dentro de
-    // `content`), cortando o áudio da chamada inteira até desminimizar -
-    // <audio>/<video> continuam tocando normalmente com display:none, então
-    // esconder em vez de desmontar resolve sem perder nada.
+  // Uma janela por tile "separado" (ver handleTogglePopoutTile acima) -
+  // independente do painel estar embutido, em popout ou flutuante, então
+  // fica FORA do `if (floating)` abaixo: renderiza junto dos dois jeitos.
+  // ParticipantTile sem `pinned`/`onTogglePin` de propósito - fixar não faz
+  // sentido numa janela solta (não existe grid ali pra fixar dentro).
+  const tilePopoutPortals = [...tilePopoutWindows].map(([key, win]) => {
+    const tile = allTiles.find((t) => t.key === key);
+    if (!tile) return null;
+    const { key: _tileKey, ...tileProps } = tile;
     return createPortal(
+      <ParticipantTile
+        key={key}
+        {...tileProps}
+        deafened={deafened}
+        className="!aspect-auto !rounded-none h-full w-full"
+      />,
+      win.document.body,
+    );
+  });
+
+  if (floating) {
+    // PiP flutuante: SÓ UM tile por vez (quem tem vídeo + fala vence, ver
+    // `activeTileKey` acima) - o resto da chamada continua ouvido
+    // normalmente (RemoteAudioPlayers abaixo nunca filtra por tile
+    // exibido), só não ocupa quadradinho visual. <SpeakingProbe> roda um
+    // AnalyserNode por pessoa com mic só pra alimentar essa escolha -
+    // ninguém mais precisa saber "quem tá falando" fora do PiP.
+    //
+    // Minimizado NUNCA desmonta o tile nem os players de áudio - só esconde
+    // via CSS (`hidden`), mesmo motivo de sempre: cortar o <audio>/<video>
+    // ao minimizar cortava o som da chamada inteira até desminimizar.
+    return (
       <>
-        {minimized && (
-          <button
-            onClick={() => setMinimized(false)}
-            className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
-          >
-            🔊 Mostrar chamada ({allTiles.length})
-          </button>
+        {createPortal(
+          <>
+            {personTiles.map((t) => (
+              <SpeakingProbe
+                key={t.key}
+                speakerKey={t.key}
+                stream={t.micStream}
+                onChange={updateSpeaking}
+              />
+            ))}
+            <RemoteAudioPlayers
+              tiles={personTiles}
+              screenAudioTiles={screenAudioTiles}
+              deafened={deafened}
+              getUserVolume={getUserVolume}
+              getScreenAudioVolume={getScreenAudioVolume}
+              isLocallyMuted={isLocallyMuted}
+              outputDeviceId={outputDeviceId}
+            />
+            {minimized && (
+              <button
+                onClick={() => setMinimized(false)}
+                className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
+              >
+                🔊 Mostrar chamada ({allTiles.length})
+              </button>
+            )}
+            <div
+              ref={pipRef}
+              onPointerDown={handlePipPointerDown}
+              onPointerMove={handlePipPointerMove}
+              onPointerUp={handlePipPointerUp}
+              onDoubleClick={handlePipDoubleClick}
+              title="Arraste para reposicionar · duplo clique para abrir o canal"
+              style={
+                pipPos
+                  ? { top: pipPos.top, left: pipPos.left, right: "auto", bottom: "auto" }
+                  : undefined
+              }
+              className={`fixed z-20 w-64 max-w-[calc(100vw-2rem)] cursor-grab touch-none select-none overflow-hidden rounded-2xl shadow-2xl ring-1 ring-slate-200 active:cursor-grabbing dark:ring-slate-800 ${
+                pipPos ? "" : "bottom-24 right-4"
+              } ${minimized ? "hidden" : ""}`}
+            >
+              {activeTile && (
+                <ParticipantTile
+                  key={activeTile.key}
+                  {...activeTileProps}
+                  deafened={deafened}
+                  className="!rounded-2xl"
+                />
+              )}
+              <button
+                onClick={() => setMinimized(true)}
+                title="Minimizar"
+                className="absolute left-1.5 top-1.5 rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
+              >
+                <ChevronDown className="size-4" />
+              </button>
+            </div>
+          </>,
+          document.body,
         )}
-        <div
-          // max-h + overflow-hidden: sem isso, uma chamada com muita gente
-          // fazia esse card crescer do tamanho do grid inteiro (sem limite),
-          // estourando pra fora da tela (pra cima, já que ele é ancorado
-          // embaixo com `fixed bottom-24`) ao desminimizar. Com o teto aqui,
-          // é o `overflow-auto` que já existia dentro de `content` (na área
-          // do grid) que passa a rolar de verdade em vez de nunca ser
-          // acionado (só rola quando o pai tem altura definida).
-          className={`fixed bottom-24 right-4 z-20 flex max-h-[calc(100vh-7rem)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-slate-900 p-4 shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 ${
-            minimized ? "hidden" : ""
-          }`}
-        >
-          {content}
-        </div>
-      </>,
-      document.body,
+        {tilePopoutPortals}
+      </>
     );
   }
-  return createPortal(content, target);
+  return (
+    <>
+      {createPortal(content, target)}
+      {tilePopoutPortals}
+    </>
+  );
 }

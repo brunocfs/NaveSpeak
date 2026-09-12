@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
+import UserProfilePreview from "./UserProfilePreview.jsx";
 import Avatar from "./Avatar.jsx";
 import {
   sendFriendRequest,
@@ -70,12 +72,15 @@ export default function VoiceRosterEntry({
   volumeControl,
   localControls,
 }) {
+  const navigate = useNavigate();
   const speaking = useSpeaking(micStream);
   const hasMenu = Boolean(moderation || volumeControl || localControls);
   const [menuPos, setMenuPos] = useState(null);
+  const [profilePreviewPos, setProfilePreviewPos] = useState(null);
   // "none" | "pending" | "accepted" - ver GET /friends/isMyFriend/:tag.
   const [friendship, setFriendship] = useState({ status: "none" });
   const menuRef = useRef(null);
+  const profilePreviewRef = useRef(null);
   const { showToast, dismissToast } = useToast();
   // Menu agora abre só com clique direito (botão ⋮ foi removido - ver
   // pedido do usuário). Posição vem do próprio evento de contexto e o menu
@@ -91,6 +96,24 @@ export default function VoiceRosterEntry({
     const y = Math.min(e.clientY, window.innerHeight - 8);
     setMenuPos({ x: Math.max(8, x), y });
   }
+
+  function handleUserProfilePreview(e) {
+    e.preventDefault();
+    const menuWidth = 224; // w-56
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
+    const y = Math.min(e.clientY, window.innerHeight - 8);
+    setProfilePreviewPos({ x: Math.max(8, x), y });
+  }
+
+  // Sai da room de voz e abre a conversa em /rooms - mesmo formato de state
+  // de openDmWith usado pela notificação de DM (ver NotificationContext.jsx/
+  // RoomsPage.jsx). Funciona com qualquer participante do roster, amigo ou
+  // não (ver dm.handler.js: DM libera pra quem está no mesmo servidor).
+  function handleMessage() {
+    setMenuPos(null);
+    navigate("/rooms", { state: { openDmWith: { id: userId, username, avatarPath } } });
+  }
+
   async function handleAddFriend(tag) {
     if (!tag) return;
     const loadingToast = showToast("Em busca de um novo amigo... ", {
@@ -149,15 +172,26 @@ export default function VoiceRosterEntry({
   }, [menuPos]);
 
   useEffect(() => {
+    if (!profilePreviewPos) return;
+    function handlePointerDown(e) {
+      if (
+        profilePreviewRef.current &&
+        !profilePreviewRef.current.contains(e.target)
+      ) {
+        setProfilePreviewPos(null);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [profilePreviewPos]);
+  useEffect(() => {
     if (!menuPos || isSelf) return;
     let cancelled = false;
     isMyFriend(`${username}#${discriminator}`)
       .then((result) => {
         if (!cancelled) setFriendship(result);
       })
-      .catch((e) => {
-        console.log("deu erro" + e);
-      });
+      .catch((e) => {});
     return () => {
       cancelled = true;
     };
@@ -166,6 +200,7 @@ export default function VoiceRosterEntry({
   return (
     <li
       onContextMenu={handleContextMenu}
+      onClick={handleUserProfilePreview}
       className=" cursor-pointer flex rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
     >
       <Avatar
@@ -255,20 +290,50 @@ export default function VoiceRosterEntry({
         )
       ) : null}
 
+      {profilePreviewPos &&
+        createPortal(
+          <div
+            ref={profilePreviewRef}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: profilePreviewPos.x,
+              top: profilePreviewPos.y,
+            }}
+          >
+            <UserProfilePreview
+              isSelf={isSelf}
+              userId={userId}
+              avatarPath={avatarPath}
+              username={username}
+              discriminator={discriminator}
+            />
+          </div>,
+          document.body,
+        )}
+
       {hasMenu &&
         menuPos &&
         createPortal(
           <div
             ref={menuRef}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
             style={{ position: "fixed", left: menuPos.x, top: menuPos.y }}
             className="z-[9999]  space-y-1 rounded-lg border border-slate-200 bg-white p-3  shadow-lg dark:border-slate-700 dark:bg-slate-800"
           >
             <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
               Perfil
             </button>
-            <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
-              Mensagem
-            </button>
+            {!isSelf && (
+              <button
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={handleMessage}
+              >
+                Mensagem
+              </button>
+            )}
             {!isSelf && friendship.status === "none" && (
               <button
                 className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"

@@ -567,3 +567,44 @@ body {
     animation: none;
   }
 }
+
+/* Efeitos animados de StyledUsername.jsx (name_style.effect) - "brilho" e
+   "pulsante" atuam por CIMA da cor/gradiente já aplicada pelo componente
+   (filter/opacity, nunca background-image) de propósito: um efeito que
+   mexesse em background-image entraria em conflito com o preenchimento de
+   texto em gradiente (mesma propriedade), perdendo a cor original nas
+   partes fora do brilho. */
+.styled-name-shine {
+  animation: styled-name-shine 2.2s ease-in-out infinite;
+}
+
+@keyframes styled-name-shine {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.7) drop-shadow(0 0 6px currentColor);
+  }
+}
+
+.styled-name-pulse {
+  animation: styled-name-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes styled-name-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .styled-name-shine,
+  .styled-name-pulse {
+    animation: none;
+  }
+}

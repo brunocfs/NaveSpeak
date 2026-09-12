@@ -13,7 +13,7 @@ const GAP = 8; // px - mesmo valor do gap-2/gap-3 do Tailwind usado no CSS.
 // quantidade de participantes. Sem resize manual de propósito (isso é só
 // no modo "Livre", VideoLayoutManager.jsx) - aqui é só medir + calcular,
 // nenhum estado de drag pra dar errado.
-function AutoGridArea({ tiles, pinned, onTogglePin, deafened, minHeight }) {
+function AutoGridArea({ tiles, pinned, onTogglePin, deafened, poppedOutKeys, onTogglePopout, minHeight }) {
   const [containerRef, { width, height }] = useElementSize();
   const effectiveHeight = Math.max(height, minHeight ?? 0);
   const layout = useMemo(
@@ -34,6 +34,8 @@ function AutoGridArea({ tiles, pinned, onTogglePin, deafened, minHeight }) {
           pinned={pinned}
           deafened={deafened}
           onTogglePin={() => onTogglePin(key)}
+          poppedOut={poppedOutKeys.has(key)}
+          onTogglePopout={() => onTogglePopout(key)}
           className="!aspect-auto shrink-0"
           style={{
             width: layout.cellWidth || undefined,
@@ -56,6 +58,8 @@ export default function SimpleVideoGrid({
   pinnedKeys,
   onTogglePin,
   deafened,
+  poppedOutKeys,
+  onTogglePopout,
 }) {
   const pinnedTiles = tiles.filter((t) => pinnedKeys.has(t.key));
   const restTiles =
@@ -68,6 +72,8 @@ export default function SimpleVideoGrid({
         pinned={false}
         onTogglePin={onTogglePin}
         deafened={deafened}
+        poppedOutKeys={poppedOutKeys}
+        onTogglePopout={onTogglePopout}
       />
     );
   }
@@ -80,6 +86,8 @@ export default function SimpleVideoGrid({
           pinned
           onTogglePin={onTogglePin}
           deafened={deafened}
+          poppedOutKeys={poppedOutKeys}
+          onTogglePopout={onTogglePopout}
           minHeight={256}
         />
       </div>
@@ -91,6 +99,8 @@ export default function SimpleVideoGrid({
               {...t}
               deafened={deafened}
               onTogglePin={() => onTogglePin(key)}
+              poppedOut={poppedOutKeys.has(key)}
+              onTogglePopout={() => onTogglePopout(key)}
               className="w-40 shrink-0 md:w-full"
             />
           ))}

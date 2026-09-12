@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Sparkles, Bug, ShieldCheck, Plus } from "lucide-react";
+import { Sparkles, Bug, ShieldCheck, Plus, Megaphone } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import { useWhatsNew } from "../hooks/useWhatsNew.js";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
+import DmSidebar from "../components/DmSidebar.jsx";
 import FriendsPanel from "../components/FriendsPanel.jsx";
 import DmPanel from "../components/DmPanel.jsx";
 import StatusSelector from "../components/StatusSelector.jsx";
@@ -287,6 +288,25 @@ export default function RoomsPage() {
                 <ShieldCheck className="h-5 w-5" />
               </Link>
             )}
+            {user?.isAdmin && (
+              <Link
+                to="/admin/broadcasts"
+                title="Comunicados oficiais"
+                aria-label="Comunicados oficiais"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <Megaphone className="h-5 w-5" />
+              </Link>
+            )}
+
+            <Link
+              to="/reports"
+              title="Reportar bug ou sugestão"
+              aria-label="Reportar bug ou sugestão"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <Bug className="h-5 w-5" />
+            </Link>
             {/* <button
               onClick={handleLogout}
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
@@ -558,7 +578,7 @@ export default function RoomsPage() {
         {/* </section> */}
         <section className="space-y-1 lg:flex lg:min-h-0 lg:flex-col">
           <div className="grid gap-6 md:grid-cols-[300px_minmax(0,1fr)] rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:min-h-0 lg:flex-1">
-            <FriendsPanel
+            <DmSidebar
               selectedFriendId={selectedFriend?.id}
               onSelectFriend={setSelectedFriend}
             />
@@ -567,9 +587,13 @@ export default function RoomsPage() {
               {selectedFriend ? (
                 <DmPanel friend={selectedFriend} />
               ) : (
-                <div className="flex h-full min-h-[500px] items-center justify-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Selecione um amigo para abrir uma conversa privada.
-                </div>
+                <FriendsPanel
+                  selectedFriendId={selectedFriend?.id}
+                  onSelectFriend={setSelectedFriend}
+                />
+                // <div className="flex h-full min-h-[500px] items-center justify-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                //   Selecione um amigo para abrir uma conversa privada.
+                // </div>
               )}
             </div>
           </div>

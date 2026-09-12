@@ -1,5 +1,6 @@
 import { findUserByPublicId } from "../db/users.repo.js";
 import { areFriends } from "../db/friends.repo.js";
+import { shareCommonRoom } from "../db/rooms.repo.js";
 import { isBlockedEitherDirection } from "../db/blocks.repo.js";
 import { createPrivateMessage } from "../db/privateMessages.repo.js";
 import { redis } from "../config/redis.js";
@@ -24,6 +25,13 @@ async function isRateLimited(socket) {
   }
 }
 
+// Quem pode trocar DM: amigos, OU (novo) qualquer par que compartilhe pelo
+// menos um servidor em comum - não precisa mais ser amigo pra falar com
+// alguém que está junto num mesmo servidor.
+async function canDirectMessage(userA, userB) {
+  return (await areFriends(userA, userB)) || (await shareCommonRoom(userA, userB));
+}
+
 export function registerDmHandlers(io, socket) {
   const user = socket.data.user;
 
@@ -40,8 +48,9 @@ export function registerDmHandlers(io, socket) {
 
     const peer = await findUserByPublicId(peerIdResult.data);
     if (!peer || peer.id === user.internalId) return;
+    if (peer.isSystem) return;
     if (await isBlockedEitherDirection(user.internalId, peer.id)) return;
-    if (!(await areFriends(user.internalId, peer.id))) return;
+    if (!(await canDirectMessage(user.internalId, peer.id))) return;
 
     io.to(`user:${peer.publicId}`).emit("dm:typing", {
       userId: user.id,
@@ -90,14 +99,23 @@ export function registerDmHandlers(io, socket) {
       return ack({ error: "Usuário não encontrado." });
     }
 
+    // Conta oficial do sistema é só emissora - ninguém manda mensagem PARA
+    // ela, nem admin (a única forma de mandar "como" ela é o painel admin,
+    // que grava direto via privateMessages.repo.js, sem passar por aqui).
+    if (peer.isSystem) {
+      return ack({ error: "Não é possível enviar mensagens para o Astronauta Zeno." });
+    }
+
     // Bloqueio em qualquer direção e "não são amigos" são checados a cada
     // envio (nunca só uma vez no client) - amizade pode ter sido desfeita ou
     // um bloqueio pode ter acontecido depois que a conversa foi aberta.
     if (await isBlockedEitherDirection(user.internalId, peer.id)) {
       return ack({ error: "Não é possível enviar mensagem para este usuário." });
     }
-    if (!(await areFriends(user.internalId, peer.id))) {
-      return ack({ error: "Vocês precisam ser amigos para conversar." });
+    if (!(await canDirectMessage(user.internalId, peer.id))) {
+      return ack({
+        error: "Vocês precisam ser amigos ou estar num mesmo servidor para conversar.",
+      });
     }
 
     let attachments = [];

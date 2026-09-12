@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Paperclip } from "lucide-react";
+import { Paperclip, Play } from "lucide-react";
 import { API_URL } from "../api/config.js";
 import { renderMessageTokens } from "../utils/messageFormatting.jsx";
 import ImagePreviewModal from "./ImagePreviewModal.jsx";
@@ -9,7 +9,8 @@ import ImagePreviewModal from "./ImagePreviewModal.jsx";
 // ?w=800). YouTube: extrai o ID pra montar a URL previsível de thumbnail
 // (img.youtube.com) - sem chamada de rede nenhuma, sem embed/iframe.
 const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i;
-const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,15})/;
+const YOUTUBE_RE =
+  /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,15})/;
 
 function extractImageUrl(text) {
   const urls = text.match(/https?:\/\/[^\s<]+/g);
@@ -60,7 +61,9 @@ function AttachmentItem({ attachment, onPreview }) {
       <button
         type="button"
         className="block p-0"
-        onClick={() => onPreview({ src, name: attachment.name, size: attachment.size })}
+        onClick={() =>
+          onPreview({ src, name: attachment.name, size: attachment.size })
+        }
       >
         <img
           src={src}
@@ -102,16 +105,25 @@ function AttachmentItem({ attachment, onPreview }) {
 // regra de renderização entre os dois chats. `mentionableUsernames`: lista
 // de quem pode ser @mencionado nesta conversa (membros do servidor no chat
 // de canal; os dois lados da conversa na DM) - ver MessageText acima.
-export default function MessageContent({ content, attachments = [], mentionableUsernames = [] }) {
+export default function MessageContent({
+  content,
+  attachments = [],
+  mentionableUsernames = [],
+}) {
   const trimmed = content?.trim() ?? "";
   const imageUrl = trimmed ? extractImageUrl(trimmed) : null;
   const youtubeId = !imageUrl && trimmed ? extractYoutubeId(trimmed) : null;
-  const mentionableSet = new Set(mentionableUsernames.map((u) => u.toLowerCase()));
+  const mentionableSet = new Set(
+    mentionableUsernames.map((u) => u.toLowerCase()),
+  );
 
   // Imagem em preview (lightbox) - null = nenhuma aberta. Guarda {src, name,
   // size}: `size` só existe pra anexo de verdade (attachment.size), imagem
   // solta por URL no texto não tem esse dado (ver ImagePreviewModal).
   const [previewImage, setPreviewImage] = useState(null);
+  // Mini player: thumbnail vira <iframe> embed só depois do clique (não
+  // carrega player do YouTube de graça pra toda mensagem do chat).
+  const [playingYoutube, setPlayingYoutube] = useState(false);
 
   return (
     <div className="space-y-2">
@@ -122,31 +134,46 @@ export default function MessageContent({ content, attachments = [], mentionableU
       )}
 
       {imageUrl && (
-        <button type="button" className="block p-0" onClick={() => setPreviewImage({ src: imageUrl })}>
+        <button
+          type="button"
+          className="block p-0"
+          onClick={() => setPreviewImage({ src: imageUrl })}
+        >
           <img
             src={imageUrl}
             alt=""
             loading="lazy"
-            className="max-h-60 cursor-zoom-in rounded-lg border border-slate-200 object-contain dark:border-slate-700"
+            className="max-h-100 cursor-zoom-in rounded-lg  border-slate-200 object-contain dark:border-slate-700"
           />
         </button>
       )}
 
-      {youtubeId && (
-        <a
-          href={`https://www.youtube.com/watch?v=${youtubeId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-block"
-        >
-          <img
-            src={`https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`}
-            alt="Miniatura do vídeo"
-            loading="lazy"
-            className="max-h-60 rounded-lg border border-slate-200 dark:border-slate-700"
+      {youtubeId &&
+        (playingYoutube ? (
+          <iframe
+            src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
+            title="Player do YouTube"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowFullScreen
+            className="aspect-video min-h-100 w-full max-w-sm rounded-lg  border-slate-200 dark:border-slate-700"
           />
-        </a>
-      )}
+        ) : (
+          <button
+            type="button"
+            className="group relative block min-h-100 max-w-sm p-0"
+            onClick={() => setPlayingYoutube(true)}
+          >
+            <img
+              src={`https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`}
+              alt="Miniatura do vídeo"
+              loading="lazy"
+              className="min-h-100 rounded-lg border border-slate-200 dark:border-slate-700"
+            />
+            <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/20 opacity-0 transition group-hover:opacity-100">
+              <Play className="size-10 fill-white text-white" />
+            </span>
+          </button>
+        ))}
 
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">

@@ -107,6 +107,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_users_username_discriminator ON users (LOWE
 --   UPDATE users SET is_admin = true WHERE email = 'voce@exemplo.com';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 
+-- Conta oficial do sistema ("Zeno, o Astronauta") - continua sendo uma linha
+-- normal de `users` (reaproveita as FKs de private_messages/user_blocks sem
+-- precisar de tabela/coluna polimórfica), mas nunca é logável (password_hash
+-- é um hash de string aleatória que ninguém conhece - ver
+-- server/migrate.js:ensureSystemUser) e nunca aceita mensagem recebida (ver
+-- checagem de is_system em sockets/dm.handler.js). Só é criada/usada pelo
+-- script de migração e pelo painel admin de comunicados
+-- (routes/adminBroadcasts.routes.js) - nenhum usuário comum consegue virar
+-- is_system=true.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false;
+
+-- Personalização de como o NOME aparece em toda a aplicação (cor/gradiente,
+-- negrito/itálico/sublinhado, fonte, efeito animado - ver
+-- client/src/components/StyledUsername.jsx e validation/schemas.js:
+-- nameStyleSchema). '{}' = sem personalização nenhuma (aparência padrão).
+-- Coluna genérica em QUALQUER usuário de propósito - hoje só é editável pelo
+-- painel admin do Zeno (routes/adminSystemUser.routes.js), mas o objetivo é
+-- reaproveitar pra usuários comuns como recurso premium mais adiante, sem
+-- precisar de migração nova quando isso acontecer.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS name_style JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 -- Refresh tokens sao guardados como HASH (nunca o token em texto puro), assim
 -- um vazamento do banco nao da acesso direto a sessoes validas. Rotacionados
 -- a cada uso (ver server/src/utils/tokens.js).
@@ -286,6 +307,29 @@ CREATE TABLE IF NOT EXISTS conversation_clears (
 );
 -- MIGRACAO (bancos ja existentes, criados antes do campo last_read_message_id):
 ALTER TABLE conversation_clears ADD COLUMN IF NOT EXISTS last_read_message_id BIGINT NOT NULL DEFAULT 0;
+
+-- Histórico dos comunicados oficiais enviados pelo painel admin (ver
+-- routes/adminBroadcasts.routes.js) - as mensagens em si já viram N linhas
+-- normais de private_messages (uma por destinatário); esta tabela é só o
+-- registro de auditoria (o que foi mandado, pra quem, quando, por qual
+-- admin), não participa da entrega nem da leitura da conversa.
+CREATE TABLE IF NOT EXISTS system_broadcasts (
+  id BIGSERIAL PRIMARY KEY,
+  content VARCHAR(2000) NOT NULL,
+  target VARCHAR(10) NOT NULL,
+  recipient_public_id UUID NULL,
+  recipient_count INTEGER NOT NULL,
+  -- Mesmo formato de private_message_attachments agregado em JSON (path/name/
+  -- size/mime) - aqui é só pra reexibir no histórico do painel admin
+  -- (AdminBroadcastsPage.jsx reaproveita MessageContent.jsx pra isso), as
+  -- linhas de verdade (entregues a cada destinatário) continuam em
+  -- private_message_attachments.
+  attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_system_broadcasts_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT ck_system_broadcasts_target CHECK (target IN ('all', 'user'))
+);
 
 -- Estado de leitura de um canal de TEXTO, POR USUARIO - mesmo padrao de
 -- conversation_clears.last_read_message_id, so que sobre messages.id em vez

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
 import { markChannelRead } from "../api/messages.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTypingEmitter } from "../hooks/useTypingEmitter.js";
+import { useChatScroll } from "../hooks/useChatScroll.js";
 import MessageInput from "./MessageInput.jsx";
 import MessageContent from "./MessageContent.jsx";
 import AttachmentDropZone from "./AttachmentDropZone.jsx";
@@ -54,7 +56,14 @@ export default function ChatPanel({
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const bottomRef = useRef(null);
+  const {
+    containerRef,
+    bottomRef,
+    onScroll,
+    showJumpToBottom,
+    hasNewMessage,
+    scrollToBottom,
+  } = useChatScroll(`channel:${channelId}`, messages, loading);
   const messageInputRef = useRef(null);
   // Quem está digitando NESTE canal agora: [{ userId, username }]. Ver
   // TYPING_EXPIRE_MS acima para o auto-expira de cada entrada.
@@ -117,10 +126,6 @@ export default function ChatPanel({
     socket.on("chat:message", handleIncoming);
     return () => socket.off("chat:message", handleIncoming);
   }, [channelId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   // Recebe "fulano está digitando" de outros membros deste canal. Ignora
   // eventos de outro canal (mesma conexão socket cobre todos os canais
@@ -206,41 +211,63 @@ export default function ChatPanel({
       disabled={loading}
       className="flex h-full min-h-[500px] flex-col"
     >
-      <div className="flex-1 space-y-4  overflow-y-auto px-4 py-4 sm:px-5">
-        {loading && <p className="hint">Carregando mensagens...</p>}
-        {error && <p className="error-text">{error}</p>}
-        {messages.map((message) => (
-          <div key={message.id} className="flex items-start gap-3">
-            <Avatar
-              avatarPath={message.avatarPath}
-              username={message.username}
-              size="sm"
-              className="mt-0.5"
-            />
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span
-                  className={`text-sm font-semibold ${
-                    message.user_id === user?.id
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-slate-900 dark:text-white"
-                  }`}
-                >
-                  {message.username}
-                </span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {formatMessageTime(message.created_at)}
-                </span>
-              </div>
-              <MessageContent
-                content={message.content}
-                attachments={message.attachments}
-                mentionableUsernames={memberUsernames}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={containerRef}
+          onScroll={onScroll}
+          className="h-full space-y-4 overflow-y-auto px-4 py-4 sm:px-5"
+        >
+          {loading && <p className="hint">Carregando mensagens...</p>}
+          {error && <p className="error-text">{error}</p>}
+          {messages.map((message) => (
+            <div key={message.id} className="flex items-start gap-3">
+              <Avatar
+                avatarPath={message.avatarPath}
+                username={message.username}
+                size="sm"
+                className="mt-0.5"
               />
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`text-sm font-semibold ${
+                      message.user_id === user?.id
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-slate-900 dark:text-white"
+                    }`}
+                  >
+                    {message.username}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatMessageTime(message.created_at)}
+                  </span>
+                </div>
+                <MessageContent
+                  content={message.content}
+                  attachments={message.attachments}
+                  mentionableUsernames={memberUsernames}
+                />
+              </div>
             </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        {showJumpToBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            title="Ir para a mensagem mais recente"
+            className="fixed z-10 bottom-35 right-14 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-lg transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <ArrowDown className="size-4.5" />
+            {hasNewMessage && (
+              <>
+                <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-emerald-500"></span>
+                Novas Mensagens
+              </>
+            )}
+          </button>
+        )}
       </div>
       <TypingIndicator usernames={typingUsers.map((u) => u.username)} />
       <MessageInput

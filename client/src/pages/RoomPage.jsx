@@ -144,9 +144,23 @@ export default function RoomPage() {
   // cursor de leitura no servidor em seguida.
   function selectTextChannel(channelId) {
     setActiveChannelId(channelId);
+    const previousUnread =
+      channels.find((c) => c.id === channelId)?.unreadCount ?? 0;
     setChannels((prev) =>
       prev.map((c) => (c.id === channelId ? { ...c, unreadCount: 0 } : c)),
     );
+    // Zera o canal e desconta do total do servidor na faixa (rail) - sem
+    // isso o badge da faixa só sobe (ver handleChatMessage acima), nunca
+    // reflete o que já foi lido.
+    if (previousUnread > 0) {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === roomId
+            ? { ...r, unreadCount: Math.max(0, (r.unreadCount ?? 0) - previousUnread) }
+            : r,
+        ),
+      );
+    }
     markChannelRead(channelId).catch(() => {});
   }
 
@@ -276,6 +290,14 @@ export default function RoomPage() {
               c.id === initialChannelId ? { ...c, unreadCount: 0 } : c,
             ),
           );
+          const previousUnread = initialChannel.unreadCount;
+          setRooms((prev) =>
+            prev.map((r) =>
+              r.id === roomId
+                ? { ...r, unreadCount: Math.max(0, (r.unreadCount ?? 0) - previousUnread) }
+                : r,
+            ),
+          );
         }
       })
       .catch((err) => {
@@ -312,6 +334,10 @@ export default function RoomPage() {
     const socket = getSocket();
     function handleChatMessage(message) {
       if (message.user_id === user?.id) return;
+      // Canal já aberto agora mesmo: o ChatPanel marca como lida na hora, não
+      // conta pro badge do servidor (mesma exceção do handler de `channels`
+      // acima - sem isso o contador da faixa sobe mesmo lendo tudo ao vivo).
+      if (message.channel_id === activeChannelId) return;
       setRooms((prev) =>
         prev.map((r) =>
           r.id === message.serverId
@@ -322,7 +348,7 @@ export default function RoomPage() {
     }
     socket.on("chat:message", handleChatMessage);
     return () => socket.off("chat:message", handleChatMessage);
-  }, [user?.id]);
+  }, [user?.id, activeChannelId]);
 
   // Removido do servidor (expulso ou banido - ver rooms.routes.js) enquanto
   // esta tela está aberta: some daqui direto, sem esperar um refresh manual.

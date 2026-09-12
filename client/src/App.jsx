@@ -18,6 +18,7 @@ import RoomPage from "./pages/RoomPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import AdminInvitesPage from "./pages/AdminInvitesPage.jsx";
+import AdminBroadcastsPage from "./pages/AdminBroadcastsPage.jsx";
 import InviteRedirectPage from "./pages/InviteRedirectPage.jsx";
 import ServerInvitePage from "./pages/ServerInvitePage.jsx";
 
@@ -118,6 +119,14 @@ export default function App() {
                     element={
                       <ProtectedRoute requireAdmin>
                         <AdminInvitesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/broadcasts"
+                    element={
+                      <ProtectedRoute requireAdmin>
+                        <AdminBroadcastsPage />
                       </ProtectedRoute>
                     }
                   />

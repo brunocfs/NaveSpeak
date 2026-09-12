@@ -214,6 +214,40 @@ export const profileUpdateSchema = z
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 
+// Perfil da conta oficial ("Zeno, o Astronauta" - routes/adminSystemUser.routes.js).
+// NÃO reusa usernameFieldSchema: aquele regex (só letras/números/_) existe
+// pra impedir usuário comum de escolher um nome "estranho", mas o nome de
+// exibição do Zeno é de propósito uma frase com vírgula/espaço - só mais
+// permissivo (qualquer texto, mesmo limite de tamanho da coluna) porque só
+// admin chega nesta rota (requireAdmin).
+// Personalização de exibição do nome (cor/gradiente, negrito/itálico/
+// sublinhado, fonte, efeito) - ver name_style no schema e
+// client/src/components/StyledUsername.jsx, que é quem realmente interpreta
+// cada campo. Objeto sempre substituído por inteiro (nunca merge parcial no
+// banco, ver updateProfile em db/users.repo.js), então aqui valida a FORMA
+// completa - cada campo é opcional (omitido = "sem esse estilo").
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida (use #RRGGBB).');
+
+export const nameStyleSchema = z
+  .object({
+    color: hexColorSchema.nullable().optional(),
+    gradient: z.tuple([hexColorSchema, hexColorSchema]).nullable().optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
+    font: z.enum(['default', 'serif', 'mono', 'display']).optional(),
+    effect: z.enum(['none', 'shine', 'pulse']).optional(),
+  })
+  .strict();
+
+export const systemUserUpdateSchema = z
+  .object({
+    username: z.string().trim().min(1, 'Nome obrigatório.').max(32, 'Máximo de 32 caracteres.').optional(),
+    bio: bioFieldSchema.optional(),
+    nameStyle: nameStyleSchema.optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
+
 export const passwordChangeSchema = z
   .object({
     currentPassword: z.string().min(1, 'Informe a senha atual.').max(200),
@@ -276,3 +310,25 @@ export const attachmentRefSchema = z.object({
 export const attachmentsArraySchema = z
   .array(attachmentRefSchema)
   .max(10, 'Máximo de 10 anexos por mensagem.');
+
+// Corpo do POST /api/admin/broadcasts (routes/adminBroadcasts.routes.js) -
+// `tag` só é exigido/validado quando target = 'user' (envio individual); no
+// broadcast pra todos ('all') não há destinatário nenhum pra validar.
+// `content` pode vir vazio se houver ao menos 1 anexo - mesma regra de
+// chat:send/dm:send (aplicada manualmente na rota, não dá pra expressar só
+// com messageContentSchema porque ele já exige min(1)).
+export const adminBroadcastCreateSchema = z
+  .object({
+    target: z.enum(['all', 'user'], { errorMap: () => ({ message: 'Alvo inválido.' }) }),
+    content: z.string().trim().max(2000, 'Mensagem muito longa (máx. 2000 caracteres).').default(''),
+    tag: z.string().trim().optional(),
+    attachments: attachmentsArraySchema.default([]),
+  })
+  .refine((data) => data.content.length > 0 || data.attachments.length > 0, {
+    message: 'Mensagem vazia.',
+    path: ['content'],
+  })
+  .refine((data) => data.target !== 'user' || /^.{3,32}#\d{5}$/.test(data.tag ?? ''), {
+    message: 'Formato esperado: usuario#12345.',
+    path: ['tag'],
+  });

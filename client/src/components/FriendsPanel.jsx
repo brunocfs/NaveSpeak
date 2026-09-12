@@ -6,6 +6,7 @@ import { clearConversation, markConversationRead } from "../api/dm.js";
 import { isElectron, listScreenSources } from "../api/media.js";
 import StatusDot from "./StatusDot.jsx";
 import Avatar from "./Avatar.jsx";
+import { Search, EllipsisVertical } from "lucide-react";
 import VoiceControlBar from "./VoiceControlBar.jsx";
 import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
 import {
@@ -324,203 +325,155 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
   }
   //   <div className="flex h-full min-h-0 flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300">
   return (
-    <div className="flex h-full min-h-0 flex-col transition-all duration-300">
-      {/* Cabeçalho clicável - mesmo padrão do card "Criar / Entrar em um
-          servidor" (RoomsPage.jsx): só a parte de ADICIONAR colapsa;
-          solicitações e a lista de amigos abaixo ficam sempre visíveis, no
-          mesmo card (não em cards separados). */}
-      <button
-        type="button"
-        onClick={() => setAddExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between p-6 text-left"
-        aria-expanded={addExpanded}
-      >
-        <div>
+    <div className="flex p-5 h-full min-h-0 flex-col transition-all duration-300 gap-3">
+      <div className="flex items-center justify-between">
+        <div class="flex">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Adicionar amigo
+            Amigos - {friends.length}
           </h2>
-          {!addExpanded && (
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Clique para expandir
-            </p>
+          {incoming.length > 0 && (
+            <>
+              <button
+                onClick={() => setAddExpanded((prev) => !prev)}
+                className="cursor-pointer mx-5 text-1xl text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-yellow-500"
+              >
+                Nova solicitação de amizade - {incoming.length}
+              </button>
+            </>
           )}
         </div>
-
-        <svg
-          className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300 ${
-            addExpanded ? "rotate-180" : ""
-          }`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+        <button
+          onClick={() => setAddExpanded((prev) => !prev)}
+          className="cursor-pointer bg-purple-600 dark:bg-purple-800 text-white rounded-xl p-2"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
-      </button>
-
-      <div
-        className={`grid transition-all duration-300 ease-in-out ${
-          addExpanded
-            ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0"
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="px-6 pb-6">
-            <form onSubmit={handleAddFriend} className="flex flex-col gap-2">
-              <input
-                type="text"
-                placeholder="usuario#12345"
-                maxLength={38}
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-              />
-              <button
-                type="submit"
-                disabled={busy || !usernameInput.trim()}
-                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
-              >
-                {busy ? "Enviando..." : "Enviar solicitação"}
-              </button>
-            </form>
-          </div>
-        </div>
+          Adicionar Amigo
+        </button>
       </div>
+      {addExpanded && (
+        <div
+          onSubmit={handleAddFriend}
+          className="flex flex-col rounded-xl p-5  transition-all gap-3 dark:bg-slate-950 "
+        >
+          <span>
+            Você pode adicionar outros "navegadores" na sua lista de amigos.
+          </span>
+          <form className="flex flex-col gap-3 m-2">
+            <input
+              className="w-full outline-none "
+              maxLength={38}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              placeholder="Insira o código do tribulante {usuario#12345}"
+            ></input>
 
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-slate-200 px-6 py-6 space-y-6 dark:border-slate-800">
-        {error && (
-          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
-            {error}
-          </p>
-        )}
-
-        {incoming.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              Solicitações recebidas
-            </p>
-            <ul className="space-y-2">
-              {incoming.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/60"
-                >
-                  <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                    {r.username}
-                  </span>
-                  <div className="flex shrink-0 gap-1">
-                    <button
-                      onClick={() => handleAccept(r.id)}
-                      className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-emerald-700"
-                    >
-                      Aceitar
-                    </button>
+            <button
+              type="submit"
+              disabled={busy || !usernameInput.trim()}
+              className="cursor-pointer bg-purple-600 dark:bg-purple-800 text-white rounded-xl p-2"
+            >
+              {busy ? "Enviando..." : "Enviar solicitação"}
+            </button>
+          </form>
+          {incoming.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Solicitações recebidas
+              </p>
+              <ul className="space-y-2">
+                {incoming.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/60"
+                  >
+                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                      {r.username}
+                    </span>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        onClick={() => handleDecline(r.id)}
+                        className=" cursor-pointer rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                      >
+                        Recusar
+                      </button>
+                      <button
+                        onClick={() => handleAccept(r.id)}
+                        className="cursor-pointer rounded-lg bg-purple-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-purple-700"
+                      >
+                        Aceitar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {outgoing.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Solicitações enviadas
+              </p>
+              <ul className="space-y-2">
+                {outgoing.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/60"
+                  >
+                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                      {r.username}
+                    </span>
                     <button
                       onClick={() => handleDecline(r.id)}
-                      className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                      className="cursor-pointer shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
                     >
-                      Recusar
+                      Cancelar
                     </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {outgoing.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              Solicitações enviadas
-            </p>
-            <ul className="space-y-2">
-              {outgoing.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/60"
-                >
-                  <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                    {r.username}
-                  </span>
-                  <button
-                    onClick={() => handleDecline(r.id)}
-                    className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    Cancelar
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              Amigos
-            </p>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              {friends.length}
-            </span>
-          </div>
-
-          {loading && <p className="hint">Carregando amigos...</p>}
-
-          {!loading && friends.length === 0 && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Você ainda não tem amigos. Adicione alguém pelo identificador
-              (usuario#12345) acima.
-            </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
-
-          <ul className="space-y-1">
+        </div>
+      )}
+      {!addExpanded && (
+        <>
+          <div className="flex  rounded-xl p-3 gap-2 dark:bg-slate-950">
+            <Search />
+            <input
+              className="w-full outline-none  "
+              placeholder="Buscar"
+            ></input>
+          </div>
+          <ul>
             {sortedFriends.map((friend) => (
               <li key={friend.id} className="relative">
-                <div
-                  className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 transition ${
-                    selectedFriendId === friend.id
-                      ? "bg-slate-900 dark:bg-slate-100"
-                      : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                  }`}
-                >
+                <div class="flex w-full p-3 gap-2 items-center hover:bg-slate-100 border-t-1 rounded-xl dark:border-slate-800 border-slate-100  dark:hover:bg-slate-800 ">
                   <button
                     type="button"
                     onClick={() => handleSelectFriend(friend)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    className="cursor-pointer flex min-w-0 flex-1 items-center gap-2 text-left "
                   >
-                    <span className="relative inline-flex shrink-0">
-                      <Avatar
-                        avatarPath={friend.avatarPath}
-                        username={friend.username}
-                        size="sm"
-                      />
-                      <StatusDot
-                        status={friend.status}
-                        className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-900"
-                      />
-                    </span>
-                    <span
-                      className={`truncate text-sm font-medium ${
-                        selectedFriendId === friend.id
-                          ? "text-white dark:text-slate-900"
-                          : "text-slate-800 dark:text-slate-100"
-                      }`}
-                    >
-                      {friend.username}
-                    </span>
-                    {friend.unreadCount > 0 && (
-                      <span className="ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white dark:bg-blue-500">
-                        {friend.unreadCount > 99 ? "99+" : friend.unreadCount}
+                    <div className="flex w-full  gap-2 items-center">
+                      <span className="relative inline-flex shrink-0">
+                        <Avatar
+                          avatarPath={friend.avatarPath}
+                          username={friend.username}
+                          size="sm"
+                        />
+                        <StatusDot
+                          status={friend.status}
+                          className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-900"
+                        />
                       </span>
-                    )}
+                      <span
+                        className={`truncate text-sm font-medium ${
+                          selectedFriendId === friend.id
+                            ? "text-white dark:text-slate-900"
+                            : "text-slate-800 dark:text-slate-100"
+                        }`}
+                      >
+                        {friend.username}
+                      </span>
+                    </div>
                   </button>
-
                   <button
                     type="button"
                     onClick={() =>
@@ -529,16 +482,15 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
                       )
                     }
                     aria-label={`Mais opções para ${friend.username}`}
-                    className={`shrink-0 rounded-lg px-2 py-1 text-sm transition ${
+                    className={`cursor-pointer shrink-0 rounded-lg px-2 mr-3 py-1 text-sm transition dark:bg-slate-900 ${
                       selectedFriendId === friend.id
-                        ? "text-white/80 hover:bg-white/10 dark:text-slate-900/70 dark:hover:bg-black/5"
-                        : "text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700"
+                        ? "text-white/80  dark:text-slate-900/70  "
+                        : "text-slate-500  dark:text-slate-400 "
                     }`}
                   >
                     ⋮
                   </button>
                 </div>
-
                 {openMenuId === friend.id && (
                   <div
                     ref={menuRef}
@@ -576,44 +528,7 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
               </li>
             ))}
           </ul>
-        </div>
-      </div>
-
-      <VoiceControlBar
-        toggleScreenShare={toggleScreenShare}
-        switchScreenSource={switchScreenSource}
-      />
-
-      {screenPickerSources && (
-        <ScreenSourcePicker
-          sources={screenPickerSources}
-          title={
-            screenPickerMode === "switch"
-              ? "Trocar para qual fonte?"
-              : "Escolha o que compartilhar"
-          }
-          defaultWithAudio={
-            screenPickerMode === "switch" ? media.screenAudioEnabled : false
-          }
-          onSelect={(sourceId, withAudio, quality) => {
-            setScreenPickerSources(null);
-            if (screenPickerMode === "switch")
-              media.switchScreenSource(sourceId, { withAudio, quality });
-            else media.shareScreen(sourceId, { withAudio, quality });
-          }}
-          onCancel={() => setScreenPickerSources(null)}
-        />
-      )}
-
-      {screenPickerError && (
-        <div
-          className="fixed bottom-24 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-xl bg-red-600 px-4 py-2 text-sm text-white shadow-lg"
-          role="alert"
-          title="Clique para fechar"
-          onClick={() => setScreenPickerError(null)}
-        >
-          {screenPickerError}
-        </div>
+        </>
       )}
     </div>
   );

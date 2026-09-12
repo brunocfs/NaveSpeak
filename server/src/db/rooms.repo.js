@@ -63,6 +63,20 @@ export async function addRoomMember({ roomId, userId }) {
   );
 }
 
+// Usado pra liberar DM entre não-amigos que estão em pelo menos um mesmo
+// servidor (ver sockets/dm.handler.js) - amizade deixou de ser a única porta
+// de entrada pra conversa privada.
+export async function shareCommonRoom(userA, userB) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM room_members a
+     INNER JOIN room_members b ON b.room_id = a.room_id
+     WHERE a.user_id = $1 AND b.user_id = $2
+     LIMIT 1`,
+    [userA, userB]
+  );
+  return rows.length > 0;
+}
+
 export async function removeRoomMember(roomId, userId) {
   await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId]);
 }

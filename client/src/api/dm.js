@@ -1,5 +1,9 @@
 import { apiRequest } from './http.js';
 
+// Todas as conversas de DM com histórico (amigo ou não), mais recente
+// primeiro - ver GET /api/dm (server/src/routes/dmConversations.routes.js).
+export const listConversations = () => apiRequest('/dm');
+
 export function listConversation(userId, { limit, before } = {}) {
   const qs = new URLSearchParams();
   if (limit) qs.set('limit', limit);

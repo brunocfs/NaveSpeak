@@ -11,6 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { config as loadDotenv } from 'dotenv';
+import { hashPassword } from './src/utils/password.js';
+import {
+  SYSTEM_PUBLIC_ID,
+  SYSTEM_USERNAME,
+  SYSTEM_DISCRIMINATOR,
+  SYSTEM_EMAIL,
+} from './src/config/systemUser.js';
 
 loadDotenv();
 
@@ -98,6 +105,21 @@ async function migrateLegacyRoomInvites(pool) {
   }
 }
 
+// Garante que a conta oficial ("Zeno, o Astronauta") exista, sem nunca
+// sobrescrever uma linha já existente (ON CONFLICT DO NOTHING no
+// public_id fixo, ver src/config/systemUser.js) - idempotente, mesmo padrão
+// das migrações legadas acima. password_hash é o hash de um UUID aleatório
+// que ninguém guarda em lugar nenhum: login por essa conta é impossível.
+async function ensureSystemUser(pool) {
+  const passwordHash = await hashPassword(randomUUID());
+  await pool.query(
+    `INSERT INTO users (public_id, username, discriminator, email, password_hash, is_system)
+     VALUES ($1, $2, $3, $4, $5, true)
+     ON CONFLICT (public_id) DO NOTHING`,
+    [SYSTEM_PUBLIC_ID, SYSTEM_USERNAME, SYSTEM_DISCRIMINATOR, SYSTEM_EMAIL, passwordHash]
+  );
+}
+
 async function main() {
   const sql = await readFile(schemaPath, 'utf8');
 
@@ -113,6 +135,7 @@ async function main() {
     await pool.query(sql);
     await migrateLegacyMessages(pool);
     await migrateLegacyRoomInvites(pool);
+    await ensureSystemUser(pool);
     console.log(`Migração aplicada com sucesso em "${process.env.DB_NAME}" (PostgreSQL).`);
   } finally {
     await pool.end();

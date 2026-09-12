@@ -12,7 +12,17 @@ export function useElementSize() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    const observer = new ResizeObserver((entries) => {
+    // Construtor da MESMA janela dona do elemento, não o `ResizeObserver`
+    // global da janela principal - VoicePanel também é portado (createPortal)
+    // pra dentro do popout (outra janela/documento inteiro, ver
+    // VoicePanel.jsx). Um ResizeObserver criado na janela principal nunca
+    // dispara callback pra um elemento que vive noutra janela, então
+    // width/height ficavam travados em 0 lá dentro - grid/modo livre
+    // calculavam layout com container "zero" (tiles minúsculos ou
+    // empilhados em coluna, estourando a tela).
+    const ResizeObserverImpl =
+      el.ownerDocument?.defaultView?.ResizeObserver ?? ResizeObserver;
+    const observer = new ResizeObserverImpl((entries) => {
       const entry = entries[0];
       if (!entry) return;
       const { width, height } = entry.contentRect;

@@ -17,6 +17,8 @@ const ATTACHMENTS_AGG = `
 const CONVERSATION_ROW = `
   SELECT pm.id, pm.content, pm.created_at,
          su.public_id AS sender_id, su.username AS sender_username, su.avatar_path AS "senderAvatarPath",
+         su.is_system AS "senderIsSystem",
+         su.name_style AS "senderNameStyle",
          ru.public_id AS recipient_id,
          ${ATTACHMENTS_AGG}
   FROM private_messages pm
@@ -122,6 +124,72 @@ export async function getLastMessageTimestamps(userId) {
      GROUP BY u.public_id`,
     [userId]
   );
+  return rows;
+}
+
+// Todo peer com quem o usuário já trocou pelo menos uma mensagem privada
+// (amigo ou não), mais recente primeiro - alimenta a aba "Mensagens" do
+// painel lateral (RoomsPage.jsx), que agora é um inbox único (ver
+// dm.handler.js: DM não depende mais só de amizade). Bloqueio em qualquer
+// direção esconde o peer da lista por completo, mesmo raciocínio de
+// loadPeer em routes/dm.routes.js.
+export async function listConversationPeers(userId) {
+  const { rows } = await pool.query(
+    `SELECT u.public_id AS id, u.username, u.discriminator, u.avatar_path AS "avatarPath",
+            u.is_system AS "isSystem", u.name_style AS "nameStyle",
+            MAX(pm.created_at) AS "lastMessageAt"
+     FROM private_messages pm
+     INNER JOIN users u ON u.id = CASE WHEN pm.sender_id = $1 THEN pm.recipient_id ELSE pm.sender_id END
+     WHERE (pm.sender_id = $1 OR pm.recipient_id = $1)
+       AND NOT EXISTS (
+         SELECT 1 FROM user_blocks b
+         WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+            OR (b.blocker_id = u.id AND b.blocked_id = $1)
+       )
+     GROUP BY u.public_id, u.username, u.discriminator, u.avatar_path, u.is_system, u.name_style
+     ORDER BY "lastMessageAt" DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+// Comunicado oficial pra TODOS os usuários (menos o próprio remetente e
+// qualquer outra conta is_system) num único round-trip - só usado pelo
+// painel admin (routes/adminBroadcasts.routes.js), nunca pelo dm:send de
+// socket normal. Primeiro bulk insert do projeto: em vez de um loop de
+// createPrivateMessage (1 INSERT por destinatário), um INSERT...SELECT só
+// varrendo a tabela users. RETURNING não alcança colunas de JOIN, por isso
+// o CTE: insere e, na mesma query, junta de volta o public_id de cada
+// destinatário (pra emitir "dm:message" via socket - ver rota).
+//
+// `attachments`: cada anexo é o MESMO arquivo em disco, referenciado por N
+// linhas de private_message_attachments (uma por destinatário, mesma
+// estrutura de uma mensagem normal) - 1 query por anexo (não por
+// destinatário), inserindo via unnest() sobre os ids já retornados acima.
+export async function createSystemBroadcast({ senderId, content, attachments = [] }) {
+  const { rows } = await pool.query(
+    `WITH inserted AS (
+       INSERT INTO private_messages (sender_id, recipient_id, content)
+       SELECT $1, u.id, $2 FROM users u WHERE u.id <> $1 AND u.is_system = false
+       RETURNING id, recipient_id, created_at
+     )
+     SELECT i.id, i.created_at, u.public_id AS "recipientPublicId"
+     FROM inserted i INNER JOIN users u ON u.id = i.recipient_id`,
+    [senderId, content]
+  );
+
+  if (attachments.length > 0 && rows.length > 0) {
+    const messageIds = rows.map((r) => r.id);
+    for (let i = 0; i < attachments.length; i++) {
+      const att = attachments[i];
+      await pool.query(
+        `INSERT INTO private_message_attachments (private_message_id, path, name, size, mime, position)
+         SELECT t.id, $2, $3, $4, $5, $6 FROM unnest($1::bigint[]) AS t(id)`,
+        [messageIds, att.path, att.name, att.size, att.mime, i]
+      );
+    }
+  }
+
   return rows;
 }
 

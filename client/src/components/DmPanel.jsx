@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Phone, PhoneOff } from "lucide-react";
+import { Phone, PhoneOff, ArrowDown, BadgeCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
 import { getSocket } from "../api/socket.js";
 import { useTypingEmitter } from "../hooks/useTypingEmitter.js";
+import { useChatScroll } from "../hooks/useChatScroll.js";
 import {
   listConversation,
   clearConversation,
@@ -16,6 +17,7 @@ import AttachmentDropZone from "./AttachmentDropZone.jsx";
 import TypingIndicator from "./TypingIndicator.jsx";
 import StatusDot from "./StatusDot.jsx";
 import Avatar from "./Avatar.jsx";
+import StyledUsername from "./StyledUsername.jsx";
 
 // Ver mesma constante em ChatPanel.jsx.
 const TYPING_EXPIRE_MS = 5000;
@@ -35,7 +37,14 @@ export default function DmPanel({ friend }) {
   // Conversa 1:1 - só existe "o amigo está digitando ou não" (sem lista).
   const [peerTyping, setPeerTyping] = useState(false);
   const peerTypingTimeoutRef = useRef(null);
-  const bottomRef = useRef(null);
+  const {
+    containerRef,
+    bottomRef,
+    onScroll,
+    showJumpToBottom,
+    hasNewMessage,
+    scrollToBottom,
+  } = useChatScroll(`dm:${friend.id}`, messages, loading);
   // Quem pode ser @mencionado numa DM - só os dois lados da conversa (ver
   // MessageContent.jsx).
   const mentionableUsernames = [user?.username, friend.username].filter(Boolean);
@@ -99,6 +108,18 @@ export default function DmPanel({ friend }) {
       cancelled = true;
     };
   }, [friend.id]);
+
+  // Mensagem digitada fora do DmPanel (UserProfilePreview.jsx) chega aqui
+  // via friend.pendingMessage (mesmo state de navegação de openDmWith, ver
+  // RoomsPage.jsx) - dispara o envio uma única vez por conversa aberta, sem
+  // esperar o usuário digitar de novo no campo abaixo.
+  const sentPendingForRef = useRef(null);
+  useEffect(() => {
+    const pending = friend.pendingMessage;
+    if (!pending || sentPendingForRef.current === friend.id) return;
+    sentPendingForRef.current = friend.id;
+    handleSend(pending, []);
+  }, [friend.id, friend.pendingMessage]);
 
   // Abrir a conversa marca as mensagens pendentes daquele amigo como lidas
   // (zera o badge na lista - ver FriendsPanel.jsx, que reage a esse mesmo
@@ -165,10 +186,6 @@ export default function DmPanel({ friend }) {
     setPeerTyping(false);
   }, [friend.id]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   const emitTyping = useCallback(
     (typing) => getSocket().emit("dm:typing", { userId: friend.id, typing }),
     [friend.id],
@@ -231,29 +248,40 @@ export default function DmPanel({ friend }) {
               className="absolute -right-0.5 -bottom-0.5 ring-2 ring-white dark:ring-slate-900"
             />
           </span>
-          <span className="truncate">{friend.username}</span>
+          <StyledUsername username={friend.username} style={friend.nameStyle} className="truncate" />
+          {friend.isSystem && (
+            <BadgeCheck
+              className="size-4 shrink-0 text-sky-500"
+              title="Conta oficial do NaveSpeak"
+            />
+          )}
         </h3>
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={handleCallClick}
-            disabled={callBusy}
-            title={
-              inAnyCall ? "Sair da chamada" : `Ligar para ${friend.username}`
-            }
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
-              inAnyCall
-                ? "bg-red-600 hover:bg-red-700"
-                : "bg-emerald-600 hover:bg-emerald-700"
-            }`}
-          >
-            {inAnyCall ? (
-              <PhoneOff className="size-3.5" />
-            ) : (
-              <Phone className="size-3.5" />
-            )}
-            {inAnyCall ? "Sair da chamada" : "Ligar"}
-          </button>
+          {/* Ligar não faz sentido pra conta oficial (não atende) - some só o
+              botão de INICIAR chamada; "Sair da chamada" continua visível se
+              já houver uma chamada em andamento com outra pessoa. */}
+          {(inAnyCall || !friend.isSystem) && (
+            <button
+              type="button"
+              onClick={handleCallClick}
+              disabled={callBusy}
+              title={
+                inAnyCall ? "Sair da chamada" : `Ligar para ${friend.username}`
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                inAnyCall
+                  ? "bg-red-600 hover:bg-red-700"
+                  : "bg-emerald-600 hover:bg-emerald-700"
+              }`}
+            >
+              {inAnyCall ? (
+                <PhoneOff className="size-3.5" />
+              ) : (
+                <Phone className="size-3.5" />
+              )}
+              {inAnyCall ? "Sair da chamada" : "Ligar"}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleClearHistory}
@@ -264,7 +292,12 @@ export default function DmPanel({ friend }) {
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
+      <div className="relative min-h-0 flex-1">
+      <div
+        ref={containerRef}
+        onScroll={onScroll}
+        className="h-full space-y-4 overflow-y-auto px-4 py-4 sm:px-5"
+      >
         {loading && <p className="hint">Carregando mensagens...</p>}
         {error && <p className="error-text">{error}</p>}
         {!loading && messages.length === 0 && (
@@ -282,15 +315,15 @@ export default function DmPanel({ friend }) {
             />
             <div className="min-w-0">
               <div className="flex items-baseline gap-2">
-                <span
+                <StyledUsername
+                  username={message.sender_username}
+                  style={message.senderNameStyle}
                   className={`text-sm font-semibold ${
                     message.sender_id === user?.id
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-slate-900 dark:text-white"
                   }`}
-                >
-                  {message.sender_username}
-                </span>
+                />
                 <span className="text-xs text-slate-500 dark:text-slate-400">
                   {formatMessageTime(message.created_at)}
                 </span>
@@ -305,17 +338,37 @@ export default function DmPanel({ friend }) {
         ))}
         <div ref={bottomRef} />
       </div>
+      {showJumpToBottom && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          title="Ir para a mensagem mais recente"
+          className="absolute bottom-3 right-4 flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-lg transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          <ArrowDown className="size-3.5" />
+          {hasNewMessage && (
+            <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-emerald-500" />
+          )}
+        </button>
+      )}
+      </div>
 
       <TypingIndicator usernames={peerTyping ? [friend.username] : []} />
-      <div className="px-4 pb-4 sm:px-5">
-        <MessageInput
-          ref={messageInputRef}
-          onSend={handleSend}
-          onTyping={notifyTyping}
-          disabled={loading}
-          mentionCandidates={mentionCandidates}
-        />
-      </div>
+      {friend.isSystem ? (
+        <p className="px-4 pb-4 text-center text-xs text-slate-400 dark:text-slate-500 sm:px-5">
+          Comunicados oficiais - não é possível responder por aqui.
+        </p>
+      ) : (
+        <div className="px-4 pb-4 sm:px-5">
+          <MessageInput
+            ref={messageInputRef}
+            onSend={handleSend}
+            onTyping={notifyTyping}
+            disabled={loading}
+            mentionCandidates={mentionCandidates}
+          />
+        </div>
+      )}
     </AttachmentDropZone>
   );
 }

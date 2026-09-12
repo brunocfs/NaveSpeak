@@ -21,6 +21,8 @@ const USER_COLUMNS = `
   avatar_path AS "avatarPath",
   status,
   is_admin AS "isAdmin",
+  is_system AS "isSystem",
+  name_style AS "nameStyle",
   failed_login_attempts,
   locked_until,
   created_at,
@@ -134,7 +136,7 @@ export async function clearFailedLogins(userId) {
 // só username, só bio, ou qualquer combinação, sem sobrescrever o resto com
 // null. A checagem de username/email já em uso é responsabilidade de quem
 // chama (users.routes.js), igual ao padrão de auth.routes.js no cadastro.
-export async function updateProfile(userId, { username, email, bio } = {}) {
+export async function updateProfile(userId, { username, email, bio, nameStyle } = {}) {
   const sets = [];
   const values = [];
   let i = 1;
@@ -150,6 +152,13 @@ export async function updateProfile(userId, { username, email, bio } = {}) {
   if (bio !== undefined) {
     sets.push(`bio = $${i++}`);
     values.push(bio || null);
+  }
+  // Objeto INTEIRO, não patch por campo dentro do JSON - quem chama sempre
+  // manda o estilo completo (ver nameStyleSchema), então um UPDATE simples
+  // basta; não precisa de jsonb_set/merge.
+  if (nameStyle !== undefined) {
+    sets.push(`name_style = $${i++}::jsonb`);
+    values.push(JSON.stringify(nameStyle));
   }
   sets.push('updated_at = NOW()');
 
