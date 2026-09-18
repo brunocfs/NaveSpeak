@@ -1,10 +1,11 @@
 {
   "name": "navespeak-electron",
   "private": true,
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "NaveSpeak voice chat desktop client",
   "author": "NaveSpeak",
   "main": "main.js",
+  "desktopName": "navespeak.desktop",
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
@@ -47,8 +48,7 @@
     "linux": {
       "target": "AppImage",
       "icon": "assets/icon.png",
-      "category": "Network",
-      "desktopName": "navespeak.desktop"
+      "category": "Network"
     },
     "publish": {
       "provider": "generic",
