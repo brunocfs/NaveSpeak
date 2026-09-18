@@ -9,11 +9,18 @@ const QUALITY_COLOR = {
   unknown: "text-slate-400 dark:text-slate-500",
 };
 
+// const QUALITY_LABEL = {
+//   good: "Voz Conectada",
+//   fair: "Conexão instável",
+//   poor: "Conexão ruim",
+//   unknown: "Medindo conexão...",
+// };
+
 const QUALITY_LABEL = {
-  good: "Voz Conectada",
-  fair: "Conexão instável",
-  poor: "Conexão ruim",
-  unknown: "Medindo conexão...",
+  good: "",
+  fair: "",
+  poor: "",
+  unknown: "Conectando",
 };
 
 // Ícone de estado da chamada de voz - cor segue media.networkStats.quality
@@ -43,9 +50,12 @@ export default function ConnectionStatusButton() {
         onClick={() => setOpen((v) => !v)}
         title="Estatísticas de conexão"
         aria-label="Estatísticas de conexão"
-        className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition hover:bg-slate-200/70 dark:hover:bg-slate-700/70 ${QUALITY_COLOR[quality]}`}
+        className={` cursor-pointer inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition hover:bg-slate-200/70 dark:hover:bg-slate-700/70 ${QUALITY_COLOR[quality]}`}
       >
         <Icon className="size-4" />
+        {quality !== "unknown" && (
+          <span className="hidden sm:inline">{ping} ms</span>
+        )}
         <span className="hidden sm:inline">{QUALITY_LABEL[quality]}</span>
       </button>
 

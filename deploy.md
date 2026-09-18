@@ -234,6 +234,29 @@ Gere uma senha forte dedicada (`openssl rand -hex 32`) e use exatamente essa
 role/senha em `DB_USER`/`DB_PASSWORD` no `.env` de produção (seção 8) — nunca
 o usuário `postgres`.
 
+**Toda vez que uma release trouxer TABELA NOVA no schema** (ex.: a
+`system_broadcasts` do Zeno), rode as duas linhas de `GRANT` de novo depois
+de aplicar o `schema-postgre.sql` - o `GRANT ... ON ALL TABLES` é um
+retrato do momento em que rodou, não vale pra tabela criada depois:
+
+```bash
+sudo -u postgres psql -d navespeak -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO navespeak_app;"
+sudo -u postgres psql -d navespeak -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO navespeak_app;"
+```
+
+Coluna nova em tabela JÁ existente (ex.: `users.is_system`/`name_style`) não
+precisa de nada disso - o `GRANT` já é por tabela inteira, cobre colunas
+novas sozinho.
+
+Pra nunca mais precisar lembrar deste passo, configure uma vez (também como
+`postgres`) que TODA tabela/sequência futura criada por ele já nasça com
+esses grants:
+
+```bash
+sudo -u postgres psql -d navespeak -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO navespeak_app;"
+sudo -u postgres psql -d navespeak -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO navespeak_app;"
+```
+
 Por padrão o PostgreSQL do Ubuntu já escuta só em `127.0.0.1` — confirme em
 `/etc/postgresql/16/main/postgresql.conf` (`listen_addresses = 'localhost'`)
 e não mude isso: o banco não deve ser alcançável de fora da VPS.
@@ -765,32 +788,58 @@ Sem certificado de assinatura de código, o Windows SmartScreen avisa
 "publisher desconhecido" na primeira instalação manual - normal pra grupo de
 teste, resolve com um certificado (EV ou padrão) se o público crescer.
 
+### Windows + Linux
+
+Mesmo código-fonte, dois pacotes (`electron/package.json` já tem os dois
+alvos configurados: `win.target: nsis`, `linux.target: AppImage`). AppImage
+porque é o único formato Linux com auto-update de verdade via
+`electron-updater` sem instalar nada (roda direto, sem pacote de sistema).
+
+**O build do AppImage PRECISA rodar num Linux de verdade** (ou WSL/Docker) -
+`npm run build:electron -- --linux` numa máquina Windows falha com
+`EPERM: operation not permitted, symlink ...` (empacotar AppImage usa
+symlink, e criar symlink sem privilégio de admin/Developer Mode é bloqueado
+no Windows). O build do `.exe` (`--win`) continua normal em qualquer SO.
+
 ### Publicar uma atualização
 
 O app já instalado busca updates sozinho (`electron-updater`, provider
 `generic` apontando pra `${SERVER_URL}/updates` - mesmo servidor, sem
-precisar configurar host separado nem GitHub Releases). Publicar uma versão
-nova é só:
+precisar configurar host separado nem GitHub Releases). O provider genérico
+já resolve o manifesto certo por SO sozinho (`latest.yml` no Windows,
+`latest-linux.yml` no Linux) - não precisa de nada a mais no server pra
+isso, só os arquivos certos estarem na pasta. Publicar uma versão nova:
 
 1. Suba a versão em `electron/package.json` (`"version"`).
-2. `npm run build:electron` (gera o instalador + `latest.yml` em `electron/dist/`).
-3. Copie os DOIS arquivos pra `server/updates/` e publique.
+2. Windows: `npm run build:electron` (gera o instalador + `latest.yml` em
+   `electron/dist/`).
+3. Linux: `npm run build:electron -- --linux` NUMA MÁQUINA LINUX (ver acima) -
+   gera o `.AppImage` + `latest-linux.yml`.
+4. Copie os arquivos de cada build pra `server/updates/` e publique.
 
 `server/updates/` é conteúdo VERSIONADO do repositório (não gitignorado,
-`.exe` via **Git LFS** - ver `.gitattributes`) de propósito: publicar update
-vira `git add`/`commit`/`push` daqui, `git pull` na VPS - só precisa de
-HTTPS pro GitHub, nunca de SSH/scp pra própria VPS (útil quando a porta SSH
-tá bloqueada/atrás de firewall, como já aconteceu). `latest.yml` é o
-manifesto que o `electron-updater` lê pra saber se existe algo mais novo
-que a versão instalada; sem ele o feed fica "vazio" e ninguém recebe update.
+`.exe`/`.AppImage` via **Git LFS** - ver `.gitattributes`) de propósito:
+publicar update vira `git add`/`commit`/`push` daqui, `git pull` na VPS - só
+precisa de HTTPS pro GitHub, nunca de SSH/scp pra própria VPS (útil quando a
+porta SSH tá bloqueada/atrás de firewall, como já aconteceu). `latest.yml`/
+`latest-linux.yml` são os manifestos que o `electron-updater` lê pra saber se
+existe algo mais novo que a versão instalada; sem eles o feed fica "vazio" e
+ninguém daquele SO recebe update - os dois manifestos são independentes,
+publicar só Windows não quebra quem já tem Linux instalado (e vice-versa).
 
 ```bash
-# copia os artefatos do build pra dentro do repo
+# copia os artefatos de CADA build (Windows e/ou Linux) pra dentro do repo
 cp electron/dist/NaveSpeak-Setup-*.exe electron/dist/latest.yml server/updates/
+cp electron/dist/NaveSpeak-*.AppImage electron/dist/latest-linux.yml server/updates/
 git add server/updates/
 git commit -m "chore: publica NaveSpeak vX.Y.Z"
 git push
 ```
+
+`/download` (link "Baixar app" no client web) também já detecta o SO pelo
+User-Agent do navegador (`server/src/index.js`) e manda pro instalador
+certo - sem manifesto Linux publicado ainda, visitante Linux cai no mesmo
+"Nenhuma versão publicada ainda." até a primeira versão AppImage sair.
 
 Na VPS (via console web se SSH não funcionar - ver seção de troubleshooting
 de firewall/porta SSH mais acima):

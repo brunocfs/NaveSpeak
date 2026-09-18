@@ -54,6 +54,19 @@ body {
   color: var(--text);
 }
 
+/* App Electron roda sem barra de título nativa (frame:false) e desenha a
+   própria (TitleBar.jsx, 36px) - reserva esse espaço em toda página que usa
+   h-screen/min-h-screen (100vh) pra a barra não ficar sobreposta ao topo do
+   conteúdo. Classe `electron-app` só existe dentro do Electron (ver
+   main.jsx); fora dele estas regras nunca casam e h-screen/min-h-screen
+   continuam 100vh normalmente. */
+html.electron-app .h-screen {
+  height: calc(100vh - 36px);
+}
+html.electron-app .min-h-screen {
+  min-height: calc(100vh - 36px);
+}
+
 .centered {
   display: flex;
   align-items: center;
@@ -374,11 +387,47 @@ body {
   margin-top: 0;
 }
 
+/* Abas Telas/Janelas do ScreenSourcePicker. */
+.source-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 0.75rem;
+}
+
+.source-tab {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.source-tab[aria-selected="true"] {
+  border-bottom-color: #3b82f6;
+  opacity: 1;
+}
+
+/* Scroll próprio: com muitas janelas só a grade rola, as opções de qualidade
+   abaixo ficam sempre visíveis. */
 .source-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 0.6rem;
   margin-bottom: 1rem;
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.source-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
+  opacity: 0.7;
+  font-size: 0.85rem;
 }
 
 .source-option {

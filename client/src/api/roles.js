@@ -30,6 +30,7 @@ export const PERMISSION_LABELS = {
   BAN_MEMBERS: 'Banir/expulsar usuários',
   CREATE_INVITE: 'Criar convites para o servidor',
   MANAGE_SERVER: 'Alterar nome/imagem do servidor',
+  USE_SOUNDBOARD: 'Tocar efeitos sonoros do servidor',
 };
 
 export const PERMISSION_KEYS = Object.keys(PERMISSION_LABELS);

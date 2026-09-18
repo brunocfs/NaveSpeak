@@ -156,7 +156,10 @@ export default function RoomPage() {
       setRooms((prev) =>
         prev.map((r) =>
           r.id === roomId
-            ? { ...r, unreadCount: Math.max(0, (r.unreadCount ?? 0) - previousUnread) }
+            ? {
+                ...r,
+                unreadCount: Math.max(0, (r.unreadCount ?? 0) - previousUnread),
+              }
             : r,
         ),
       );
@@ -294,7 +297,13 @@ export default function RoomPage() {
           setRooms((prev) =>
             prev.map((r) =>
               r.id === roomId
-                ? { ...r, unreadCount: Math.max(0, (r.unreadCount ?? 0) - previousUnread) }
+                ? {
+                    ...r,
+                    unreadCount: Math.max(
+                      0,
+                      (r.unreadCount ?? 0) - previousUnread,
+                    ),
+                  }
                 : r,
             ),
           );
@@ -1304,7 +1313,7 @@ export default function RoomPage() {
                                   </span>
                                 </div>
 
-                                <span
+                                {/* <span
                                   className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
                                     isOnline
                                       ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
@@ -1312,7 +1321,7 @@ export default function RoomPage() {
                                   }`}
                                 >
                                   {statusLabel(status)}
-                                </span>
+                                </span> */}
                               </li>
                             );
                           })}

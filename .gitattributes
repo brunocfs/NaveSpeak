@@ -1,3 +1,5 @@
 server/updates/*.exe filter=lfs diff=lfs merge=lfs -text
+server/updates/*.AppImage filter=lfs diff=lfs merge=lfs -text
 client/public/vendor/deepfilternet3/**/*.wasm filter=lfs diff=lfs merge=lfs -text
 client/public/vendor/deepfilternet3/**/*.bin filter=lfs diff=lfs merge=lfs -text
+client/public/vendor/mediapipe/**/*.wasm filter=lfs diff=lfs merge=lfs -text

@@ -16,8 +16,9 @@ import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
-import { createGainStream } from '../audio/gainStream.js';
-import { playSound } from '../utils/sounds.js';
+import { playSound, playSoundboardSound } from '../utils/sounds.js';
+import { soundboardSrc } from '../api/soundboard.js';
+import CameraSetupModal from '../components/CameraSetupModal.jsx';
 
 // Producer de tela: bitrate/fps agora vêm da qualidade escolhida pelo
 // usuário no <ScreenSourcePicker> (resolução/fps + bitrate avançado
@@ -193,15 +194,13 @@ export function MediaSessionProvider({ children }) {
   const [sharingScreen, setSharingScreen] = useState(false);
   // Áudio OPCIONAL do compartilhamento de tela (system/app audio, produzido
   // como um producer À PARTE do vídeo - ver shareScreen/startScreenAudio
-  // abaixo). `screenAudioVolume` é o GANHO DE ENVIO que o próprio
-  // compartilhador controla sobre o que está mandando (0-200, ver
-  // audio/gainStream.js) - diferente do volume de escuta que cada OUVINTE
-  // ajusta pra si (esse é local, per-listener, vive em PreferencesContext
-  // igual userVolumes, ver getScreenAudioVolume/setScreenAudioVolume lá).
+  // abaixo). O volume é só de quem OUVE (local, per-listener, vive em
+  // PreferencesContext igual userVolumes, ver getScreenAudioVolume/
+  // setScreenAudioVolume lá) - quem compartilha não controla.
   const [screenAudioEnabled, setScreenAudioEnabled] = useState(false);
-  const [screenAudioVolume, setScreenAudioVolumeState] = useState(100);
-  const screenAudioVolumeRef = useRef(100);
   const [cameraOn, setCameraOn] = useState(false);
+  // CameraSetupModal aberto (ver shareCamera).
+  const [cameraSetupOpen, setCameraSetupOpen] = useState(false);
   const [localScreenStream, setLocalScreenStream] = useState(null);
   const [localCameraStream, setLocalCameraStream] = useState(null);
   // Stream CRUA do próprio mic (a capturada em joinVoice, antes do RNNoise -
@@ -283,10 +282,7 @@ export function MediaSessionProvider({ children }) {
   const screenProducerRef = useRef(null);
   // Producer À PARTE pro áudio do compartilhamento de tela (kind 'audio',
   // appData.source 'screen-audio') - existe só enquanto screenAudioEnabled.
-  // screenAudioGainRef é o controlador do grafo de ganho (audio/gainStream.js)
-  // que alimenta esse producer, mesmo papel de denoiserRef/gateRef pro mic.
   const screenAudioProducerRef = useRef(null);
-  const screenAudioGainRef = useRef(null);
   // Track de vídeo/áudio ATUALMENTE em uso pelo compartilhamento de tela -
   // só existem pra guardar o listener 'ended' de trocar de fonte
   // (switchScreenSource abaixo) contra a PRÓPRIA troca: ao trocar, paramos a
@@ -326,6 +322,8 @@ export function MediaSessionProvider({ children }) {
   const {
     micDeviceId,
     cameraDeviceId,
+    cameraBackground,
+    cameraAskEveryTime,
     noiseSuppressionMode,
     noiseSuppressionLevel,
     micGateEnabled,
@@ -443,6 +441,17 @@ export function MediaSessionProvider({ children }) {
       setVoiceRoster(next);
     }
 
+    // Soundboard: o servidor manda este evento pra TODO MUNDO conectado à
+    // chamada do canal (voiceRoomOf, ver mediasoup.handler.js), inclusive
+    // quem tocou - reprodução é 100% client-local (ver playSoundboardSound
+    // em utils/sounds.js), nunca um producer mediasoup. Filtra pelo canal
+    // ativo igual handleVoiceUpdate acima (o servidor não filtra, só emite
+    // pra room do canal).
+    function handleSoundboardPlayed(update) {
+      if (update.channelId !== channelIdRef.current) return;
+      playSoundboardSound(soundboardSrc(update.filePath));
+    }
+
     // Reconexão do socket (queda de rede, ou o servidor reiniciou): o
     // transporte WebRTC anterior morreu junto com a conexão antiga, mediasoup
     // não tem como sobreviver a isso. Se o usuário estava numa chamada
@@ -552,6 +561,7 @@ export function MediaSessionProvider({ children }) {
     socket.on('media:producerClosed', handleProducerClosed);
     socket.on('media:producerStateChanged', handleStateChanged);
     socket.on('voice:update', handleVoiceUpdate);
+    socket.on('soundboard:played', handleSoundboardPlayed);
     socket.on('voice:screenViewers', handleScreenViewers);
     socket.on('voice:audioModerated', handleAudioModerated);
     socket.on('voice:mediaModerated', handleMediaModerated);
@@ -564,6 +574,7 @@ export function MediaSessionProvider({ children }) {
       socket.off('media:producerClosed', handleProducerClosed);
       socket.off('media:producerStateChanged', handleStateChanged);
       socket.off('voice:update', handleVoiceUpdate);
+      socket.off('soundboard:played', handleSoundboardPlayed);
       socket.off('voice:screenViewers', handleScreenViewers);
       socket.off('voice:audioModerated', handleAudioModerated);
       socket.off('voice:mediaModerated', handleMediaModerated);
@@ -610,8 +621,6 @@ export function MediaSessionProvider({ children }) {
       micProducerRef.current = null;
       screenProducerRef.current = null;
       screenAudioProducerRef.current = null;
-      screenAudioGainRef.current?.destroy();
-      screenAudioGainRef.current = null;
       activeScreenVideoTrackRef.current = null;
       activeScreenAudioTrackRef.current = null;
       cameraProducerRef.current = null;
@@ -630,8 +639,6 @@ export function MediaSessionProvider({ children }) {
       setMuted(false);
       setSharingScreen(false);
       setScreenAudioEnabled(false);
-      screenAudioVolumeRef.current = 100;
-      setScreenAudioVolumeState(100);
       setCameraOn(false);
       setDeafened(false);
       wasMutedBeforeDeafenRef.current = false;
@@ -1160,6 +1167,20 @@ export function MediaSessionProvider({ children }) {
     [socket],
   );
 
+  // Toca um efeito sonoro do soundboard do servidor pra todo mundo no canal
+  // de voz atual (ver SoundboardPanel.jsx). Com ack (diferente de
+  // toggleDeafen/setWatchingScreen acima) porque aqui HÁ o que desfazer: sem
+  // permissão, ensurdecido, rate limit etc. - o painel precisa mostrar por
+  // que não tocou, não só falhar em silêncio.
+  const triggerSoundboardSound = useCallback(
+    (soundId) => {
+      const channelId = channelIdRef.current;
+      if (!channelId) return Promise.reject(new Error('Você não está em um canal de voz.'));
+      return emitAsync(socket, 'soundboard:play', { channelId, soundId });
+    },
+    [socket],
+  );
+
   const closeProducer = useCallback(
     async (producer) => {
       if (!producer) return;
@@ -1177,38 +1198,30 @@ export function MediaSessionProvider({ children }) {
   );
 
   // Produz o áudio (já opcional) do compartilhamento de tela como um
-  // producer À PARTE do vídeo (appData.source 'screen-audio') - passa antes
-  // por um grafo de ganho (audio/gainStream.js) pra o compartilhador poder
-  // ajustar o volume do que está enviando (setLocalScreenAudioVolume
-  // abaixo). Falha aqui (grafo Web Audio indisponível, produce recusado
-  // etc.) não derruba o compartilhamento de vídeo - só segue sem áudio.
+  // producer À PARTE do vídeo (appData.source 'screen-audio'), com a track
+  // crua da captura - sem ganho nem processamento: quem compartilha não
+  // controla o volume da transmissão, só quem assiste (localmente). Falha
+  // aqui (produce recusado etc.) não derruba o compartilhamento de vídeo -
+  // só segue sem áudio.
   const startScreenAudio = useCallback(async (rawAudioTrack) => {
     try {
-      const gain = await createGainStream(new MediaStream([rawAudioTrack]), {
-        volume: screenAudioVolumeRef.current,
-      });
-      screenAudioGainRef.current = gain;
       activeScreenAudioTrackRef.current = rawAudioTrack;
-      const processedTrack = gain.stream.getAudioTracks()[0];
-      // Track CRUA (a que saiu da captura, não a processada pelo gain) é a
-      // que morre quando o navegador/SO encerra o compartilhamento - é nela
-      // que o 'ended' precisa escutar. Guard contra a própria troca de fonte
-      // - ver comentário de activeScreenAudioTrackRef acima.
+      // Guard contra a própria troca de fonte - ver comentário de
+      // activeScreenAudioTrackRef acima.
       rawAudioTrack.addEventListener('ended', () => {
         if (activeScreenAudioTrackRef.current !== rawAudioTrack) return;
         stopScreenAudioRef.current();
       });
 
       const producer = await sendTransportRef.current.produce({
-        track: processedTrack,
+        track: rawAudioTrack,
         appData: { source: 'screen-audio' },
       });
       screenAudioProducerRef.current = producer;
       setScreenAudioEnabled(true);
     } catch (err) {
       console.error(err);
-      screenAudioGainRef.current?.destroy();
-      screenAudioGainRef.current = null;
+      activeScreenAudioTrackRef.current = null;
       setScreenAudioEnabled(false);
       setError('Não foi possível incluir o áudio no compartilhamento de tela - seguindo só com o vídeo.');
     }
@@ -1217,8 +1230,6 @@ export function MediaSessionProvider({ children }) {
   const stopScreenAudio = useCallback(async () => {
     await closeProducer(screenAudioProducerRef.current);
     screenAudioProducerRef.current = null;
-    screenAudioGainRef.current?.destroy();
-    screenAudioGainRef.current = null;
     activeScreenAudioTrackRef.current = null;
     setScreenAudioEnabled(false);
   }, [closeProducer]);
@@ -1226,18 +1237,6 @@ export function MediaSessionProvider({ children }) {
   useEffect(() => {
     stopScreenAudioRef.current = stopScreenAudio;
   }, [stopScreenAudio]);
-
-  // Ajusta ao vivo o ganho do áudio compartilhado JÁ em transmissão (sem
-  // recriar producer nenhum) - só o compartilhador vê/mexe nisso, é o
-  // volume do que ELE está enviando, não o de quem escuta (esse é per-
-  // listener, ver getScreenAudioVolume/setScreenAudioVolume em
-  // PreferencesContext).
-  const setLocalScreenAudioVolume = useCallback((volume) => {
-    const clamped = Math.min(200, Math.max(0, volume));
-    screenAudioVolumeRef.current = clamped;
-    setScreenAudioVolumeState(clamped);
-    screenAudioGainRef.current?.setVolume(clamped);
-  }, []);
 
   // Compartilhar tela: só pode ser chamado a partir de um clique explícito
   // do usuário ("Compartilhar tela") - é isso que dispara o prompt nativo do
@@ -1257,7 +1256,7 @@ export function MediaSessionProvider({ children }) {
       }
       setError(null);
       try {
-        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio, ...quality });
+        const { stream, hasAudio, audioError } = await requestScreenStream(sourceId, { withAudio, ...quality });
         const [track] = stream.getVideoTracks();
         track.contentHint = 'motion'; // otimiza o encoder pra conteúdo de alto movimento (jogos)
         activeScreenVideoTrackRef.current = track;
@@ -1284,6 +1283,7 @@ export function MediaSessionProvider({ children }) {
         // sharingScreen:true inclui quem iniciou.
 
         if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
+        if (audioError) setError(audioError);
       } catch (err) {
         console.error(err);
         if (err.name !== 'NotAllowedError') {
@@ -1329,7 +1329,7 @@ export function MediaSessionProvider({ children }) {
       setError(null);
       const wantAudio = withAudio ?? screenAudioEnabled;
       try {
-        const { stream, hasAudio } = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
+        const { stream, hasAudio, audioError } = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
         const [newTrack] = stream.getVideoTracks();
         newTrack.contentHint = 'motion'; // mesmo tuning de shareScreen acima
         // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
@@ -1361,6 +1361,7 @@ export function MediaSessionProvider({ children }) {
 
         if (screenAudioProducerRef.current) await stopScreenAudioRef.current();
         if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
+        if (audioError) setError(audioError);
 
         // getTracks() (não só getVideoTracks()) de propósito: também para a
         // track de ÁUDIO crua da captura anterior, se havia uma - sem isso
@@ -1383,7 +1384,10 @@ export function MediaSessionProvider({ children }) {
     [shareScreen, screenAudioEnabled, startScreenAudio]
   );
 
-  const shareCamera = useCallback(async () => {
+  // Liga a câmera de fato. Sem argumentos usa o que está salvo em Preferências
+  // (também é o caminho da reconexão, sem abrir o modal); o CameraSetupModal
+  // passa a escolha feita na hora.
+  const startCamera = useCallback(async ({ deviceId = cameraDeviceId, background = cameraBackground } = {}) => {
     if (!sendTransportRef.current) {
       setError('Entre na voz antes de ligar a câmera.');
       return;
@@ -1394,9 +1398,11 @@ export function MediaSessionProvider({ children }) {
     }
     setError(null);
     try {
-      const { stream, fellBack } = await requestCameraStream(cameraDeviceId);
+      const { stream, fellBack, backgroundError } = await requestCameraStream(deviceId, background);
       if (fellBack) {
         setError('A webcam salva em Preferências não foi encontrada - usando o padrão do sistema.');
+      } else if (backgroundError) {
+        setError(backgroundError);
       }
       const [track] = stream.getVideoTracks();
       track.addEventListener('ended', () => stopCameraRef.current());
@@ -1414,11 +1420,21 @@ export function MediaSessionProvider({ children }) {
         setError(err.message ?? 'Não foi possível ligar a câmera.');
       }
     }
-  }, [mediaLocked, cameraDeviceId]);
+  }, [mediaLocked, cameraDeviceId, cameraBackground]);
 
   useEffect(() => {
-    shareCameraRef.current = shareCamera;
-  }, [shareCamera]);
+    shareCameraRef.current = startCamera;
+  }, [startCamera]);
+
+  // Botão de câmera: abre o CameraSetupModal (preview + dispositivo + fundo)
+  // ou, com "não perguntar mais" salvo, liga direto.
+  const shareCamera = useCallback(async () => {
+    if (cameraAskEveryTime && sendTransportRef.current && !mediaLocked) {
+      setCameraSetupOpen(true);
+    } else {
+      await startCamera();
+    }
+  }, [cameraAskEveryTime, mediaLocked, startCamera]);
 
   const stopCamera = useCallback(async () => {
     await closeProducer(cameraProducerRef.current);
@@ -1441,13 +1457,15 @@ export function MediaSessionProvider({ children }) {
   // para a stream antiga. Se a câmera não está ligada agora, não faz nada -
   // da próxima vez que ligar, shareCamera já lê o cameraDeviceId atual
   // sozinho, não precisa desta função.
-  const switchCamera = useCallback(async (deviceId) => {
+  const switchCamera = useCallback(async (deviceId, background) => {
     if (!cameraProducerRef.current) return;
     setError(null);
     try {
-      const { stream, fellBack } = await requestCameraStream(deviceId);
+      const { stream, fellBack, backgroundError } = await requestCameraStream(deviceId, background);
       if (fellBack) {
         setError('A webcam salva em Preferências não foi encontrada - usando o padrão do sistema.');
+      } else if (backgroundError) {
+        setError(backgroundError);
       }
       const [newTrack] = stream.getVideoTracks();
       if (!cameraProducerRef.current) {
@@ -1470,10 +1488,10 @@ export function MediaSessionProvider({ children }) {
   const cameraLiveDeviceIdRef = useRef(cameraDeviceId);
   useEffect(() => {
     if (cameraOn && cameraLiveDeviceIdRef.current !== cameraDeviceId) {
-      switchCamera(cameraDeviceId);
+      switchCamera(cameraDeviceId, cameraBackground);
     }
     cameraLiveDeviceIdRef.current = cameraDeviceId;
-  }, [cameraDeviceId, cameraOn, switchCamera]);
+  }, [cameraDeviceId, cameraBackground, cameraOn, switchCamera]);
 
   // Sai da chamada de voz quando o provider desmonta - como ele vive em
   // App.jsx, acima de <Routes>, isso só acontece quando o app inteiro
@@ -1587,10 +1605,9 @@ export function MediaSessionProvider({ children }) {
       stopScreenShare,
       switchScreenSource,
       screenAudioEnabled,
-      screenAudioVolume,
-      setLocalScreenAudioVolume,
       screenViewers,
       setWatchingScreen,
+      triggerSoundboardSound,
       cameraOn,
       localCameraStream,
       shareCamera,
@@ -1633,10 +1650,9 @@ export function MediaSessionProvider({ children }) {
       stopScreenShare,
       switchScreenSource,
       screenAudioEnabled,
-      screenAudioVolume,
-      setLocalScreenAudioVolume,
       screenViewers,
       setWatchingScreen,
+      triggerSoundboardSound,
       cameraOn,
       localCameraStream,
       shareCamera,
@@ -1653,7 +1669,20 @@ export function MediaSessionProvider({ children }) {
     ]
   );
 
-  return <MediaSessionContext.Provider value={value}>{children}</MediaSessionContext.Provider>;
+  return (
+    <MediaSessionContext.Provider value={value}>
+      {children}
+      {cameraSetupOpen && (
+        <CameraSetupModal
+          onConfirm={(choice) => {
+            setCameraSetupOpen(false);
+            startCamera(choice);
+          }}
+          onCancel={() => setCameraSetupOpen(false)}
+        />
+      )}
+    </MediaSessionContext.Provider>
+  );
 }
 
 export function useMediaSession() {

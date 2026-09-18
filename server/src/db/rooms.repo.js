@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { addDefaultChannelsForServer } from './channels.repo.js';
+import { ensureDefaultRole } from './roles.repo.js';
 
 export async function createRoom({ name, createdBy }) {
   const id = randomUUID();
@@ -14,6 +15,8 @@ export async function createRoom({ name, createdBy }) {
   // Já cria os canais padrão (texto "geral" + voz "Voz") para o servidor não
   // abrir sem nenhum canal.
   await addDefaultChannelsForServer(id);
+  // Role padrão "Membros" - ver comentário em roles.repo.js#ensureDefaultRole.
+  await ensureDefaultRole(id);
   return { id, name, created_by: createdBy };
 }
 

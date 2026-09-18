@@ -68,6 +68,11 @@ const SYSTEM_DEFAULT = "";
 const hasGlobalPushToTalk =
   typeof window !== "undefined" && Boolean(window.naveSpeak?.pushToTalk);
 
+// window.naveSpeak.autoLaunch só existe dentro do app Electron (ver
+// electron/preload.js) - "iniciar com o sistema" não existe pra versão web.
+const hasAutoLaunch =
+  typeof window !== "undefined" && Boolean(window.naveSpeak?.autoLaunch);
+
 // Abas do modal - mesmo padrão visual de ServerSettingsModal.jsx (sidebar à
 // esquerda + conteúdo rolável à direita), pra não inventar uma segunda
 // convenção de "modal com abas" no app. "Geral" = preferências sem relação
@@ -107,6 +112,7 @@ export default function PreferencesModal() {
     notificationsEnabled,
     micDeviceId,
     cameraDeviceId,
+    cameraAskEveryTime,
     outputDeviceId,
     noiseSuppressionMode,
     noiseSuppressionLevel,
@@ -119,6 +125,7 @@ export default function PreferencesModal() {
     notificationVolume,
     notificationOutputEnabled,
     notificationOutputDeviceId,
+    soundboardVolume,
   } = preferences;
 
   // Teste de microfone (sensibilidade) - stream à parte do `draft`, só existe
@@ -130,6 +137,23 @@ export default function PreferencesModal() {
   // MicLevelMeter abaixo, não aqui - ver o comentário dele.
   const [previewStream, setPreviewStream] = useState(null);
   const [previewError, setPreviewError] = useState(null);
+
+  // "Iniciar com o sistema" - fica FORA do `draft`/"Salvar" de propósito:
+  // não é uma preferência guardada no navegador (PreferencesContext), é um
+  // registro do próprio SO (setLoginItemSettings, ver main.js) - aplica na
+  // hora do clique, igual o "Testar microfone" acima.
+  const [autoLaunch, setAutoLaunchState] = useState(false);
+  const [autoLaunchSaving, setAutoLaunchSaving] = useState(false);
+
+  async function handleAutoLaunchToggle(checked) {
+    setAutoLaunchSaving(true);
+    try {
+      const applied = await window.naveSpeak.autoLaunch.set(checked);
+      setAutoLaunchState(applied);
+    } finally {
+      setAutoLaunchSaving(false);
+    }
+  }
 
   // Captura da tecla de push-to-talk - liga ao clicar em "Atribuir tecla" e
   // desliga sozinha assim que a próxima tecla é pressionada (ou com Esc,
@@ -246,6 +270,7 @@ export default function PreferencesModal() {
       notificationsEnabled,
       micDeviceId,
       cameraDeviceId,
+      cameraAskEveryTime,
       outputDeviceId,
       noiseSuppressionMode,
       noiseSuppressionLevel,
@@ -258,10 +283,14 @@ export default function PreferencesModal() {
       notificationVolume,
       notificationOutputEnabled,
       notificationOutputDeviceId,
+      soundboardVolume,
     });
     setTab(TABS[0].id);
     setOpen(true);
     refreshDevices();
+    if (hasAutoLaunch) {
+      window.naveSpeak.autoLaunch.get().then(setAutoLaunchState);
+    }
   }
 
   function handleClose() {
@@ -278,6 +307,7 @@ export default function PreferencesModal() {
     preferences.setNotificationsEnabled(draft.notificationsEnabled);
     preferences.setMicDeviceId(draft.micDeviceId || null);
     preferences.setCameraDeviceId(draft.cameraDeviceId || null);
+    preferences.setCameraAskEveryTime(draft.cameraAskEveryTime);
     preferences.setOutputDeviceId(draft.outputDeviceId || null);
     preferences.setNoiseSuppressionMode(draft.noiseSuppressionMode);
     preferences.setNoiseSuppressionLevel(draft.noiseSuppressionLevel);
@@ -292,6 +322,7 @@ export default function PreferencesModal() {
     preferences.setNotificationOutputDeviceId(
       draft.notificationOutputDeviceId || null,
     );
+    preferences.setSoundboardVolume(draft.soundboardVolume);
     handleClose();
   }
 
@@ -488,6 +519,33 @@ export default function PreferencesModal() {
                               - a preferência já fica salva para quando estiver.
                             </p>
                           </div>
+
+                          {hasAutoLaunch && (
+                            <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                              <span>
+                                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  Iniciar com o sistema
+                                </span>
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Abre o NaveSpeak automaticamente assim que
+                                  você liga o computador
+                                </span>
+                              </span>
+                              <span className="relative inline-flex shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={autoLaunch}
+                                  disabled={autoLaunchSaving}
+                                  onChange={(e) =>
+                                    handleAutoLaunchToggle(e.target.checked)
+                                  }
+                                  className="peer sr-only"
+                                />
+                                <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                              </span>
+                            </label>
+                          )}
                         </>
                       )}
                       {tab === "notifications" && (
@@ -543,6 +601,33 @@ export default function PreferencesModal() {
                               Sons de entrar/sair de canal, silenciar, mensagem
                               nova etc. - não afeta o volume dos participantes
                               de uma chamada.
+                            </span>
+                          </label>
+                          <label className="block">
+                            <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
+                              Volume dos efeitos sonoros do servidor
+                              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
+                                {draft.soundboardVolume}%
+                              </span>
+                            </span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="5"
+                              value={draft.soundboardVolume}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  soundboardVolume: Number(e.target.value),
+                                }))
+                              }
+                              className="mt-1.5 w-full accent-blue-600"
+                            />
+                            <span className="block text-xs text-slate-400 dark:text-slate-500">
+                              Volume dos sons do soundboard tocados por
+                              membros do servidor num canal de voz - separado
+                              do volume de notificações acima.
                             </span>
                           </label>
 
@@ -724,6 +809,32 @@ export default function PreferencesModal() {
                                 ))}
                               </select>
                             </div>
+
+                            <label className="flex cursor-pointer items-center justify-between gap-3">
+                              <span>
+                                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  Perguntar ao ligar a câmera
+                                </span>
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Abre a prévia com escolha de webcam e plano de fundo
+                                </span>
+                              </span>
+                              <span className="relative inline-flex shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={draft.cameraAskEveryTime}
+                                  onChange={(e) =>
+                                    setDraft((prev) => ({
+                                      ...prev,
+                                      cameraAskEveryTime: e.target.checked,
+                                    }))
+                                  }
+                                  className="peer sr-only"
+                                />
+                                <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                              </span>
+                            </label>
 
                             {supportsAudioOutputSelection ? (
                               <div>

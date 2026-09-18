@@ -7,18 +7,22 @@ import { MediaSessionProvider } from "./context/MediaSessionContext.jsx";
 import { CallProvider } from "./context/CallContext.jsx";
 import { NotificationProvider } from "./context/NotificationContext.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import TitleBar from "./components/TitleBar.jsx";
 import VoiceStatusBar from "./components/VoiceStatusBar.jsx";
 import VoicePanel from "./components/VoicePanel.jsx";
 import CallInviteBanner from "./components/CallInviteBanner.jsx";
 import UpdateAvailableBanner from "./components/UpdateAvailableBanner.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
+import ForgotPassPage from "./pages/ForgotPassPage.jsx";
+import DownloadPage from "./pages/DownloadPage.jsx";
 import RoomsPage from "./pages/RoomsPage.jsx";
 import RoomPage from "./pages/RoomPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import AdminInvitesPage from "./pages/AdminInvitesPage.jsx";
 import AdminBroadcastsPage from "./pages/AdminBroadcastsPage.jsx";
+import AdminSoundboardSettingsPage from "./pages/AdminSoundboardSettingsPage.jsx";
 import InviteRedirectPage from "./pages/InviteRedirectPage.jsx";
 import ServerInvitePage from "./pages/ServerInvitePage.jsx";
 
@@ -31,6 +35,13 @@ export default function App() {
     // ToastProvider fica no topo de tudo, junto com PreferencesProvider:
     // popup de loading/confirmação precisa funcionar em QUALQUER tela,
     // logada ou não (Login/Register incluídos) - ver ToastContext.jsx.
+    //
+    // TitleBar fica FORA de tudo isso, de propósito: não renderiza nada fora
+    // do Electron (ver TitleBar.jsx) e não depende de nenhum provider - é só
+    // a barra de arrastar/minimizar/maximizar/fechar da janela nativa, tem
+    // que existir independente de login/tema/rota.
+    <>
+    <TitleBar />
     <ToastProvider>
     <PreferencesProvider>
       <AuthProvider>
@@ -62,6 +73,11 @@ export default function App() {
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/forgotPass" element={<ForgotPassPage />} />
+                  {/* Página bonita de download (Windows/Linux) - fora de
+                  ProtectedRoute de propósito: link "Baixar app" aparece pra
+                  quem nem tem conta ainda, ver DownloadAppLink.jsx. */}
+                  <Route path="/baixar" element={<DownloadPage />} />
                   {/* Link curto de convite (/invite/:code) - redireciona pra
                   /register?invite=:code, ver InviteRedirectPage.jsx. Fora de
                   ProtectedRoute: precisa funcionar deslogado, é assim que
@@ -130,6 +146,14 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+                  <Route
+                    path="/admin/soundboard-settings"
+                    element={
+                      <ProtectedRoute requireAdmin>
+                        <AdminSoundboardSettingsPage />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route path="*" element={<Navigate to="/rooms" replace />} />
                 </Routes>
                 {/* <VoiceStatusBar /> */}
@@ -143,5 +167,6 @@ export default function App() {
       </AuthProvider>
     </PreferencesProvider>
     </ToastProvider>
+    </>
   );
 }

@@ -21,9 +21,7 @@ import { useEffect, useRef } from "react";
 // qualquer AudioContext criado do zero (mesmo com `.resume()` chamado depois
 // do gesto de entrar na chamada) não conseguiu produzir som de verdade
 // neste app. `<audio>` puro é o único caminho comprovado - teto de volume
-// fica em 100% (limite nativo de `el.volume`), sem boost. O boost de verdade
-// (até 200%) só existe do lado de ENVIO, ver audio/gainStream.js - aplicado
-// ANTES de chegar aqui, então este componente nunca precisa saber disso.
+// fica em 100% (limite nativo de `el.volume`), sem boost.
 function RemoteAudio({ stream, muted, volume, outputDeviceId }) {
   const audioRef = useRef(null);
 
@@ -63,8 +61,8 @@ function RemoteAudio({ stream, muted, volume, outputDeviceId }) {
 // sem o tile local (isLocal), mas filtra de novo aqui por segurança (nunca
 // ecoar o próprio mic). `screenAudioTiles` = um item por compartilhamento de
 // tela REMOTO que tem áudio (nunca o próprio - o compartilhador não precisa
-// se ouvir, o volume dele é de ENVIO, ver setLocalScreenAudioVolume em
-// MediaSessionContext.jsx). `deafened` silencia a reprodução de todo mundo
+// se ouvir, e não tem controle de volume da própria transmissão).
+// `deafened` silencia a reprodução de todo mundo
 // de uma vez ("Silenciar todos" em VoicePanel), igual já fazia dentro do
 // tile. `getUserVolume`/`getScreenAudioVolume` (PreferencesContext) resolvem
 // o volume individual - default 100 quando o usuário nunca mexeu no controle.

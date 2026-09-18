@@ -25,6 +25,8 @@ import dmRoutes from './routes/dm.routes.js';
 import dmConversationsRoutes from './routes/dmConversations.routes.js';
 import adminBroadcastsRoutes from './routes/adminBroadcasts.routes.js';
 import adminSystemUserRoutes from './routes/adminSystemUser.routes.js';
+import adminSettingsRoutes from './routes/adminSettings.routes.js';
+import backgroundsRoutes from './routes/backgrounds.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
@@ -144,6 +146,7 @@ app.use('/api/users/me/avatar', express.json({ limit: '3mb' }));
 // também manda a imagem em base64 dentro do JSON.
 app.use('/api/admin/system-user/avatar', express.json({ limit: '3mb' }));
 app.use('/api/rooms', express.json({ limit: '3mb' }));
+app.use('/api/backgrounds', express.json({ limit: '3mb' }));
 // Anexo de chat vai de base64 dentro do JSON também (mesmo motivo do
 // comentário acima) - 20MB decodificados vira ~27MB em base64, mais folga
 // pro resto do payload.
@@ -185,6 +188,8 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/invites', invitesRoutes);
 app.use('/api/admin/broadcasts', adminBroadcastsRoutes);
 app.use('/api/admin/system-user', adminSystemUserRoutes);
+app.use('/api/admin/settings', adminSettingsRoutes);
+app.use('/api/backgrounds', backgroundsRoutes);
 app.use('/api/attachments', attachmentsRoutes);
 app.use('/api/client-errors', clientErrorsRoutes);
 
@@ -216,15 +221,31 @@ app.use('/updates', express.static(updatesDir));
 
 // Link "Download App" (TopBar do client, só aparece fora do Electron) -
 // redireciona pro instalador MAIS RECENTE sem o client precisar saber nome
-// de arquivo/versão (troca sozinho a cada release): lê o `path:` de
-// latest.yml, o MESMO manifesto que o electron-updater já consome pra
-// checar update (electron/main.js) - nunca fica desatualizado dos dois
-// lados por acidente, é uma fonte só.
+// de arquivo/versão (troca sozinho a cada release): lê o `path:` do manifesto
+// (mesmo formato que o electron-updater já consome pra checar update,
+// electron/main.js) - nunca fica desatualizado dos dois lados por acidente,
+// é uma fonte só. `latest-linux.yml` só existe depois que uma versão Linux
+// (AppImage) for publicada em server/updates/ - até lá, visitante Linux cai
+// no mesmo fallback de "nenhuma versão" que qualquer OS sem manifesto ainda.
+// "Linux" sozinho pega Android também (a UA de navegador Android inclui
+// "Linux") - precisa excluir explicitamente.
+//
+// `?os=win|linux` força o manifesto (ver client/src/pages/DownloadPage.jsx) -
+// a página bonita de download mostra os DOIS botões pro visitante escolher
+// explicitamente, não dá pra depender só da UA de quem clica.
+function manifestForUserAgent(userAgent = '', osOverride) {
+  if (osOverride === 'win') return 'latest.yml';
+  if (osOverride === 'linux') return 'latest-linux.yml';
+  const isAndroid = /Android/i.test(userAgent);
+  if (!isAndroid && /Linux/i.test(userAgent)) return 'latest-linux.yml';
+  return 'latest.yml'; // Windows e qualquer outro caso (só temos build Win/Linux hoje)
+}
 app.get('/download', (req, res) => {
+  const manifest = manifestForUserAgent(req.headers['user-agent'], req.query.os);
   try {
-    const yml = fs.readFileSync(path.join(updatesDir, 'latest.yml'), 'utf8');
+    const yml = fs.readFileSync(path.join(updatesDir, manifest), 'utf8');
     const filename = yml.match(/^path:\s*['"]?([^'"\n]+)['"]?\s*$/m)?.[1]?.trim();
-    if (!filename) throw new Error('latest.yml sem campo "path"');
+    if (!filename) throw new Error(`${manifest} sem campo "path"`);
     res.redirect(`/updates/${encodeURIComponent(filename)}`);
   } catch {
     // Servidor novo, ainda sem nenhuma versão publicada em server/updates/

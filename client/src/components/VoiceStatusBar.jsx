@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, RefreshCw, Volume2, Headphones } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, RefreshCw, Headphones } from "lucide-react";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
 import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
@@ -105,22 +105,6 @@ export default function VoiceStatusBar() {
         >
           <RefreshCw className="size-5 text-white" />
         </button>
-      )}
-      {media.sharingScreen && media.screenAudioEnabled && (
-        <div
-          className="flex items-center gap-1.5 rounded-xl bg-gray-700 px-2.5 py-2"
-          title={`Volume do áudio compartilhado: ${media.screenAudioVolume}%`}
-        >
-          <Volume2 className="size-4 text-white shrink-0" />
-          <input
-            type="range"
-            min={0}
-            max={200}
-            value={media.screenAudioVolume}
-            onChange={(e) => media.setLocalScreenAudioVolume(Number(e.target.value))}
-            className="h-1 w-16 cursor-pointer accent-blue-400"
-          />
-        </div>
       )}
       <button
         onClick={() => media.toggleMute()}

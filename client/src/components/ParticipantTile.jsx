@@ -45,11 +45,9 @@ export default function ParticipantTile({
   onTogglePin,
   // Só usados em kind='screen': se este compartilhamento tem áudio (ver
   // appData.source 'screen-audio' em MediaSessionContext.jsx) e o controle
-  // de volume correspondente - de ENVIO (setLocalScreenAudioVolume) pro
-  // tile LOCAL da própria tela, de ESCUTA (getScreenAudioVolume/
-  // setScreenAudioVolume em PreferencesContext) pros tiles REMOTOS. Este
-  // componente não distingue os dois casos, só renderiza o slider e chama o
-  // callback que VoicePanel já resolveu certo pra cada tile.
+  // de volume de ESCUTA (getScreenAudioVolume/setScreenAudioVolume em
+  // PreferencesContext) - só tiles REMOTOS passam `onAudioVolumeChange`; o
+  // tile local mostra só o ícone, sem slider.
   hasAudio = false,
   audioVolume = 100,
   onAudioVolumeChange,
@@ -59,10 +57,6 @@ export default function ParticipantTile({
   // derivar só do lado de quem compartilha. [{userId, username}] - a contagem
   // é só o tamanho da lista, o hover mostra os nomes.
   viewers = [],
-  // 200 pro tile LOCAL (ganho de ENVIO, ver audio/gainStream.js), 100 pros
-  // tiles REMOTOS (volume de escuta via el.volume, sem boost - ver
-  // RemoteAudioPlayers.jsx).
-  audioVolumeMax = 100,
   // Ocultar (webcam OU tela, conforme quem monta o tile decide - ver
   // VoicePanel.jsx) é uma escolha 100% LOCAL de quem está vendo: nunca
   // chega no servidor, nunca afeta o que os outros participantes veem.
@@ -236,7 +230,7 @@ export default function ParticipantTile({
                 <input
                   type="range"
                   min={0}
-                  max={audioVolumeMax}
+                  max={100}
                   value={audioVolume}
                   onChange={(e) => onAudioVolumeChange(Number(e.target.value))}
                   onClick={(e) => e.stopPropagation()}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { setNotificationVolume, setNotificationOutputDevice } from '../utils/sounds.js';
+import { setNotificationVolume, setNotificationOutputDevice, setSoundboardVolume } from '../utils/sounds.js';
 
 const PreferencesContext = createContext(null);
 
@@ -16,6 +16,13 @@ const DEFAULT_PREFERENCES = {
   // shareCamera - ver api/media.js getStreamWithFallback).
   micDeviceId: null,
   cameraDeviceId: null,
+  // Fundo virtual da webcam (CameraSetupModal.jsx, utils/backgroundProcessor.js):
+  // mode 'none' | 'blur' | 'image'; image = { source: 'remote', filePath } |
+  // { source: 'local', id } (só com mode 'image').
+  cameraBackground: { mode: 'none', image: null },
+  // true = ligar a câmera abre o CameraSetupModal (preview + escolhas); false
+  // = liga direto com cameraDeviceId/cameraBackground salvos.
+  cameraAskEveryTime: true,
   // Dispositivo de SAÍDA (alto-falante/fone) - null = padrão do sistema.
   // Aplicado via `HTMLMediaElement.setSinkId()` em cada <audio> de
   // participante remoto (RemoteAudioPlayers.jsx) - API só existe em
@@ -146,6 +153,11 @@ const DEFAULT_PREFERENCES = {
   // ligado, até o usuário escolher um). Só Chrome/Edge (AudioContext.
   // setSinkId), mesmo feature-detect de outputDeviceId.
   notificationOutputDeviceId: null,
+  // Volume master do SOUNDBOARD (efeitos sonoros do servidor, ver
+  // SoundboardPanel.jsx/utils/sounds.js#playSoundboardSound) - SEPARADO de
+  // notificationVolume (aquele é join/leave/mute/mensagem, fixos do próprio
+  // app) e de userVolumes (voz dos participantes). 0-100, padrão 100.
+  soundboardVolume: 100,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
@@ -200,6 +212,10 @@ export function PreferencesProvider({ children }) {
   }, [preferences.notificationVolume]);
 
   useEffect(() => {
+    setSoundboardVolume(preferences.soundboardVolume);
+  }, [preferences.soundboardVolume]);
+
+  useEffect(() => {
     setNotificationOutputDevice(
       preferences.notificationOutputEnabled ? preferences.notificationOutputDeviceId : null
     );
@@ -221,6 +237,8 @@ export function PreferencesProvider({ children }) {
       notificationsEnabled: preferences.notificationsEnabled,
       micDeviceId: preferences.micDeviceId,
       cameraDeviceId: preferences.cameraDeviceId,
+      cameraBackground: preferences.cameraBackground,
+      cameraAskEveryTime: preferences.cameraAskEveryTime,
       outputDeviceId: preferences.outputDeviceId,
       membersSidebarVisible: preferences.membersSidebarVisible,
       videoLayoutMode: preferences.videoLayoutMode,
@@ -245,6 +263,7 @@ export function PreferencesProvider({ children }) {
       notificationVolume: preferences.notificationVolume,
       notificationOutputEnabled: preferences.notificationOutputEnabled,
       notificationOutputDeviceId: preferences.notificationOutputDeviceId,
+      soundboardVolume: preferences.soundboardVolume,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -253,6 +272,9 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, notificationsEnabled })),
       setMicDeviceId: (micDeviceId) => setPreferences((prev) => ({ ...prev, micDeviceId })),
       setCameraDeviceId: (cameraDeviceId) => setPreferences((prev) => ({ ...prev, cameraDeviceId })),
+      setCameraBackground: (cameraBackground) => setPreferences((prev) => ({ ...prev, cameraBackground })),
+      setCameraAskEveryTime: (cameraAskEveryTime) =>
+        setPreferences((prev) => ({ ...prev, cameraAskEveryTime })),
       setOutputDeviceId: (outputDeviceId) => setPreferences((prev) => ({ ...prev, outputDeviceId })),
       toggleMembersSidebar: () =>
         setPreferences((prev) => ({ ...prev, membersSidebarVisible: !prev.membersSidebarVisible })),
@@ -309,6 +331,8 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, notificationOutputEnabled })),
       setNotificationOutputDeviceId: (notificationOutputDeviceId) =>
         setPreferences((prev) => ({ ...prev, notificationOutputDeviceId })),
+      setSoundboardVolume: (soundboardVolume) =>
+        setPreferences((prev) => ({ ...prev, soundboardVolume })),
     }),
     [preferences]
   );

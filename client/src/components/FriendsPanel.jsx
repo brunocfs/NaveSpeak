@@ -362,7 +362,7 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
               className="w-full outline-none "
               maxLength={38}
               onChange={(e) => setUsernameInput(e.target.value)}
-              placeholder="Insira o código do tribulante {usuario#12345}"
+              placeholder="Insira o username do tripulante {usuario#12345}"
             ></input>
 
             <button

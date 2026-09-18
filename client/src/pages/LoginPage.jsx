@@ -57,7 +57,8 @@ export default function LoginPage() {
 
   const inputClass =
     "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20";
-  const labelClass = "mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300";
+  const labelClass =
+    "mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300";
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-white text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:flex-row">
@@ -99,8 +100,8 @@ export default function LoginPage() {
                 <span aria-hidden="true">🔒</span> Teste fechado
               </p>
               <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
-                O acesso ainda é só por convite de quem já embarcou. Sem
-                convite em mãos? Peça o seu a um tripulante.
+                O acesso ainda é só por convite de quem já embarcou. Sem convite
+                em mãos? Peça o seu a um tripulante.
               </p>
             </div>
           )}
@@ -209,7 +210,14 @@ export default function LoginPage() {
                 {submitting ? "Entrando..." : "Entrar"}
               </button>
             </div>
-
+            <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
+              <Link
+                to="/forgotPass"
+                className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Esqueci minha senha
+              </Link>
+            </p>
             <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
               Não tem conta?{" "}
               <Link

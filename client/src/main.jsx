@@ -6,6 +6,15 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { reportClientEvent } from './observability/telemetry.js';
 import './styles/index.css';
 
+// Reserva o espaço da barra de título custom (TitleBar.jsx, 36px) em toda
+// classe de altura de tela (h-screen/min-h-screen) usada pelas páginas -
+// feito ANTES do render (sem useEffect) pra não piscar o layout sem o
+// espaço reservado por um frame. window.naveSpeak só existe dentro do
+// Electron (ver preload.js/api/media.js).
+if (window.naveSpeak?.getScreenSources) {
+  document.documentElement.classList.add('electron-app');
+}
+
 // Erros fora da árvore React (callbacks, promises soltas) - só nome +
 // mensagem, com amostragem em telemetry.js.
 window.addEventListener('error', (event) => {

@@ -227,6 +227,74 @@ export async function playSound(name, { volume = 1, loop = false } = {}) {
   }
 }
 
+// Volume master do SOUNDBOARD (Preferências > Geral > "Volume dos efeitos
+// sonoros do servidor") - SEPARADO de notificationVolume acima (aquele é
+// join/leave/mute/mensagem, efeitos fixos do próprio app; este é o som
+// ARBITRÁRIO que um membro do servidor escolheu tocar, ver
+// SoundboardPanel.jsx). 0..1, PreferencesContext empurra aqui via
+// setSoundboardVolume sempre que a preferência muda.
+let soundboardVolume = 1;
+export function setSoundboardVolume(volumePercent) {
+  soundboardVolume = Math.min(100, Math.max(0, volumePercent)) / 100;
+}
+
+// Buffers de soundboard já decodificados, por URL (não por nome fixo como
+// SOUNDS acima - o soundboard toca qualquer arquivo que o servidor mandar,
+// ver handleSoundboardPlayed em MediaSessionContext.jsx). Sem limite de
+// tamanho/expiração: são poucos arquivos por servidor (limite configurável
+// por admin, hoje 20) e pequenos (poucos segundos), cabem tranquilo em
+// memória pela duração da sessão.
+const soundboardBuffers = new Map(); // url -> AudioBuffer
+const soundboardLoading = new Map(); // url -> Promise<AudioBuffer> em andamento
+
+function loadSoundboardBuffer(url) {
+  if (soundboardBuffers.has(url)) return Promise.resolve(soundboardBuffers.get(url));
+  if (soundboardLoading.has(url)) return soundboardLoading.get(url);
+
+  const promise = fetch(url)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then((arrayBuffer) => getAudioContext().decodeAudioData(arrayBuffer))
+    .then((buffer) => {
+      soundboardBuffers.set(url, buffer);
+      soundboardLoading.delete(url);
+      return buffer;
+    })
+    .catch((err) => {
+      soundboardLoading.delete(url);
+      throw err;
+    });
+
+  soundboardLoading.set(url, promise);
+  return promise;
+}
+
+// Toca um efeito sonoro de soundboard pela URL do arquivo (/uploads/soundboard/...,
+// ver soundboard:played em MediaSessionContext.jsx). Nunca lança - mesma
+// postura de playSound acima (404/decode inválido/autoplay bloqueado só
+// avisam no console). Sem dedupe por nome (diferente de playSound): sons
+// diferentes podem legitimamente tocar em sequência rápida, um do outro.
+export async function playSoundboardSound(url) {
+  if (typeof window === 'undefined' || !url) return;
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const buffer = await loadSoundboardBuffer(url);
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = soundboardVolume;
+    source.connect(gain).connect(ctx.destination);
+    source.start(0);
+  } catch (err) {
+    console.warn(`[sounds] Não foi possível tocar o efeito sonoro "${url}":`, err.message);
+  }
+}
+
 // Para um som em loop (hoje só "calling" - CallContext.jsx toca em loop
 // enquanto a ligação está chamando e para assim que é aceita/recusada/
 // cancelada).

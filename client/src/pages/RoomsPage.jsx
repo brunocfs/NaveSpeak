@@ -1,6 +1,14 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Sparkles, Bug, ShieldCheck, Plus, Megaphone } from "lucide-react";
+import {
+  Sparkles,
+  Bug,
+  ShieldCheck,
+  Plus,
+  Megaphone,
+  Volume2,
+  LogOut,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
@@ -225,34 +233,37 @@ export default function RoomsPage() {
                 <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
               </div>
             )}
-            <div className="flex   min-w-0 overflow-hidden items-center gap-3">
-              {!loading && rooms.length > 0 && (
-                <div
-                  ref={scrollRef}
-                  onWheel={handleWheel}
-                  className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                >
-                  {rooms.map((room) => (
-                    <div
-                      className="group relative flex items-center  "
-                      key={room.id}
-                    >
-                      <Link key={room.id} to={`/rooms/${room.id}`}>
-                        <span className="relative inline-flex">
-                          <Avatar
-                            avatarPath={room.icon_path}
-                            username={room.name}
-                            size="lg"
-                          />
-                          {room.unreadCount > 0 && (
-                            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
-                              {room.unreadCount > 9 ? "99+" : room.unreadCount}
-                            </span>
-                          )}
-                        </span>
-                      </Link>
-                      <span
-                        className=" z-50
+            <div className="flex justify-between w-full min-w-0 ">
+              <div className="flex   min-w-0 overflow-hidden items-center gap-3 ">
+                {!loading && rooms.length > 0 && (
+                  <div
+                    ref={scrollRef}
+                    onWheel={handleWheel}
+                    className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    {rooms.map((room) => (
+                      <div
+                        className="group relative flex items-center  "
+                        key={room.id}
+                      >
+                        <Link key={room.id} to={`/rooms/${room.id}`}>
+                          <span className="relative inline-flex">
+                            <Avatar
+                              avatarPath={room.icon_path}
+                              username={room.name}
+                              size="lg"
+                            />
+                            {room.unreadCount > 0 && (
+                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
+                                {room.unreadCount > 9
+                                  ? "99+"
+                                  : room.unreadCount}
+                              </span>
+                            )}
+                          </span>
+                        </Link>
+                        <span
+                          className=" z-50
                             absolute left-1/2 -translate-y-1/2
                             whitespace-nowrap rounded-md
                             bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
@@ -260,53 +271,74 @@ export default function RoomsPage() {
                             transition-all duration-200
                             group-hover:opacity-100
                             group-hover:translate-x-0"
-                      >
-                        {room.name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setAddServerOpen(true)}
-                title="Criar ou entrar em um servidor"
-                aria-label="Criar ou entrar em um servidor"
-                className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
-              >
-                <Plus />
-              </button>
-              <DownloadAppLink />
-            </div>
-            {user?.isAdmin && (
-              <Link
-                to="/admin/invites"
-                title="Convites"
-                aria-label="Convites"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <ShieldCheck className="h-5 w-5" />
-              </Link>
-            )}
-            {user?.isAdmin && (
-              <Link
-                to="/admin/broadcasts"
-                title="Comunicados oficiais"
-                aria-label="Comunicados oficiais"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <Megaphone className="h-5 w-5" />
-              </Link>
-            )}
+                        >
+                          {room.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAddServerOpen(true)}
+                  title="Criar ou entrar em um servidor"
+                  aria-label="Criar ou entrar em um servidor"
+                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 mr-2 dark:text-slate-200 min-w-14 h-14 dark:hover:bg-slate-800"
+                >
+                  <Plus />
+                </button>
+              </div>
+              <div className="flex gap-3 items-center">
+                <DownloadAppLink />
+                {user?.isAdmin && (
+                  <Link
+                    to="/admin/invites"
+                    title="Convites"
+                    aria-label="Convites"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <ShieldCheck className="h-5 w-5" />
+                  </Link>
+                )}
+                {user?.isAdmin && (
+                  <Link
+                    to="/admin/broadcasts"
+                    title="Comunicados oficiais"
+                    aria-label="Comunicados oficiais"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <Megaphone className="h-5 w-5" />
+                  </Link>
+                )}
+                {user?.isAdmin && (
+                  <Link
+                    to="/admin/soundboard-settings"
+                    title="Configurações do soundboard"
+                    aria-label="Configurações do soundboard"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <Volume2 className="h-5 w-5" />
+                  </Link>
+                )}
 
-            <Link
-              to="/reports"
-              title="Reportar bug ou sugestão"
-              aria-label="Reportar bug ou sugestão"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <Bug className="h-5 w-5" />
-            </Link>
+                <Link
+                  to="/reports"
+                  title="Reportar bug ou sugestão"
+                  aria-label="Reportar bug ou sugestão"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <Bug className="h-5 w-5" />
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  title="Sair"
+                  aria-label="Sair"
+                  className="cursor-pointer inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <LogOut className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
             {/* <button
               onClick={handleLogout}
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"

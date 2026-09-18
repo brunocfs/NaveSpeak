@@ -1,6 +1,6 @@
 import { isRoomMember, findRoomById } from '../db/rooms.repo.js';
 import { findChannelById } from '../db/channels.repo.js';
-import { mediaChannelIdSchema, channelIdParamSchema, userIdParamSchema } from '../validation/schemas.js';
+import { mediaChannelIdSchema, channelIdParamSchema, userIdParamSchema, soundIdParamSchema } from '../validation/schemas.js';
 import { webRtcTransportOptions } from '../mediasoup/config.js';
 import {
   getOrCreateRoom,
@@ -10,16 +10,35 @@ import {
   removePeer,
   listOtherProducers,
 } from '../mediasoup/rooms.js';
-import { addVoicePresence, removeVoicePresence, listVoicePresence, setVoiceMediaState } from './voicePresence.js';
+import { addVoicePresence, removeVoicePresence, listVoicePresence, setVoiceMediaState, getVoiceMediaState } from './voicePresence.js';
 import { isCallChannel, handleCallLeave } from './calls.handler.js';
 import { isCallParticipant, setStatus as setCallStatus } from './callsStore.js';
 import { getUserPermissionBitmask, listRoleIdsForUser } from '../db/roles.repo.js';
+import { findSoundInServer } from '../db/soundboardSounds.repo.js';
 import { PERMISSIONS, checkPermission, canAccessChannel } from '../utils/permissions.js';
 import { randomUUID } from 'node:crypto';
+import { redis } from '../config/redis.js';
 import { logger, audit } from '../observability/logger.js';
 import { metrics } from '../observability/metrics.js';
 import { logError } from '../observability/errors.js';
 import { permissionName } from '../middleware/permissions.js';
+
+const SOUNDBOARD_RATE_LIMIT_WINDOW_MS = 10_000;
+const SOUNDBOARD_RATE_LIMIT_MAX_PLAYS = 10;
+
+// Mesmo esquema de chat.handler.js#isRateLimited (INCR + PEXPIRE no Redis,
+// fail-open se o Redis falhar) - chave própria pra não compartilhar janela
+// com o rate limit de chat do mesmo socket.
+async function isSoundboardRateLimited(socket) {
+  const key = `ratelimit:soundboard:${socket.id}`;
+  try {
+    const count = await redis.incr(key);
+    if (count === 1) await redis.pexpire(key, SOUNDBOARD_RATE_LIMIT_WINDOW_MS);
+    return count > SOUNDBOARD_RATE_LIMIT_MAX_PLAYS;
+  } catch {
+    return false;
+  }
+}
 
 function wrapAck(callback) {
   return typeof callback === 'function' ? callback : () => {};
@@ -633,6 +652,71 @@ export function registerMediasoupHandlers(io, socket) {
 
     await setVoiceMediaState(parsed.data, user.id, { deafened: Boolean(deafened) });
     await broadcastVoicePresence(io, parsed.data, socket.data.voiceServerId);
+  });
+
+  // Soundboard: toca um efeito sonoro do servidor pra todo mundo no canal de
+  // voz. Reprodução 100% CLIENT-LOCAL - este evento só avisa quem já está
+  // conectado à chamada (voiceRoomOf) pra baixar/tocar o arquivo sozinho
+  // (ver playSoundboardSound em MediaSessionContext.jsx); o servidor nunca
+  // mistura o áudio em si (não é um producer mediasoup, mesma natureza de
+  // "estado social" que media:setDeafened/media:setScreenViewer acima, só
+  // que aqui dispara uma ação em vez de espelhar um estado).
+  socket.on('soundboard:play', async ({ channelId, soundId } = {}, callback) => {
+    const ack = wrapAck(callback);
+    const parsedChannel = mediaChannelIdSchema.safeParse(channelId);
+    const parsedSound = soundIdParamSchema.safeParse(soundId);
+    if (!parsedChannel.success || !parsedSound.success) return ack({ error: 'Dados inválidos.' });
+    const id = parsedChannel.data;
+
+    // Só existe soundboard de SERVIDOR - chamada privada não tem servidor
+    // dono (nem sons cadastrados em lugar nenhum pra ela tocar).
+    if (isCallChannel(id)) return ack({ error: 'Efeitos sonoros não estão disponíveis em chamadas privadas.' });
+
+    // Precisa estar DE FATO conectado à chamada deste canal (mesma checagem
+    // de media:setScreenViewer acima) - nunca confia só em "sou membro do
+    // servidor" pra uma ação que faz barulho pra quem está na call agora.
+    if (!getPeer(id, socket.id)) return ack({ error: 'Você não está conectado a este canal de voz.' });
+
+    if (await isSoundboardRateLimited(socket)) {
+      return ack({ error: 'Você está tocando efeitos sonoros rápido demais. Aguarde um pouco.' });
+    }
+
+    // Ensurdecido = "eu não quero ouvir ninguém" - tocar um som pros outros
+    // enquanto isso não faz sentido (pedido explícito do escopo).
+    const mediaState = await getVoiceMediaState(id, user.id);
+    if (mediaState.deafened) {
+      return ack({ error: 'Você não pode tocar efeitos sonoros estando ensurdecido.' });
+    }
+
+    const channel = await findChannelById(id);
+    if (!channel) return ack({ error: 'Canal não encontrado.' });
+    const room = await findRoomById(channel.server_id);
+    if (!room) return ack({ error: 'Servidor não encontrado.' });
+
+    const bitmask = await getUserPermissionBitmask(channel.server_id, user.internalId);
+    const allowed = checkPermission({ room, user, bitmask, flag: PERMISSIONS.USE_SOUNDBOARD });
+    if (!allowed) {
+      audit('authorization_denied', {
+        outcome: 'denied',
+        reason_code: 'missing_permission',
+        permission: permissionName(PERMISSIONS.USE_SOUNDBOARD),
+        channel_id: id,
+        room_id: channel.server_id,
+      });
+      return ack({ error: 'Você não tem permissão para usar o soundboard.' });
+    }
+
+    const sound = await findSoundInServer(channel.server_id, parsedSound.data);
+    if (!sound) return ack({ error: 'Efeito sonoro não encontrado.' });
+
+    io.to(voiceRoomOf(id)).emit('soundboard:played', {
+      channelId: id,
+      soundId: sound.id,
+      name: sound.name,
+      filePath: sound.filePath,
+      playedBy: { id: user.id, username: user.username },
+    });
+    return ack({ ok: true });
   });
 
   // Reporta "estou assistindo (ou parei de assistir) a tela compartilhada de

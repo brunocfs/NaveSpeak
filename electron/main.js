@@ -11,8 +11,33 @@ const {
   session,
   powerMonitor,
   dialog,
+  Tray,
+  Menu,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const { registerScreenAudioIpc } = require("./screenAudio");
+
+// Instância única: sem isso, abrir o NaveSpeak de novo com o app já rodando
+// (atalho, duplo-clique) sobe uma SEGUNDA janela/processo do zero, cada uma
+// com sua própria conexão de socket - nunca é o que o usuário quer. Se este
+// processo não conseguiu o lock é porque já existe outro rodando; esse outro
+// recebe o evento 'second-instance' abaixo (com a janela dele) e este aqui
+// só sai, sem chegar a criar janela nenhuma.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  return;
+}
+
+// Chamado NESTE processo (o que segurou o lock) quando alguém tenta abrir
+// uma segunda instância - em vez de deixar essa segunda instância criar
+// janela nenhuma, só traz a janela existente pra frente.
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+});
 
 // Push-to-talk global (funciona com a janela sem foco/minimizada) - keydown/
 // keyup do navegador (ver MediaSessionContext.jsx) só chega enquanto a
@@ -33,7 +58,10 @@ let UiohookKey = null;
 try {
   ({ uIOhook, UiohookKey } = require("uiohook-napi"));
 } catch (err) {
-  console.error("[push-to-talk] uiohook-napi indisponível nesta plataforma:", err.message);
+  console.error(
+    "[push-to-talk] uiohook-napi indisponível nesta plataforma:",
+    err.message,
+  );
 }
 
 // Traduz `KeyboardEvent.code` do DOM (o que o renderer guarda em
@@ -104,9 +132,12 @@ if (UiohookKey) {
     NumpadDecimal: UiohookKey.NumpadDecimal,
     NumpadDivide: UiohookKey.NumpadDivide,
   });
-  for (let i = 0; i <= 9; i++) DOM_CODE_TO_UIOHOOK_KEY[`Digit${i}`] = UiohookKey[String(i)];
-  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") DOM_CODE_TO_UIOHOOK_KEY[`Key${letter}`] = UiohookKey[letter];
-  for (let i = 1; i <= 24; i++) DOM_CODE_TO_UIOHOOK_KEY[`F${i}`] = UiohookKey[`F${i}`];
+  for (let i = 0; i <= 9; i++)
+    DOM_CODE_TO_UIOHOOK_KEY[`Digit${i}`] = UiohookKey[String(i)];
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    DOM_CODE_TO_UIOHOOK_KEY[`Key${letter}`] = UiohookKey[letter];
+  for (let i = 1; i <= 24; i++)
+    DOM_CODE_TO_UIOHOOK_KEY[`F${i}`] = UiohookKey[`F${i}`];
 }
 
 // Keycode (uiohook) atualmente vigiado, ou null = hook parado. Só existe
@@ -120,7 +151,10 @@ function stopPushToTalkHook() {
     try {
       uIOhook.stop();
     } catch (err) {
-      console.error("[push-to-talk] Falha ao parar o hook global:", err.message);
+      console.error(
+        "[push-to-talk] Falha ao parar o hook global:",
+        err.message,
+      );
     }
     hookStarted = false;
   }
@@ -136,7 +170,9 @@ function stopPushToTalkHook() {
 // funcionando normalmente, só que apenas com a janela em foco).
 function setPushToTalkWatchedKey(code) {
   if (!uIOhook) {
-    console.warn("[push-to-talk] Pedido de vigiar tecla sem uiohook disponível - ignorado.");
+    console.warn(
+      "[push-to-talk] Pedido de vigiar tecla sem uiohook disponível - ignorado.",
+    );
     return false;
   }
   if (!code) {
@@ -146,7 +182,9 @@ function setPushToTalkWatchedKey(code) {
   }
   const keycode = DOM_CODE_TO_UIOHOOK_KEY[code];
   if (keycode === undefined) {
-    console.warn(`[push-to-talk] Tecla "${code}" sem tradução pro hook global - fica só com a janela em foco.`);
+    console.warn(
+      `[push-to-talk] Tecla "${code}" sem tradução pro hook global - fica só com a janela em foco.`,
+    );
     stopPushToTalkHook();
     return false;
   }
@@ -156,12 +194,17 @@ function setPushToTalkWatchedKey(code) {
       uIOhook.start();
       hookStarted = true;
     } catch (err) {
-      console.error("[push-to-talk] Falha ao iniciar o hook global:", err.message);
+      console.error(
+        "[push-to-talk] Falha ao iniciar o hook global:",
+        err.message,
+      );
       watchedKeycode = null;
       return false;
     }
   }
-  console.log(`[push-to-talk] Vigiando tecla "${code}" (keycode ${keycode}) globalmente.`);
+  console.log(
+    `[push-to-talk] Vigiando tecla "${code}" (keycode ${keycode}) globalmente.`,
+  );
   return true;
 }
 
@@ -349,9 +392,20 @@ public static class NaveSpeakAumid {
 
   execFile(
     "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script,
+    ],
     (err) => {
-      if (err) console.error("[aumid] Não foi possível gravar o AppUserModelID no atalho:", err.message);
+      if (err)
+        console.error(
+          "[aumid] Não foi possível gravar o AppUserModelID no atalho:",
+          err.message,
+        );
     },
   );
 }
@@ -438,6 +492,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    frame: false,
     // Ícone da janela/taskbar - sem isso cai no ícone padrão do Electron
     // (o "e" genérico). .ico (Windows quer esse formato pra taskbar/alt-tab
     // ficarem nítidos em qualquer tamanho) gerado a partir do mesmo logo
@@ -476,12 +531,74 @@ function createWindow() {
 
   guardWindow(win.webContents);
 
+  // Clicar no X da barra de título custom não finaliza o app - só minimiza
+  // pra bandeja (comportamento pedido, igual Discord/Slack/Teams). Sair de
+  // verdade é só pelo menu da bandeja ("Sair") ou Alt+F4 não é interceptado
+  // aqui de propósito - `isQuitting` só vira true nesses casos reais de
+  // saída (ver createTray/before-quit abaixo), então o 'close' padrão do SO
+  // continua também caindo aqui e sendo convertido em "esconder".
+  win.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    win.hide();
+  });
+
+  // Repassa maximizado/restaurado pro renderer trocar o ícone do botão
+  // (quadrado único vs. dois quadrados sobrepostos) na barra de título custom
+  // - só o processo main sabe o estado real da janela nativa.
+  win.on("maximize", () => win.webContents.send("window:maximized-changed", true));
+  win.on("unmaximize", () => win.webContents.send("window:maximized-changed", false));
+
   win.loadURL(SERVER_URL);
   mainWindow = win;
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
   return win;
+}
+
+// true só a partir de um pedido de saída DE VERDADE (menu da bandeja "Sair",
+// ou o autoUpdater indo reiniciar/instalar) - controla se o 'close' da janela
+// acima esconde (padrão) ou deixa fechar/finalizar o processo.
+let isQuitting = false;
+app.on("before-quit", () => {
+  isQuitting = true;
+});
+
+// Ícone da bandeja (mesmo .ico usado na janela/taskbar) + menu "Abrir"/"Sair".
+// Clique simples (botão esquerdo, Windows/Linux) já restaura/foca a janela -
+// o menu de contexto (botão direito) é só pra quem quer fechar de vez sem
+// abrir o app primeiro.
+let tray = null;
+function createTray() {
+  tray = new Tray(path.join(__dirname, "assets", "icon.ico"));
+  tray.setToolTip("NaveSpeak");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Abrir NaveSpeak",
+        click: () => {
+          if (!mainWindow) return;
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        },
+      },
+      { type: "separator" },
+      {
+        label: "Sair",
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
+  tray.on("click", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show();
+  });
 }
 
 app.whenReady().then(() => {
@@ -502,6 +619,51 @@ app.whenReady().then(() => {
     }));
   });
 
+  // Guarda qual fonte (id de `screen:get-sources`) o renderer escolheu no
+  // <ScreenSourcePicker> ANTES de chamar getDisplayMedia - o handler abaixo
+  // não recebe esse id diretamente (getDisplayMedia não deixa passar
+  // parâmetro nenhum), só sabe resolver a promise pendente quando ela chega.
+  let pendingScreenSourceId = null;
+  ipcMain.handle("screen:set-pending-source", (event, id) => {
+    pendingScreenSourceId = id;
+  });
+
+  // Áudio por janela / tela-sem-NaveSpeak no Windows (ver screenAudio.js).
+  registerScreenAudioIpc();
+
+  // No Windows o áudio do compartilhamento NÃO passa por aqui - vem da
+  // captura nativa por processo (screenAudio.js). O que segue abaixo é o
+  // fallback (Windows sem a API, ou outros SOs).
+  //
+  // Substitui o antigo caminho (getUserMedia com chromeMediaSource:'desktop'
+  // mandatory) por `getDisplayMedia` de verdade + este handler - é o único
+  // jeito de pedir áudio como `loopbackWithMute`, que ecoa só o SISTEMA e
+  // MUTA a própria reprodução do NaveSpeak enquanto captura (ver Streams em
+  // electron.d.ts). Sem isso, quem assiste ao compartilhamento também se
+  // ouvia: o loopback pegava a voz de todo mundo tocando nas caixinhas de
+  // quem está compartilhando e devolvia pra eles mesmos.
+  //
+  // `loopbackWithMute` continua sendo áudio do SISTEMA INTEIRO, nunca só da
+  // janela/app escolhido - Chromium/Electron não expõem captura de áudio por
+  // janela hoje (só o vídeo é por-janela; ver DisplayMediaRequestHandler nos
+  // docs do Electron). Loopback por processo existe no Windows (Process
+  // Loopback Capture) mas o Electron não encaixa isso aqui - loopback
+  // continua sendo o próprio limite documentado.
+  session.defaultSession.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      const sources = await desktopCapturer.getSources({
+        types: ["window", "screen"],
+      });
+      const video =
+        sources.find((s) => s.id === pendingScreenSourceId) ?? sources[0];
+      callback({
+        video,
+        audio: request.audioRequested ? "loopbackWithMute" : undefined,
+      });
+    },
+    { useSystemPicker: false },
+  );
+
   // Status "Ausente" automático (ver PresenceContext.jsx): powerMonitor dá a
   // inatividade REAL do sistema operacional (mouse/teclado em qualquer
   // janela, não só a do app) - sem isso o navegador só enxergaria eventos
@@ -511,7 +673,9 @@ app.whenReady().then(() => {
   // Liga/desliga o hook global de push-to-talk (ver bloco acima) - chamado
   // pelo renderer (MediaSessionContext.jsx) com `null`/`undefined` pra
   // desligar. Só existe aqui, dentro de whenReady, junto dos outros handles.
-  ipcMain.handle("push-to-talk:set-watched-key", (event, code) => setPushToTalkWatchedKey(code));
+  ipcMain.handle("push-to-talk:set-watched-key", (event, code) =>
+    setPushToTalkWatchedKey(code),
+  );
 
   // Chamado ao clicar numa notificação desktop (ver NotificationContext.jsx)
   // - restaura a janela se estiver minimizada e traz pro primeiro plano.
@@ -522,6 +686,34 @@ app.whenReady().then(() => {
     mainWindow.focus();
   });
 
+  // Botões da barra de título custom (client/src/components/TitleBar.jsx) -
+  // sem frame nativo (frame:false), só o processo main consegue mexer na
+  // janela de verdade.
+  ipcMain.on("window:minimize", () => mainWindow?.minimize());
+  ipcMain.on("window:maximize-toggle", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+  ipcMain.on("window:close", () => mainWindow?.close());
+  ipcMain.handle("window:is-maximized", () => mainWindow?.isMaximized() ?? false);
+
+  // Iniciar com o sistema (PreferencesModal.jsx, aba "Geral") -
+  // setLoginItemSettings é nativo do Electron, sem dependência extra. Em dev
+  // (electron .) ele registraria o binário do Electron em si, o que não faz
+  // sentido nenhum - só se aplica de verdade no app empacotado (.exe
+  // instalado), então fica sem efeito (mas sem travar) fora de app.isPackaged.
+  ipcMain.handle("app:get-auto-launch", () => {
+    if (!app.isPackaged) return false;
+    return app.getLoginItemSettings().openAtLogin;
+  });
+  ipcMain.handle("app:set-auto-launch", (event, enabled) => {
+    if (!app.isPackaged) return false;
+    app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+    return app.getLoginItemSettings().openAtLogin;
+  });
+
+  createTray();
   createWindow();
 
   // isPackaged: só roda contra update de verdade no .exe instalado - em dev
@@ -531,7 +723,10 @@ app.whenReady().then(() => {
     autoUpdater.checkForUpdates().catch(() => {});
     // Recheca de hora em hora enquanto o app fica aberto - quem nunca fecha
     // o app não ficaria preso numa versão velha pra sempre.
-    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 60 * 60 * 1000);
+    setInterval(
+      () => autoUpdater.checkForUpdates().catch(() => {}),
+      60 * 60 * 1000,
+    );
   }
 
   app.on("activate", () => {

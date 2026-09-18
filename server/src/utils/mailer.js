@@ -64,3 +64,46 @@ export async function sendInviteEmail({ to, inviteLink, invitedBy }) {
     return { sent: false, reason: 'Não foi possível enviar o email (confira as credenciais SMTP).' };
   }
 }
+
+// Mesmo padrão de sendInviteEmail acima: nunca lança - quem chama
+// (auth.routes.js) trata `sent: false` sem derrubar a resposta genérica do
+// endpoint (a resposta pro cliente não pode revelar se o SMTP falhou ou se o
+// email simplesmente não existe na base).
+export async function sendPasswordResetEmail({ to, code }) {
+  const client = getTransporter();
+  if (!client) {
+    logger.warn({ event: 'password_reset_email_skipped', reason_code: 'smtp_not_configured' }, 'Password reset email not sent: SMTP is not configured');
+    return { sent: false, reason: 'SMTP não configurado no servidor.' };
+  }
+
+  const startedAt = performance.now();
+  try {
+    await client.sendMail({
+      from: env.SMTP_FROM || env.SMTP_USER,
+      to,
+      subject: 'Código para redefinir sua senha - NaveSpeak',
+      text:
+        `Use o código abaixo para redefinir sua senha no NaveSpeak:\n\n${code}\n\n` +
+        `Ele expira em 15 minutos. Se você não pediu essa troca de senha, pode ignorar este email.`,
+      html:
+        `<p>Use o código abaixo para redefinir sua senha no <strong>NaveSpeak</strong>:</p>` +
+        `<p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p>` +
+        `<p>Ele expira em 15 minutos.</p>` +
+        `<p style="color:#888;font-size:12px">Se você não pediu essa troca de senha, pode ignorar este email.</p>`,
+    });
+    logger.info({ event: 'password_reset_email_sent', duration_ms: Math.round(performance.now() - startedAt) }, 'Password reset email sent');
+    return { sent: true };
+  } catch (err) {
+    logger.error(
+      {
+        event: 'password_reset_email_failed',
+        error_code: err?.code === 'ETIMEDOUT' ? 'SMTP_TIMEOUT' : 'SMTP_SEND_FAILED',
+        retryable: true,
+        duration_ms: Math.round(performance.now() - startedAt),
+        error: serializeError(err, { stack: false }),
+      },
+      'Password reset email could not be sent'
+    );
+    return { sent: false, reason: 'Não foi possível enviar o email (confira as credenciais SMTP).' };
+  }
+}

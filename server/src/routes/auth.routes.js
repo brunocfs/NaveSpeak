@@ -10,6 +10,7 @@ import {
 } from '../validation/schemas.js';
 import { authRateLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
+import crypto from 'node:crypto';
 import {
   createUser,
   findUserByEmail,
@@ -18,13 +19,21 @@ import {
   findUserByPublicId,
   registerFailedLogin,
   clearFailedLogins,
+  updatePasswordHash,
 } from '../db/users.repo.js';
 import { consumeInvite, recordInviteRedemption } from '../db/invites.repo.js';
 import {
   storeRefreshToken,
   findValidRefreshToken,
   revokeRefreshToken,
+  revokeAllRefreshTokensForUser,
 } from '../db/refreshTokens.repo.js';
+import {
+  createPasswordReset,
+  findValidPasswordReset,
+  registerFailedAttempt,
+  markPasswordResetUsed,
+} from '../db/passwordResets.repo.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { formatTag, parseTag } from '../utils/discriminator.js';
 import {
@@ -33,6 +42,7 @@ import {
   hashRefreshToken,
   refreshTokenExpiryDate,
 } from '../utils/tokens.js';
+import { sendPasswordResetEmail } from '../utils/mailer.js';
 import { audit, setContext } from '../observability/logger.js';
 
 const router = Router();
@@ -53,9 +63,26 @@ const registerSchema = z.object({
   inviteCode: registrationInviteCodeSchema.optional(),
 });
 
+const identifierFieldSchema = z.string().trim().min(1, 'Informe usuário#tag ou email.').max(255);
+
 const loginSchema = z.object({
-  identifier: z.string().trim().min(1, 'Informe usuário#tag ou email.').max(255),
+  identifier: identifierFieldSchema,
   password: z.string().min(1).max(200),
+});
+
+// "Esqueci minha senha" - reusa o mesmo identificador do login (usuário#tag
+// ou email). Resposta é sempre genérica (ver handler) pra não revelar se o
+// identificador existe na base.
+const forgotPasswordSchema = z.object({
+  identifier: identifierFieldSchema,
+});
+
+const resetCodeFieldSchema = z.string().trim().regex(/^\d{6}$/, 'Código deve ter 6 dígitos.');
+
+const resetPasswordSchema = z.object({
+  identifier: identifierFieldSchema,
+  code: resetCodeFieldSchema,
+  newPassword: passwordFieldSchema,
 });
 
 function toPublicUser(user, status = 'online') {
@@ -67,6 +94,18 @@ function toPublicUser(user, status = 'online') {
     avatarPath: user.avatarPath ?? null,
     isAdmin: Boolean(user.isAdmin),
   };
+}
+
+// Mesmo identificador aceito no login (usuário#tag ou email) - reusado por
+// login, forgot-password e reset-password pra não divergir a lógica de
+// "o que é um identificador válido" em três lugares.
+async function findUserByIdentifier(identifier) {
+  if (identifier.includes('@')) {
+    return findUserByEmail(identifier.toLowerCase());
+  }
+  const tag = parseTag(identifier);
+  if (!tag) return null;
+  return findUserByTag(tag.username, tag.discriminator);
 }
 
 function setRefreshCookie(res, token) {
@@ -278,6 +317,81 @@ router.get('/me', requireAuth, async (req, res, next) => {
         created_at: user.created_at,
       },
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+const RESET_CODE_TTL_MS = 15 * 60 * 1000;
+const RESET_MAX_ATTEMPTS = 5;
+const FORGOT_PASSWORD_GENERIC_RESPONSE = {
+  message: 'Se o usuário existir, enviamos um código de redefinição para o email cadastrado.',
+};
+
+router.post('/forgot-password', authRateLimiter, validateBody(forgotPasswordSchema), async (req, res, next) => {
+  try {
+    const { identifier } = req.body;
+    const user = await findUserByIdentifier(identifier);
+
+    // Mesma resposta sempre, exista ou não o usuário - senão o endpoint vira
+    // um oráculo de enumeração de contas (ver mesmo princípio no login).
+    if (!user) {
+      audit('password_reset_requested', { outcome: 'denied', reason_code: 'unknown_account' });
+      return res.json(FORGOT_PASSWORD_GENERIC_RESPONSE);
+    }
+
+    // Código de 6 dígitos (000000-999999) - só o hash fica no banco (ver
+    // db/passwordResets.repo.js), igual ao padrão de refresh token.
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const codeHash = hashRefreshToken(code);
+    await createPasswordReset({
+      userId: user.id,
+      codeHash,
+      expiresAt: new Date(Date.now() + RESET_CODE_TTL_MS),
+    });
+
+    const result = await sendPasswordResetEmail({ to: user.email, code });
+    audit('password_reset_requested', { outcome: result.sent ? 'success' : 'failure', user_id: user.publicId, reason_code: result.sent ? undefined : 'email_send_failed' });
+
+    return res.json(FORGOT_PASSWORD_GENERIC_RESPONSE);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/reset-password', authRateLimiter, validateBody(resetPasswordSchema), async (req, res, next) => {
+  try {
+    const { identifier, code, newPassword } = req.body;
+    const genericError = () => res.status(400).json({ error: 'Código inválido ou expirado.' });
+
+    const user = await findUserByIdentifier(identifier);
+    if (!user) {
+      audit('password_reset_failed', { outcome: 'failure', reason_code: 'unknown_account' });
+      return genericError();
+    }
+
+    const reset = await findValidPasswordReset(user.id);
+    if (!reset || reset.attempts >= RESET_MAX_ATTEMPTS) {
+      audit('password_reset_failed', { outcome: 'failure', user_id: user.publicId, reason_code: reset ? 'too_many_attempts' : 'no_pending_reset' });
+      return genericError();
+    }
+
+    if (hashRefreshToken(code) !== reset.code_hash) {
+      await registerFailedAttempt(reset.id);
+      audit('password_reset_failed', { outcome: 'failure', user_id: user.publicId, reason_code: 'invalid_code' });
+      return genericError();
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await updatePasswordHash(user.id, passwordHash);
+    await markPasswordResetUsed(reset.id);
+    // Mesmo motivo de PUT /api/users/me/password (users.routes.js): uma
+    // troca de senha revoga toda sessão existente, inclusive a de quem
+    // eventualmente já tinha roubado a conta.
+    await revokeAllRefreshTokensForUser(user.id);
+    audit('password_reset_succeeded', { user_id: user.publicId, sessions_revoked: true });
+
+    return res.json({ message: 'Senha redefinida. Faça login com a nova senha.' });
   } catch (err) {
     return next(err);
   }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Mic,
   MicOff,
@@ -9,6 +9,7 @@ import {
   ScreenShare,
   RefreshCw,
   PhoneOff,
+  Volume2,
 } from "lucide-react";
 import Avatar from "./Avatar.jsx";
 import StatusDot from "./StatusDot.jsx";
@@ -17,7 +18,7 @@ import StatusSelector from "./StatusSelector.jsx";
 import PreferencesModal from "./PreferencesModal.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-
+import SoundboardPanel from "./SoundboardPanel.jsx";
 // Mini painel de controles de mídia da sidebar de voz - extraído de
 // RoomPage.jsx pra poder ser reusado em outras telas (ex.: uma janela
 // separada/PiP no futuro). `media` (useMediaSession) e `user` (useAuth) vêm
@@ -37,7 +38,8 @@ export default function VoiceControlBar({
   const media = useMediaSession();
   const { user } = useAuth();
   const [openUserStatus, setOpenUserStatus] = useState(false);
-
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
+  const soundboardBtnRef = useRef(null);
   return (
     <>
       {/* overflow-hidden removido de propósito: essa barra não tem cantos
@@ -45,8 +47,8 @@ export default function VoiceControlBar({
           do ConnectionStatusButton, que abre pra CIMA (bottom-full) e
           precisa extrapolar essa caixa. */}
       {media.connected && (
-        <div className="flex p-2   ring-slate-200 shadow-sm ring-1  border-slate-700  dark:bg-slate-800 dark:ring-slate-800 ">
-          <div className="flex flex-1 gap-2 justify-between items-center">
+        <div className="flex p-2   ring-slate-200 shadow-sm ring-1  border-slate-700  dark:bg-slate-800 dark:ring-slate-800 min-w-0 ">
+          <div className="flex flex-1 gap-2 justify-between items-center min-w-0">
             {/* Estatísticas de conexão (ping/perda de pacote) - ver
               ConnectionStatusButton.jsx, dados vêm de
               media.networkStats (MediaSessionContext). */}
@@ -93,6 +95,24 @@ export default function VoiceControlBar({
                   <RefreshCw className="size-4 text-white" />
                 </button>
               )}
+
+              {media.voiceRoomId && (
+                <button
+                  ref={soundboardBtnRef}
+                  onClick={() => setSoundboardOpen(true)}
+                  title="Efeitos sonoros"
+                  className="cursor-pointer rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
+                >
+                  <Volume2 className="size-4" />
+                </button>
+              )}
+              {soundboardOpen && media.voiceRoomId && (
+                <SoundboardPanel
+                  roomId={media.voiceRoomId}
+                  anchorEl={soundboardBtnRef.current}
+                  onClose={() => setSoundboardOpen(false)}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -104,8 +124,8 @@ export default function VoiceControlBar({
           </button>
         </div>
       )}
-      <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1  overflow-hidden border-slate-100 dark:border-slate-600 ring-slate-200 dark:bg-slate-800 dark:ring-slate-800 ">
-        <div className="hidden items-center gap-2 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex dark:bg-slate-800 dark:text-slate-200 ">
+      <div className="flex justify-between p-1 border-t-1 rounded-b-2xl shadow-sm ring-1  min-w-0 overflow-hidden border-slate-100 dark:border-slate-600 ring-slate-200 dark:bg-slate-800 dark:ring-slate-800 ">
+        <div className="hidden items-center gap-2 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex dark:bg-slate-800 dark:text-slate-200 min-w-0  ">
           <span className="relative inline-flex shrink-0">
             <button
               className="cursor-pointer"

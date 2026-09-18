@@ -13,6 +13,8 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "electron-updater": "^6.3.9",
+    "koffi": "^3.3.0",
+    "loopback-capture": "^3.0.2",
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
@@ -26,6 +28,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "screenAudio.js",
       "package.json",
       "assets/**"
     ],
@@ -34,10 +37,18 @@
       "output": "dist"
     },
     "asarUnpack": [
-      "**/node_modules/uiohook-napi/**"
+      "**/node_modules/uiohook-napi/**",
+      "**/node_modules/loopback-capture/**",
+      "**/node_modules/koffi/**"
     ],
     "win": {
       "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Network",
+      "desktopName": "navespeak.desktop"
     },
     "publish": {
       "provider": "generic",
@@ -50,6 +61,9 @@
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "appImage": {
+      "artifactName": "NaveSpeak-${version}.AppImage"
     }
   }
 }

@@ -143,6 +143,24 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user ON refresh_tokens (user_id);
 
+-- Códigos de "esqueci minha senha" (routes/auth.routes.js, utils/mailer.js).
+-- Código de 6 dígitos guardado como HASH (mesmo motivo de refresh_tokens
+-- acima) - só o código em texto puro vai por email. `attempts` bloqueia
+-- força bruta do código de 6 dígitos (poucas tentativas possíveis) sem
+-- depender só do rate limit por IP; `used_at` impede reuso do mesmo código
+-- depois de uma troca de senha bem-sucedida.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id UUID NOT NULL PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  code_hash CHAR(64) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  used_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_password_resets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_password_resets_user ON password_resets (user_id);
+
 CREATE TABLE IF NOT EXISTS rooms (
   id UUID NOT NULL PRIMARY KEY,
   name VARCHAR(64) NOT NULL,
@@ -450,6 +468,33 @@ CREATE TABLE IF NOT EXISTS roles (
 );
 CREATE INDEX IF NOT EXISTS ix_roles_server_position ON roles (server_id, position DESC);
 
+-- Role padrao "Membros" (estilo @everyone do Discord): aplicada a TODO
+-- membro do servidor automaticamente, mesmo sem nenhuma role atribuida -
+-- ver roles.repo.js#getUserPermissionBitmask/listRoleIdsForUser (OR com
+-- is_default, sem depender de role_members). Sempre a role mais "baixa"
+-- (position = -1, abaixo do default 0 de qualquer role custom). Uma unica
+-- por servidor (indice parcial abaixo); criada automaticamente por
+-- rooms.repo.js#createRoom em servidores novos.
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_roles_server_default ON roles (server_id) WHERE is_default;
+
+-- Backfill pra servidor ja existente (criado antes de is_default existir):
+-- roda toda vez que este arquivo e aplicado, mas so insere no servidor que
+-- ainda nao tem role padrao (idempotente) - e o UNICO lugar que faz esse
+-- backfill (server/migrate.js so roda este .sql, nao repete a logica em JS),
+-- pra funcionar tambem em quem aplica o .sql direto no banco (sem passar
+-- pelo npm run migrate). 640 = CREATE_INVITE (1<<7 = 128) | USE_SOUNDBOARD
+-- (1<<9 = 512) - mesmo valor de DEFAULT_ROLE_PERMISSIONS em
+-- server/src/utils/permissions.js; mude os dois juntos se decidir alterar o
+-- padrao. md5(...)::uuid gera um UUID sem depender de extensao (pgcrypto/
+-- gen_random_uuid nao sao garantidos em toda instalacao).
+INSERT INTO roles (id, server_id, name, color, permissions, position, is_default)
+SELECT md5(random()::text || clock_timestamp()::text || r.id::text)::uuid,
+       r.id, 'Membros', '#99AAB5', 640, -1, true
+FROM rooms r
+WHERE NOT EXISTS (SELECT 1 FROM roles ro WHERE ro.server_id = r.id AND ro.is_default)
+ON CONFLICT (server_id) WHERE is_default DO NOTHING;
+
 -- Atribuicao de roles a usuarios - varios-para-varios, um usuario pode ter
 -- mais de uma role no mesmo servidor.
 CREATE TABLE IF NOT EXISTS role_members (
@@ -536,6 +581,61 @@ CREATE TABLE IF NOT EXISTS invite_redemptions (
   CONSTRAINT uq_invite_redemptions_user UNIQUE (invite_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS ix_invite_redemptions_invite ON invite_redemptions (invite_id);
+
+-- Configuracao GLOBAL da plataforma (distinta de server_settings, que e por
+-- servidor) - editavel pelos administradores da aplicacao (users.is_admin,
+-- ver server/src/routes/adminSettings.routes.js). Singleton: uma unica linha
+-- fixa em id=1, criada sob demanda pelo repo (mesmo padrao de
+-- server_settings.repo.js), entao nao precisa de seed/backfill.
+CREATE TABLE IF NOT EXISTS app_settings (
+  id SMALLINT NOT NULL PRIMARY KEY DEFAULT 1,
+  soundboard_max_sounds INTEGER NOT NULL DEFAULT 20,
+  soundboard_max_duration_ms INTEGER NOT NULL DEFAULT 10000,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_app_settings_singleton CHECK (id = 1)
+);
+
+-- Flag/limite dos fundos de camera enviados pelo USUARIO pro servidor (hoje
+-- desligado: o upload do usuario fica local no dispositivo, IndexedDB - ver
+-- client/src/utils/localBackgrounds.js; ligar aqui libera o upload pro
+-- servidor, pensado como recurso pago futuro). ALTER separado porque
+-- app_settings pode ja existir em bancos anteriores a este recurso.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_backgrounds_server_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_backgrounds_max_count INTEGER NOT NULL DEFAULT 10;
+
+-- Fundos de camera (virtual background): user_id NULL = fundo PADRAO do
+-- sistema (visivel a todos, gerenciado so por admin da aplicacao); user_id
+-- preenchido = fundo pessoal (so quando user_backgrounds_server_enabled).
+CREATE TABLE IF NOT EXISTS backgrounds (
+  id UUID NOT NULL PRIMARY KEY,
+  user_id BIGINT NULL,
+  name VARCHAR(48) NOT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_backgrounds_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_backgrounds_user ON backgrounds (user_id, created_at ASC);
+
+-- Efeitos sonoros (soundboard) do servidor - recurso por servidor (nunca
+-- global/por-usuario). O limite de quantos sons cabem por servidor e a
+-- duracao maxima aceita vem de app_settings acima, checado na rota de upload
+-- (server/src/routes/rooms.routes.js), nunca no banco (evita corrida entre
+-- checar a contagem e o limite mudar no meio - aceitavel aqui, e so um
+-- limite de conveniencia, nao uma trava de seguranca). `uploaded_by` pode
+-- ficar NULL se o autor deletar a conta - o som em si permanece (mesma ideia
+-- de server_bans.banned_by/server_invites.revoked_by).
+CREATE TABLE IF NOT EXISTS soundboard_sounds (
+  id UUID NOT NULL PRIMARY KEY,
+  server_id UUID NOT NULL,
+  uploaded_by BIGINT NULL,
+  name VARCHAR(32) NOT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_soundboard_sounds_server FOREIGN KEY (server_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_soundboard_sounds_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS ix_soundboard_sounds_server ON soundboard_sounds (server_id, created_at ASC);
 
 -- MIGRACAO (bancos ja existentes que ainda tem messages.room_id):
 -- 1) a tabela channels acima e criada normalmente (CREATE TABLE IF NOT EXISTS);

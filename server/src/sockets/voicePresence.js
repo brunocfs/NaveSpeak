@@ -60,6 +60,27 @@ export async function setVoiceMediaState(channelId, userId, patch) {
   }
 }
 
+// Leitura pura (sem escrever nada) do estado de mídia de UM participante -
+// usada pra checar `deafened` antes de deixar tocar um efeito sonoro
+// (soundboard:play, ver mediasoup.handler.js) sem precisar ler o roster
+// inteiro do canal (listVoicePresence) só por isso.
+export async function getVoiceMediaState(channelId, userId) {
+  try {
+    const raw = await redis.hget(mediaKey(channelId), userId);
+    if (!raw) return defaultMediaState();
+    try {
+      return { ...defaultMediaState(), ...JSON.parse(raw) };
+    } catch {
+      return defaultMediaState();
+    }
+  } catch {
+    // Fail-open: sem Redis, assume não-ensurdecido (mesma postura de
+    // listVoicePresence/setVoiceMediaState acima) - nunca bloqueia o
+    // soundboard só porque o Redis caiu.
+    return defaultMediaState();
+  }
+}
+
 async function clearVoiceMediaState(channelId, userId) {
   try {
     await redis.hdel(mediaKey(channelId), userId);

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { parseBuffer } from 'music-metadata';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { requirePermission } from '../middleware/permissions.js';
@@ -15,6 +17,8 @@ import {
   roomUpdateSchema,
   serverSettingsUpdateSchema,
   userIdParamSchema,
+  soundboardUploadBodySchema,
+  soundIdParamSchema,
 } from '../validation/schemas.js';
 import {
   createRoom,
@@ -46,7 +50,16 @@ import { getServerSettings, updateServerSettings } from '../db/serverSettings.re
 import { getUnreadCountsForServer, getUnreadCountsByServer } from '../db/messages.repo.js';
 import { banUser, unbanUser, isBanned, listBans } from '../db/serverBans.repo.js';
 import { findUserByPublicId } from '../db/users.repo.js';
+import { getAppSettings } from '../db/appSettings.repo.js';
+import {
+  countSoundsForServer,
+  listSoundsForServer,
+  findSoundInServer,
+  createSound,
+  deleteSound,
+} from '../db/soundboardSounds.repo.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
+import { decodeSoundboardAudioDataUrl } from '../utils/soundboardUpload.js';
 import { PERMISSIONS, canAccessChannel, permissionKeysFor, isServerOwner } from '../utils/permissions.js';
 import { formatTag } from '../utils/discriminator.js';
 import { audit } from '../observability/logger.js';
@@ -55,6 +68,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 const SERVER_ICON_DIR = path.join(UPLOADS_DIR, 'servers');
 const MAX_ICON_BYTES = 2 * 1024 * 1024; // 2MB, já decodificado
+const SOUNDBOARD_DIR = path.join(UPLOADS_DIR, 'soundboard');
+const MAX_SOUND_BYTES = 1 * 1024 * 1024; // 1MB, já decodificado - sobra pra alguns segundos de áudio comprimido
 
 // Link "bonito" pra compartilhar (ver ServerUserInvite.jsx) - página própria
 // (/join/:code), distinta de /invite/:code (convite de CADASTRO, ver
@@ -493,6 +508,107 @@ router.delete(
     try {
       await unbanUser(req.room.id, req.targetUser.id);
       audit('room_member_unbanned', { room_id: req.room.id, target_user_id: req.targetUser.publicId });
+      return res.status(204).end();
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// Soundboard (efeitos sonoros do servidor) - lista aberta a qualquer membro
+// (é o que popula o seletor no VoicePanel.jsx; TOCAR de fato exige
+// USE_SOUNDBOARD, checado no socket soundboard:play, ver
+// sockets/mediasoup.handler.js - aqui é só "quais sons existem"). `maxSounds`/
+// `maxDurationMs` vão junto pra Aba "Efeitos sonoros" de ServerSettingsModal.jsx
+// mostrar o limite atual sem precisar de acesso a GET /admin/settings (que é
+// admin da aplicação, não de servidor).
+router.get('/:roomId/soundboard', loadRoomForMember, async (req, res, next) => {
+  try {
+    const [sounds, appSettings] = await Promise.all([
+      listSoundsForServer(req.room.id),
+      getAppSettings(),
+    ]);
+    return res.json({
+      sounds,
+      maxSounds: appSettings.soundboardMaxSounds,
+      maxDurationMs: appSettings.soundboardMaxDurationMs,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post(
+  '/:roomId/soundboard',
+  loadRoomForMember,
+  requirePermission(PERMISSIONS.MANAGE_SERVER),
+  validateBody(soundboardUploadBodySchema),
+  async (req, res, next) => {
+    try {
+      const appSettings = await getAppSettings();
+      const count = await countSoundsForServer(req.room.id);
+      if (count >= appSettings.soundboardMaxSounds) {
+        return res.status(400).json({ error: `Limite de ${appSettings.soundboardMaxSounds} efeitos sonoros atingido.` });
+      }
+
+      const decoded = decodeSoundboardAudioDataUrl(req.body.fileData, { maxBytes: MAX_SOUND_BYTES });
+      if (decoded.error) return res.status(400).json({ error: decoded.error });
+
+      // Duração REAL do áudio (nunca confia em nada que o client possa
+      // declarar) - se o arquivo não for decodificável como áudio de verdade
+      // (ex.: bytes válidos por acaso mas conteúdo corrompido), music-metadata
+      // lança; tratado como arquivo inválido.
+      let durationMs;
+      try {
+        const metadata = await parseBuffer(decoded.buffer, { mimeType: decoded.mime });
+        durationMs = Math.round((metadata.format.duration ?? 0) * 1000);
+      } catch {
+        return res.status(400).json({ error: 'Não foi possível ler a duração do áudio.' });
+      }
+      if (durationMs <= 0) {
+        return res.status(400).json({ error: 'Não foi possível ler a duração do áudio.' });
+      }
+      if (durationMs > appSettings.soundboardMaxDurationMs) {
+        return res.status(400).json({
+          error: `Áudio muito longo (máx. ${Math.round(appSettings.soundboardMaxDurationMs / 1000)}s).`,
+        });
+      }
+
+      const soundId = randomUUID();
+      const relativePath = `soundboard/${req.room.id}/${soundId}.${decoded.ext}`;
+      await fs.mkdir(path.join(SOUNDBOARD_DIR, req.room.id), { recursive: true });
+      await fs.writeFile(path.join(UPLOADS_DIR, relativePath), decoded.buffer);
+
+      const sound = await createSound({
+        serverId: req.room.id,
+        uploadedBy: req.user.internalId,
+        name: req.body.name,
+        filePath: relativePath,
+        durationMs,
+      });
+      audit('soundboard_sound_created', { room_id: req.room.id, resource_type: 'soundboard_sound', resource_id: sound.id });
+      return res.status(201).json({ sound });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+router.delete(
+  '/:roomId/soundboard/:soundId',
+  loadRoomForMember,
+  requirePermission(PERMISSIONS.MANAGE_SERVER),
+  async (req, res, next) => {
+    try {
+      const parsedId = soundIdParamSchema.safeParse(req.params.soundId);
+      if (!parsedId.success) return res.status(400).json({ error: 'ID de som inválido.' });
+
+      const sound = await findSoundInServer(req.room.id, parsedId.data);
+      if (!sound) return res.status(404).json({ error: 'Efeito sonoro não encontrado.' });
+
+      await fs.unlink(path.join(UPLOADS_DIR, sound.filePath)).catch(() => {});
+      await deleteSound(sound.id);
+      audit('soundboard_sound_deleted', { room_id: req.room.id, resource_type: 'soundboard_sound', resource_id: sound.id });
       return res.status(204).end();
     } catch (err) {
       return next(err);

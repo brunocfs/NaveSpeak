@@ -7,6 +7,22 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('naveSpeak', {
   getScreenSources: () => ipcRenderer.invoke('screen:get-sources'),
+  // Avisa o main QUAL fonte usar antes de chamar getDisplayMedia (ver
+  // setDisplayMediaRequestHandler em main.js) - getDisplayMedia não aceita
+  // passar o id escolhido no nosso próprio picker.
+  setPendingScreenSource: (id) => ipcRenderer.invoke('screen:set-pending-source', id),
+  // Captura nativa de áudio da fonte compartilhada (ver screenAudio.js) -
+  // `start` devolve o id da captura (ou null se indisponível); os chunks PCM
+  // chegam em `onChunk(id, Uint8Array)`.
+  screenAudio: {
+    start: (sourceId) => ipcRenderer.invoke('screen-audio:start', sourceId),
+    stop: (id) => ipcRenderer.send('screen-audio:stop', id),
+    onChunk: (callback) => {
+      const listener = (event, id, chunk) => callback(id, chunk);
+      ipcRenderer.on('screen-audio:chunk', listener);
+      return () => ipcRenderer.removeListener('screen-audio:chunk', listener);
+    },
+  },
   // Chamado ao clicar numa notificação desktop (ver
   // client/src/context/NotificationContext.jsx) - só o processo main
   // consegue desminimizar/focar a janela nativa de verdade.
@@ -34,5 +50,25 @@ contextBridge.exposeInMainWorld('naveSpeak', {
       ipcRenderer.on('push-to-talk:keyup', listener);
       return () => ipcRenderer.removeListener('push-to-talk:keyup', listener);
     },
+  },
+  // Botões da barra de título custom (ver TitleBar.jsx) - a janela roda sem
+  // frame nativo (frame:false em main.js), então minimizar/maximizar/fechar
+  // só existem via IPC pro processo main mexer na BrowserWindow de verdade.
+  window: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximizeToggle: () => ipcRenderer.send('window:maximize-toggle'),
+    close: () => ipcRenderer.send('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    onMaximizedChanged: (callback) => {
+      const listener = (event, isMaximized) => callback(isMaximized);
+      ipcRenderer.on('window:maximized-changed', listener);
+      return () => ipcRenderer.removeListener('window:maximized-changed', listener);
+    },
+  },
+  // Iniciar com o sistema (PreferencesModal.jsx) - sem efeito fora do app
+  // empacotado (ver main.js).
+  autoLaunch: {
+    get: () => ipcRenderer.invoke('app:get-auto-launch'),
+    set: (enabled) => ipcRenderer.invoke('app:set-auto-launch', enabled),
   },
 });

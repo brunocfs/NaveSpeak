@@ -17,6 +17,7 @@ import {
 import { createRole, updateRole, deleteRole, assignRole, unassignRole } from "../api/roles.js";
 import { createChannel, updateChannel, deleteChannel } from "../api/channels.js";
 import { PERMISSION_LABELS, PERMISSION_KEYS, hasPermission } from "../api/roles.js";
+import { listSounds, uploadSound, deleteSound } from "../api/soundboard.js";
 
 const TABS = [
   { id: "general", label: "Geral", permission: "MANAGE_SERVER" },
@@ -24,6 +25,7 @@ const TABS = [
   { id: "roles", label: "Roles", permission: "ADMINISTRATOR" },
   { id: "channels", label: "Canais", permission: "MANAGE_CHANNELS" },
   { id: "members", label: "Membros", permission: "BAN_MEMBERS" },
+  { id: "soundboard", label: "Efeitos sonoros", permission: "MANAGE_SERVER" },
 ];
 
 // Modal de "Configurações do servidor" - só abre a partir do botão de
@@ -97,6 +99,7 @@ export default function ServerSettingsModal({
           {tab === "members" && (
             <MembersTab room={room} members={members} isOwner={isOwner} onRefresh={onRefresh} />
           )}
+          {tab === "soundboard" && <SoundsTab room={room} />}
         </div>
       </div>
     </div>,
@@ -449,6 +452,7 @@ function RolesTab({ room, roles, members, onRefresh }) {
               >
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
                 <span className="truncate text-slate-800 dark:text-slate-100">{r.name}</span>
+                {r.isDefault && <span className="text-xs text-slate-400 dark:text-slate-500">(padrão)</span>}
               </button>
             </li>
           ))}
@@ -502,6 +506,8 @@ function RoleEditor({ room, role, members, onRefresh, onDeleted }) {
   async function handleSave() {
     setSaving(true);
     try {
+      // Nome/posição da role padrão "Membros" são fixos (servidor ignora
+      // essas duas chaves quando role.isDefault - ver roles.routes.js).
       await updateRole(room.id, role.id, { name, color, permissions, position: Number(position) });
       await onRefresh();
     } finally {
@@ -539,18 +545,33 @@ function RoleEditor({ room, role, members, onRefresh, onDeleted }) {
           onChange={(e) => setColor(e.target.value)}
           className="h-9 w-9 cursor-pointer rounded border border-slate-300 dark:border-slate-700"
         />
-        <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} maxLength={32} />
-      </div>
-
-      <div>
-        {fieldLabel("Posição (maior = mais alta na lista de membros)")}
         <input
-          type="number"
-          className={`${inputClass} w-28`}
-          value={position}
-          onChange={(e) => setPosition(e.target.value)}
+          className={inputClass}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={32}
+          disabled={role.isDefault}
+          title={role.isDefault ? 'A role padrão não pode ser renomeada.' : undefined}
         />
       </div>
+
+      {!role.isDefault && (
+        <div>
+          {fieldLabel("Posição (maior = mais alta na lista de membros)")}
+          <input
+            type="number"
+            className={`${inputClass} w-28`}
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+          />
+        </div>
+      )}
+
+      {role.isDefault && (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Permissões padrão do servidor: valem pra todo membro que não tiver nenhuma role própria com a permissão liberada.
+        </p>
+      )}
 
       <div>
         {fieldLabel("Permissões")}
@@ -572,51 +593,59 @@ function RoleEditor({ room, role, members, onRefresh, onDeleted }) {
         >
           {saving ? "Salvando..." : "Salvar"}
         </button>
-        <button
-          onClick={handleDelete}
-          className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
-        >
-          Excluir role
-        </button>
+        {!role.isDefault && (
+          <button
+            onClick={handleDelete}
+            className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+          >
+            Excluir role
+          </button>
+        )}
       </div>
 
-      <div>
-        {fieldLabel(`Membros com esta role (${assignedMembers.length})`)}
-        <ul className="mb-2 space-y-1">
-          {assignedMembers.map((m) => (
-            <li key={m.id} className="flex items-center justify-between rounded-lg bg-slate-100 px-2 py-1.5 dark:bg-slate-800">
-              <span className="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
-                <Avatar avatarPath={m.avatarPath} username={m.username} size="xs" />
-                {m.username}
-              </span>
-              <button onClick={() => handleUnassign(m.id)} className="text-xs font-medium text-red-600 hover:underline dark:text-red-400">
-                Remover
-              </button>
-            </li>
-          ))}
-        </ul>
-        <input
-          placeholder="Buscar membro para adicionar..."
-          className={inputClass}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {search && (
-          <ul className="mt-1 max-h-32 space-y-1 overflow-y-auto">
-            {candidates.map((m) => (
-              <li key={m.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800">
+      {role.isDefault ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Todo membro do servidor já tem esta role automaticamente - não precisa (e não dá pra) atribuir ou remover de alguém.
+        </p>
+      ) : (
+        <div>
+          {fieldLabel(`Membros com esta role (${assignedMembers.length})`)}
+          <ul className="mb-2 space-y-1">
+            {assignedMembers.map((m) => (
+              <li key={m.id} className="flex items-center justify-between rounded-lg bg-slate-100 px-2 py-1.5 dark:bg-slate-800">
                 <span className="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
                   <Avatar avatarPath={m.avatarPath} username={m.username} size="xs" />
                   {m.username}
                 </span>
-                <button onClick={() => handleAssign(m.id)} className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
-                  Adicionar
+                <button onClick={() => handleUnassign(m.id)} className="text-xs font-medium text-red-600 hover:underline dark:text-red-400">
+                  Remover
                 </button>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+          <input
+            placeholder="Buscar membro para adicionar..."
+            className={inputClass}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <ul className="mt-1 max-h-32 space-y-1 overflow-y-auto">
+              {candidates.map((m) => (
+                <li key={m.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <span className="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
+                    <Avatar avatarPath={m.avatarPath} username={m.username} size="xs" />
+                    {m.username}
+                  </span>
+                  <button onClick={() => handleAssign(m.id)} className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
+                    Adicionar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -868,6 +897,160 @@ function MembersTab({ room, members, isOwner, onRefresh }) {
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- Efeitos sonoros -------------------------------------------------------
+
+// Upload/gerenciamento dos sons do servidor - TOCAR de fato é decidido pela
+// permissão USE_SOUNDBOARD na aba Roles, não aqui (esta aba só cadastra o
+// catálogo, gated por MANAGE_SERVER como o resto de "Geral"). `maxSounds`/
+// `maxDurationMs` vêm do MESMO GET desta lista (rooms.routes.js já embute os
+// limites globais, definidos por admin da aplicação em
+// AdminSoundboardSettingsPage.jsx) - nunca hardcoded aqui.
+function SoundsTab({ room }) {
+  const [sounds, setSounds] = useState([]);
+  const [maxSounds, setMaxSounds] = useState(null);
+  const [maxDurationMs, setMaxDurationMs] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [name, setName] = useState("");
+  const [fileDataUrl, setFileDataUrl] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listSounds(room.id);
+      setSounds(data.sounds);
+      setMaxSounds(data.maxSounds);
+      setMaxDurationMs(data.maxDurationMs);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.id]);
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setFileDataUrl(reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleUpload(e) {
+    e.preventDefault();
+    if (!fileDataUrl || !name.trim()) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await uploadSound(room.id, { name: name.trim(), fileData: fileDataUrl });
+      setName("");
+      setFileDataUrl(null);
+      setFileName("");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDelete(sound) {
+    if (!confirm(`Excluir o efeito sonoro "${sound.name}"?`)) return;
+    setBusyId(sound.id);
+    try {
+      await deleteSound(room.id, sound.id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const atLimit = maxSounds !== null && sounds.length >= maxSounds;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Efeitos sonoros</h3>
+      {maxSounds !== null && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {sounds.length}/{maxSounds} sons · até {Math.round(maxDurationMs / 1000)}s cada · mp3, ogg, wav ou webm.
+          Quem pode TOCAR é decidido na aba Roles (permissão "Tocar efeitos sonoros do servidor").
+        </p>
+      )}
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      <form
+        onSubmit={handleUpload}
+        className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700"
+      >
+        <input
+          className={inputClass}
+          placeholder="Nome do som"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={32}
+          disabled={atLimit}
+        />
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <span className="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">
+            {fileName || "Escolher arquivo"}
+          </span>
+          <input
+            type="file"
+            accept="audio/mpeg,audio/ogg,audio/wav,audio/webm"
+            className="hidden"
+            onChange={handleFileChange}
+            disabled={atLimit}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={uploading || atLimit || !fileDataUrl || !name.trim()}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {uploading ? "Enviando..." : atLimit ? "Limite atingido" : "Adicionar"}
+        </button>
+      </form>
+
+      {loading ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p>
+      ) : sounds.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum efeito sonoro cadastrado ainda.</p>
+      ) : (
+        <ul className="space-y-2">
+          {sounds.map((sound) => (
+            <li
+              key={sound.id}
+              className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+            >
+              <span className="truncate text-sm text-slate-800 dark:text-slate-100">{sound.name}</span>
+              <button
+                onClick={() => handleDelete(sound)}
+                disabled={busyId === sound.id}
+                title="Excluir"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

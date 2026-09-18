@@ -11,9 +11,17 @@ export const PERMISSIONS = {
   BAN_MEMBERS: 1 << 6, // Banir/expulsar usuários
   CREATE_INVITE: 1 << 7, // Criar/regenerar convite do servidor
   MANAGE_SERVER: 1 << 8, // Alterar nome/imagem do servidor e configurações gerais
+  USE_SOUNDBOARD: 1 << 9, // Tocar efeitos sonoros do servidor num canal de voz
 };
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((acc, bit) => acc | bit, 0);
+
+// Bitmask da role padrão "Membros" (roles.is_default) - aplicada a todo
+// membro do servidor, mesmo sem nenhuma role atribuída. Usada tanto ao criar
+// a role padrão de um servidor novo (roles.repo.js#ensureDefaultRole) quanto
+// no backfill de servidores existentes (migrate.js) - fonte única do valor
+// pra não divergir entre os dois.
+export const DEFAULT_ROLE_PERMISSIONS = PERMISSIONS.CREATE_INVITE | PERMISSIONS.USE_SOUNDBOARD;
 
 // Mascara so com os bits conhecidos acima - usada ao gravar `roles.permissions`
 // pra nunca persistir um bit que o cliente tenha mandado por engano/malícia.

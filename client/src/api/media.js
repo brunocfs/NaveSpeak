@@ -1,3 +1,6 @@
+import { createBackgroundProcessor, resolveBackground } from '../utils/backgroundProcessor.js';
+import { startNativeScreenAudio } from '../audio/nativeScreenAudio.js';
+
 // Abstrai a captura de tela entre o navegador comum e o app Electron.
 //
 // No Electron, `getDisplayMedia` não funciona por padrão dentro de um
@@ -157,19 +160,27 @@ export async function requestMicStream(deviceId, { noiseSuppressionMode = "nativ
 }
 
 // `withAudio`: pede áudio junto com o vídeo da captura de tela.
-// - Electron: desktopCapturer não expõe áudio por janela/app - só o loopback
-//   do sistema inteiro (`chromeMediaSource: 'desktop'` sem sourceId, junto na
-//   MESMA chamada de getUserMedia do vídeo, é o padrão documentado da API).
-//   Só funciona em algumas plataformas (Windows, essencialmente) - se a
-//   captura com áudio falhar, refaz só com vídeo em vez de derrubar o share
-//   inteiro por causa do áudio.
+// - Electron/Windows: captura NATIVA (ver electron/screenAudio.js e
+//   audio/nativeScreenAudio.js) via Process Loopback do WASAPI - janela: só o
+//   áudio do processo dela; tela inteira: sistema sem o áudio do próprio
+//   NaveSpeak (sem eco, e quem compartilha continua ouvindo a call). Se a
+//   captura nativa não existir (Win10 antigo): tela inteira cai no
+//   getDisplayMedia com `loopbackWithMute` (setDisplayMediaRequestHandler em
+//   electron/main.js, sistema todo, muta a reprodução local); janela segue só
+//   com vídeo + `audioError`, pra não vazar o áudio do sistema todo.
+// - Electron fora do Windows: só o caminho `loopbackWithMute` acima (sistema
+//   inteiro, sem áudio por janela).
 // - Navegador comum: getDisplayMedia({ audio: true }) só faz o Chrome/Edge
 //   MOSTRAREM a opção "Compartilhar áudio" no seletor nativo - quem decide
 //   de verdade se a track de áudio vem é o usuário ali, não este código
 //   (por isso devolve `hasAudio` calculado da stream resultante, não do que
-//   foi pedido).
+//   foi pedido). Ao compartilhar uma ABA, o Chrome já exclui o áudio da
+//   própria aba do NaveSpeak sozinho; ao compartilhar uma janela/tela
+//   inteira, o áudio devolvido é do sistema todo (mesmo limite do Electron
+//   acima), mas sem a captura AGC/loopbackWithMute daqui.
 //
-// Devolve `{ stream, hasAudio }` - `hasAudio` reflete o que REALMENTE veio.
+// Devolve `{ stream, hasAudio, audioError? }` - `hasAudio` reflete o que
+// REALMENTE veio; `audioError` é um aviso pro usuário (áudio pedido, não veio).
 // `resolution`/`frameRate`: escolhidos pelo usuário no <ScreenSourcePicker>
 // (ver SCREEN_RESOLUTIONS/SCREEN_FRAMERATES/DEFAULT_SCREEN_QUALITY acima).
 export async function requestScreenStream(
@@ -178,54 +189,90 @@ export async function requestScreenStream(
 ) {
   assertMediaDevicesAvailable();
   const preset = SCREEN_RESOLUTIONS.find((r) => r.value === resolution) ?? SCREEN_RESOLUTIONS[1];
+  const videoConstraints = {
+    frameRate: { ideal: frameRate, max: frameRate },
+    width: { ideal: preset.width, max: preset.width },
+    height: { ideal: preset.height, max: preset.height },
+    cursor: 'always',
+  };
 
   if (isElectron()) {
     if (!sourceId) throw new Error('Selecione uma janela ou tela para compartilhar.');
-    const videoConstraints = {
-      mandatory: {
-        chromeMediaSource: 'desktop',
-        chromeMediaSourceId: sourceId,
-        // Mínimos genéricos baixos (evita OverconstrainedError em
-        // notebooks/telas pequenas) - máximos seguem o que o usuário
-        // escolheu no picker.
-        minFrameRate: 5,
-        maxFrameRate: frameRate,
-        minWidth: 640,
-        maxWidth: preset.width,
-        minHeight: 360,
-        maxHeight: preset.height,
-      },
-    };
+    await window.naveSpeak.setPendingScreenSource(sourceId);
     if (withAudio) {
+      // Windows: captura nativa (janela -> só o áudio dela; tela -> sistema
+      // sem o NaveSpeak), ver startNativeScreenAudio. O vídeo vem à parte,
+      // sem áudio nenhum do getDisplayMedia.
+      const nativeTrack = await startNativeScreenAudio(sourceId).catch((err) => {
+        console.error(err);
+        return null;
+      });
+      if (nativeTrack) {
+        try {
+          const stream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
+          stream.addTrack(nativeTrack);
+          return { stream, hasAudio: true };
+        } catch (err) {
+          nativeTrack.stop();
+          throw err;
+        }
+      }
+      // Janela no Windows sem captura nativa: cair no loopback do sistema
+      // vazaria o áudio de tudo, não só da janela - segue só com vídeo.
+      if (sourceId.startsWith('window:') && navigator.userAgent.includes('Windows')) {
+        await window.naveSpeak.setPendingScreenSource(sourceId);
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
+        return {
+          stream,
+          hasAudio: false,
+          audioError: 'Não foi possível capturar o áudio dessa janela - compartilhando só o vídeo.',
+        };
+      }
+      // Tela inteira (ou fora do Windows): loopback do sistema como antes.
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { mandatory: { chromeMediaSource: 'desktop' } },
-          video: videoConstraints,
-        });
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: true });
         return { stream, hasAudio: stream.getAudioTracks().length > 0 };
       } catch {
         // Plataforma sem loopback de áudio (fora do Windows, tipicamente) -
         // segue só com vídeo em vez de falhar o compartilhamento inteiro.
+        // Precisa marcar a fonte de novo - a tentativa acima já consumiu o
+        // pending id guardado no main.
+        await window.naveSpeak.setPendingScreenSource(sourceId);
       }
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
     return { stream, hasAudio: false };
   }
 
   // Navegador comum: isso só deve ser chamado a partir de um gesto explícito
   // do usuário (onClick do botão "Compartilhar tela") - nunca automaticamente
   // ao carregar a página, senão o navegador bloqueia o pedido de permissão.
+  // "ideal" (não "exact") nos constraints de vídeo acima - navegador faz
+  // melhor esforço sem falhar em telas menores/4K.
+  //
+  // autoGainControl/noiseSuppression/echoCancellation desligados no áudio:
+  // são pensados pra voz de microfone, não pra áudio de sistema/aba - com
+  // eles ligados (padrão do Chrome pra QUALQUER captura de áudio) o AGC
+  // renormaliza o volume do áudio compartilhado.
+  //
+  // suppressLocalAudioPlayback: muta a reprodução local do que está sendo
+  // capturado (equivalente ao loopbackWithMute do Electron) - sem isso a voz
+  // dos outros da call, tocando nas caixas de quem compartilha, volta pra
+  // eles como eco. restrictOwnAudio: exclui o áudio do próprio NaveSpeak.
+  // windowAudio 'window': ao escolher uma JANELA, pede só o áudio dela em
+  // vez do sistema todo (Chrome 141+; navegadores sem suporte ignoram).
   const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: {
-      // "ideal" (não "exact") - navegador faz melhor esforço sem falhar em
-      // telas menores/4K. Sem isso o Chrome escolhe fps/resolução sozinho,
-      // muitas vezes mal pra conteúdo de alto movimento (jogos).
-      frameRate: { ideal: frameRate, max: frameRate },
-      width: { ideal: preset.width, max: preset.width },
-      height: { ideal: preset.height, max: preset.height },
-      cursor: 'always',
-    },
-    audio: withAudio,
+    video: videoConstraints,
+    audio: withAudio
+      ? {
+          autoGainControl: false,
+          noiseSuppression: false,
+          echoCancellation: false,
+          suppressLocalAudioPlayback: true,
+          restrictOwnAudio: true,
+        }
+      : false,
+    windowAudio: 'window',
   });
   return { stream, hasAudio: stream.getAudioTracks().length > 0 };
 }
@@ -233,12 +280,42 @@ export async function requestScreenStream(
 // Reaproveita a webcam salva em Preferências (deviceId), com fallback para
 // o padrão do sistema se ela não existir mais - mesma lógica de
 // requestMicStream acima.
-export async function requestCameraStream(deviceId) {
+//
+// `background` ({ mode, image }, formato de Preferências > cameraBackground):
+// com 'blur'/'image' devolve a stream JÁ processada (utils/backgroundProcessor.js).
+// Parar a track dela (`track.stop()`, feito por stopCamera/switchCamera) também
+// encerra o processador e a webcam de verdade, por isso o stop é sobrescrito
+// abaixo - sem isso a luz da câmera ficaria acesa. Se o fundo não puder ser
+// aplicado (imagem sumiu, sem WebGL/WASM), devolve a câmera crua e
+// `backgroundError` explica o porquê.
+export async function requestCameraStream(deviceId, background) {
   assertMediaDevicesAvailable();
-  return getStreamWithFallback(
+  const result = await getStreamWithFallback(
     { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false },
     { video: true, audio: false }
   );
+  if (!background || background.mode === 'none') return result;
+
+  const raw = result.stream;
+  try {
+    const processor = await createBackgroundProcessor(raw, await resolveBackground(background));
+    const [processed] = processor.stream.getVideoTracks();
+    const stopProcessed = processed.stop.bind(processed);
+    processed.stop = () => {
+      stopProcessed();
+      processor.stop();
+      raw.getTracks().forEach((t) => t.stop());
+    };
+    // Webcam desconectada: propaga o 'ended' pra track que o resto do app escuta.
+    raw.getVideoTracks()[0].addEventListener('ended', () => {
+      processed.stop();
+      processed.dispatchEvent(new Event('ended'));
+    });
+    return { ...result, stream: processor.stream };
+  } catch (err) {
+    console.error(err);
+    return { ...result, backgroundError: 'Não foi possível aplicar o fundo da câmera - usando a câmera normal.' };
+  }
 }
 
 export { assertMediaDevicesAvailable };

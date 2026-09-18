@@ -332,3 +332,44 @@ export const adminBroadcastCreateSchema = z
     message: 'Formato esperado: usuario#12345.',
     path: ['tag'],
   });
+
+// POST /rooms/:roomId/soundboard (upload de efeito sonoro, rooms.routes.js) -
+// `fileData` é revalidado a partir dos bytes decodificados (magic bytes, ver
+// decodeSoundboardAudioDataUrl em utils/soundboardUpload.js) e a duração real
+// (music-metadata) contra app_settings.soundboard_max_duration_ms na rota -
+// isto aqui só garante o formato do payload.
+export const soundboardUploadBodySchema = z.object({
+  name: z.string().trim().min(1, 'Nome do som é obrigatório.').max(32, 'Nome muito longo.'),
+  fileData: z
+    .string()
+    .min(1, 'Selecione um arquivo de áudio.')
+    .regex(/^data:audio\/(mpeg|ogg|wav|webm);base64,/, 'Formato de áudio não suportado.'),
+});
+
+export const soundIdParamSchema = z.string().uuid('ID de som inválido.');
+
+// PATCH /api/admin/settings (adminSettings.routes.js) - limites globais do
+// soundboard, editáveis só por admin da aplicação. Faixas generosas mas
+// finitas: sem teto, um admin distraído poderia configurar um limite absurdo
+// (ex.: duração de 1h) que vira vetor de abuso (upload de música inteira como
+// "efeito sonoro").
+export const appSettingsUpdateSchema = z
+  .object({
+    soundboardMaxSounds: z.number().int().min(1).max(200).optional(),
+    soundboardMaxDurationMs: z.number().int().min(1000).max(60_000).optional(),
+    userBackgroundsServerEnabled: z.boolean().optional(),
+    userBackgroundsMaxCount: z.number().int().min(1).max(50).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
+
+// POST /api/backgrounds/system|mine - imagem revalidada pelos magic bytes
+// (decodeImageDataUrl); ver backgrounds.routes.js.
+export const backgroundUploadSchema = z.object({
+  name: z.string().trim().min(1, 'Nome é obrigatório.').max(48, 'Nome muito longo.'),
+  image: z
+    .string()
+    .min(1, 'Selecione uma imagem.')
+    .regex(/^data:image\/(png|jpe?g|webp);base64,/, 'Formato de imagem não suportado.'),
+});
+
+export const backgroundIdParamSchema = z.string().uuid('ID de fundo inválido.');

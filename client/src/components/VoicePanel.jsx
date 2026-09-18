@@ -18,6 +18,7 @@ import {
   PanelRightOpen,
   Maximize,
   Minimize,
+  Volume2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
@@ -27,6 +28,7 @@ import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
 import ParticipantTile from "./ParticipantTile.jsx";
 import RemoteAudioPlayers from "./RemoteAudioPlayers.jsx";
 import AddCallParticipant from "./AddCallParticipant.jsx";
+import SoundboardPanel from "./SoundboardPanel.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import { useTilePopouts } from "../hooks/useTilePopouts.js";
@@ -104,8 +106,6 @@ export default function VoicePanel() {
     sharingScreen,
     localScreenStream,
     screenAudioEnabled,
-    screenAudioVolume,
-    setLocalScreenAudioVolume,
     screenViewers,
     setWatchingScreen,
     localMicStream,
@@ -152,6 +152,11 @@ export default function VoicePanel() {
     if (connected) setMinimized(false);
   }, [connected]);
 
+  // Soundboard só existe em canal de voz de SERVIDOR - chamada privada nunca
+  // seta voiceRoomId (ver joinVoice em CallContext.jsx vs. RoomPage.jsx),
+  // então o botão abaixo já fica escondido sozinho nesse caso.
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
+
   // Fullscreen do painel embutido/popout (nunca do PiP flutuante, ver
   // `floating` mais abaixo - card minúsculo de canto não faz sentido em tela
   // cheia). `contentRef` aponta pro elemento que de fato entra em
@@ -165,7 +170,9 @@ export default function VoicePanel() {
   useEffect(() => {
     function syncFullscreen() {
       setIsFullscreen(
-        Boolean(document.fullscreenElement || popout?.document?.fullscreenElement),
+        Boolean(
+          document.fullscreenElement || popout?.document?.fullscreenElement,
+        ),
       );
     }
     document.addEventListener("fullscreenchange", syncFullscreen);
@@ -187,8 +194,11 @@ export default function VoicePanel() {
   // Janelas separadas (uma por TILE - câmera ou tela de um participante,
   // nunca o painel inteiro) - ver useTilePopouts.js/handleTogglePopoutTile
   // mais abaixo (depende de `allTiles`, que só existe adiante).
-  const { windows: tilePopoutWindows, open: openTilePopout, close: closeTilePopout } =
-    useTilePopouts();
+  const {
+    windows: tilePopoutWindows,
+    open: openTilePopout,
+    close: closeTilePopout,
+  } = useTilePopouts();
 
   // Pausa a PRÓPRIA pré-visualização de tela compartilhada (só o que EU
   // vejo - o que os outros recebem não muda em nada, o producer continua
@@ -426,13 +436,9 @@ export default function VoicePanel() {
         // chave isMediaHidden/toggleMediaHidden de sempre.
         hiddenMedia: isMediaHidden(user?.id, "screen"),
         onToggleHiddenMedia: () => toggleMediaHidden(user?.id, "screen"),
-        // Local: o volume é o GANHO DE ENVIO (0-200) que o próprio
-        // compartilhador ajusta sobre o que está mandando - ver
-        // setLocalScreenAudioVolume em MediaSessionContext.jsx.
+        // Local: só o indicador de que há áudio - sem slider, o volume é
+        // sempre controlado por quem ASSISTE (localmente, ver tiles remotos).
         hasAudio: screenAudioEnabled,
-        audioVolume: screenAudioVolume,
-        audioVolumeMax: 200,
-        onAudioVolumeChange: setLocalScreenAudioVolume,
         // Quem está assistindo ESTA tela agora, agregado pelo servidor -
         // nunca inclui o próprio compartilhador (ver setWatchingScreen: só
         // tiles REMOTOS reportam assistir, ver efeito abaixo).
@@ -463,7 +469,6 @@ export default function VoicePanel() {
         videoStream: s.stream,
         hasAudio,
         audioVolume: getScreenAudioVolume(s.userId),
-        audioVolumeMax: 100,
         onAudioVolumeChange: hasAudio
           ? (v) => setScreenAudioVolume(s.userId, v)
           : undefined,
@@ -483,8 +488,6 @@ export default function VoicePanel() {
     user,
     screenViewers,
     screenAudioEnabled,
-    screenAudioVolume,
-    setLocalScreenAudioVolume,
     getScreenAudioVolume,
     setScreenAudioVolume,
     autoplayScreenShare,
@@ -506,7 +509,13 @@ export default function VoicePanel() {
   useEffect(() => {
     const watchingNow = new Set(
       screenTiles
-        .filter((t) => !t.isLocal && t.videoStream && !t.hiddenMedia && !t.needsManualStart)
+        .filter(
+          (t) =>
+            !t.isLocal &&
+            t.videoStream &&
+            !t.hiddenMedia &&
+            !t.needsManualStart,
+        )
         .map((t) => t.userId),
     );
     const prev = reportedWatchingRef.current;
@@ -514,7 +523,8 @@ export default function VoicePanel() {
       if (!prev.has(targetUserId)) setWatchingScreen(targetUserId, true);
     }
     for (const targetUserId of prev) {
-      if (!watchingNow.has(targetUserId)) setWatchingScreen(targetUserId, false);
+      if (!watchingNow.has(targetUserId))
+        setWatchingScreen(targetUserId, false);
     }
     reportedWatchingRef.current = watchingNow;
   }, [screenTiles, setWatchingScreen]);
@@ -585,7 +595,8 @@ export default function VoicePanel() {
   // tem mic próprio). Mesmo formato de personTiles.key ('user:self' /
   // 'user:<id>'), assim dá pra usar direto como chave de speakingMap.
   function speakerKeyForTile(t) {
-    if (t.kind === "screen") return t.isLocal ? "user:self" : `user:${t.userId}`;
+    if (t.kind === "screen")
+      return t.isLocal ? "user:self" : `user:${t.userId}`;
     return t.key;
   }
 
@@ -847,6 +858,17 @@ export default function VoicePanel() {
                     <Headphones className="size-4" />
                   )}
                 </button>
+
+                {media.voiceRoomId && (
+                  <button
+                    onClick={() => setSoundboardOpen(true)}
+                    title="Efeitos sonoros"
+                    className="cursor-pointer rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-600"
+                  >
+                    <Volume2 className="size-4" />
+                  </button>
+                )}
+
                 <button
                   onClick={leaveVoice}
                   className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
@@ -1025,7 +1047,12 @@ export default function VoicePanel() {
               title="Arraste para reposicionar · duplo clique para abrir o canal"
               style={
                 pipPos
-                  ? { top: pipPos.top, left: pipPos.left, right: "auto", bottom: "auto" }
+                  ? {
+                      top: pipPos.top,
+                      left: pipPos.left,
+                      right: "auto",
+                      bottom: "auto",
+                    }
                   : undefined
               }
               className={`fixed z-20 w-64 max-w-[calc(100vw-2rem)] cursor-grab touch-none select-none overflow-hidden rounded-2xl shadow-2xl ring-1 ring-slate-200 active:cursor-grabbing dark:ring-slate-800 ${
@@ -1052,6 +1079,12 @@ export default function VoicePanel() {
           document.body,
         )}
         {tilePopoutPortals}
+        {soundboardOpen && media.voiceRoomId && (
+          <SoundboardPanel
+            roomId={media.voiceRoomId}
+            onClose={() => setSoundboardOpen(false)}
+          />
+        )}
       </>
     );
   }
@@ -1059,6 +1092,12 @@ export default function VoicePanel() {
     <>
       {createPortal(content, target)}
       {tilePopoutPortals}
+      {soundboardOpen && media.voiceRoomId && (
+        <SoundboardPanel
+          roomId={media.voiceRoomId}
+          onClose={() => setSoundboardOpen(false)}
+        />
+      )}
     </>
   );
 }

@@ -70,8 +70,13 @@ router.patch(
   validateBody(roleUpdateSchema),
   async (req, res, next) => {
     try {
-      const role = await updateRole(req.role.id, req.body);
-      audit('role_updated', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, changed_fields: Object.keys(req.body) });
+      // A role padrão "Membros" não pode ser renomeada nem reordenada (é
+      // sempre a mais baixa, position -1) - só cor/permissões são editáveis.
+      // Ignora silenciosamente em vez de 400: evita quebrar um client que
+      // reenvie name/position inalterados junto do que o dono realmente quis mudar.
+      const body = req.role.isDefault ? { ...req.body, name: undefined, position: undefined } : req.body;
+      const role = await updateRole(req.role.id, body);
+      audit('role_updated', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, changed_fields: Object.keys(body).filter((k) => body[k] !== undefined) });
       return res.json({ role });
     } catch (err) {
       return next(err);
@@ -81,6 +86,9 @@ router.patch(
 
 router.delete('/:roleId', requirePermission(PERMISSIONS.ADMINISTRATOR), loadRole, async (req, res, next) => {
   try {
+    if (req.role.isDefault) {
+      return res.status(400).json({ error: 'A role padrão "Membros" não pode ser excluída.' });
+    }
     await deleteRole(req.role.id);
     audit('role_deleted', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id });
     return res.status(204).end();
@@ -112,6 +120,9 @@ router.post(
   loadTargetMember,
   async (req, res, next) => {
     try {
+      if (req.role.isDefault) {
+        return res.status(400).json({ error: 'A role padrão "Membros" já vale pra todo membro do servidor.' });
+      }
       await assignRole(req.role.id, req.targetUser.id);
       audit('role_assigned', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, target_user_id: req.targetUser.publicId });
       return res.status(204).end();
@@ -128,6 +139,9 @@ router.delete(
   loadTargetMember,
   async (req, res, next) => {
     try {
+      if (req.role.isDefault) {
+        return res.status(400).json({ error: 'A role padrão "Membros" não pode ser removida de um membro.' });
+      }
       await unassignRole(req.role.id, req.targetUser.id);
       audit('role_unassigned', { room_id: req.room.id, resource_type: 'role', resource_id: req.role.id, target_user_id: req.targetUser.publicId });
       return res.status(204).end();
