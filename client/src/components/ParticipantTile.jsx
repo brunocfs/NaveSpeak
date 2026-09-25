@@ -111,7 +111,19 @@ export default function ParticipantTile({
   // videoStream não mudou) e a mídia nunca apareceria depois de assistir.
   // Manter o nó sempre vivo e só trocar a exibição visual evita essa classe
   // inteira de bug.
-  const gated = hasVideo && (hiddenMedia || needsManualStart);
+  // Tile aberto em janela separada também conta como gate: o mesmo stream
+  // era decodificado/desenhado duas vezes (grid + popout), dobrando o custo
+  // de composição justamente em telas grandes.
+  const gated = hasVideo && (hiddenMedia || needsManualStart || poppedOut);
+
+  // Gate só escondia o <video> via CSS - o elemento seguia tocando (e
+  // decodificando) por baixo. Pausa de verdade enquanto não é exibido.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !videoStream) return;
+    if (gated) el.pause();
+    else el.play?.().catch(() => {});
+  }, [gated, videoStream]);
 
   // Anel do tile: mesmo indicador visual pra "falando" e pros status de
   // áudio deste participante (visível pra TODOS, não só localmente - vem de
@@ -131,7 +143,7 @@ export default function ParticipantTile({
 
   return (
     <div
-      className={`group relative aspect-video w-full  items-center justify-center overflow-hidden rounded-xl bg-slate-800 ring-3 transition ${ringClass} ${className}`}
+      className={`group relative aspect-video w-full  items-center justify-center overflow-hidden rounded-xl bg-[#191a1e] ring-3 transition ${ringClass} ${className}`}
       style={style}
     >
       {hasVideo && (
@@ -148,12 +160,19 @@ export default function ParticipantTile({
           // própria tela ficaria ilegível. `gated` some com o vídeo via
           // CSS (não desmonta - ver comentário acima).
           className={`h-full w-full ${gated ? "hidden" : ""} ${kind === "screen" ? "object-contain bg-black" : "object-cover"} ${
-            isLocal && kind === "person" ? "-scale-x-100" : ""
+            isLocal &&
+            kind === "person" &&
+            // Câmera traseira do celular (ver flipCamera) não espelha - é o
+            // mundo à frente, não o próprio rosto.
+            videoStream?.getVideoTracks()[0]?.getSettings?.().facingMode !==
+              "environment"
+              ? "-scale-x-100"
+              : ""
           }`}
         />
       )}
       {(!hasVideo || gated) && (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-700">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#191a1e]">
           {/* Foto de perfil como estado visual padrão - de quem está sem
               câmera/tela, de mídia OCULTADA, ou aguardando clique pra
               assistir (autoplay desligado, ver needsManualStart acima). */}
@@ -168,7 +187,12 @@ export default function ParticipantTile({
               <EyeOff className="size-3" /> Mídia oculta
             </span>
           )}
-          {hasVideo && !hiddenMedia && needsManualStart && (
+          {hasVideo && !hiddenMedia && poppedOut && (
+            <span className="flex items-center gap-1 rounded-full bg-black/50 px-2 py-1 text-[11px] font-medium text-slate-200">
+              <AppWindow className="size-3" /> Aberto em outra janela
+            </span>
+          )}
+          {hasVideo && !hiddenMedia && !poppedOut && needsManualStart && (
             <button
               onClick={onStartWatching}
               title="Clique para assistir"
@@ -209,9 +233,15 @@ export default function ParticipantTile({
               {viewers.length}
               <div className="pointer-events-none absolute bottom-full right-0 z-10 mb-1.5 hidden min-w-max max-w-48 flex-col gap-0.5 rounded-lg bg-slate-900/95 px-2 py-1.5 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover/viewers:flex">
                 {viewers.length === 0 ? (
-                  <span className="text-slate-400">Ninguém assistindo ainda</span>
+                  <span className="text-slate-400">
+                    Ninguém assistindo ainda
+                  </span>
                 ) : (
-                  viewers.map((v) => <span key={v.userId} className="truncate">{v.username}</span>)
+                  viewers.map((v) => (
+                    <span key={v.userId} className="truncate">
+                      {v.username}
+                    </span>
+                  ))
                 )}
               </div>
             </div>
@@ -260,10 +290,16 @@ export default function ParticipantTile({
         {onTogglePopout && !isLocal && (
           <button
             onClick={onTogglePopout}
-            title={poppedOut ? "Fechar janela separada" : "Abrir numa janela separada"}
+            title={
+              poppedOut
+                ? "Fechar janela separada"
+                : "Abrir numa janela separada"
+            }
             className="rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
           >
-            <AppWindow className={`size-3.5 ${poppedOut ? "text-blue-400" : ""}`} />
+            <AppWindow
+              className={`size-3.5 ${poppedOut ? "text-blue-400" : ""}`}
+            />
           </button>
         )}
         {onToggleLocalMute && (

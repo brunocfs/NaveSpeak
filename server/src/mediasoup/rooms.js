@@ -10,22 +10,44 @@ const rooms = new Map();
 
 // Recontado a cada entrada/saída (poucas salas por instância) - evita
 // gauge "derivando" quando o mesmo socket repete media:join.
-function updateSessionGauge() {
+function countPeers() {
   let peers = 0;
   for (const room of rooms.values()) peers += room.peers.size;
-  metrics.voiceSessionsActive.set(peers);
+  return peers;
 }
 
+function updateSessionGauge() {
+  metrics.voiceSessionsActive.set(countPeers());
+}
+
+// Painel admin (adminStats.routes.js) - só contagens desta instância.
+export const countMediaRooms = () => ({ rooms: rooms.size, peers: countPeers() });
+
+// roomId -> Promise<room> enquanto o router ainda está sendo criado. Sem
+// isso, dois media:join simultâneos num canal vazio criavam DOIS routers: o
+// segundo sobrescrevia o primeiro em `rooms` (router nunca fechado, vazando
+// no worker) e o peer do primeiro ficava órfão (createTransport falhava).
+const creatingRooms = new Map();
+
 export async function getOrCreateRoom(roomId) {
-  let room = rooms.get(roomId);
+  const room = rooms.get(roomId);
   if (room) return room;
 
-  const worker = getNextWorker();
-  const router = await worker.createRouter({ mediaCodecs });
-  room = { router, peers: new Map() };
-  rooms.set(roomId, room);
-  metrics.voiceRoomsActive.set(rooms.size);
-  return room;
+  if (!creatingRooms.has(roomId)) {
+    const promise = (async () => {
+      try {
+        const router = await getNextWorker().createRouter({ mediaCodecs });
+        const created = { router, peers: new Map() };
+        rooms.set(roomId, created);
+        metrics.voiceRoomsActive.set(rooms.size);
+        return created;
+      } finally {
+        creatingRooms.delete(roomId);
+      }
+    })();
+    creatingRooms.set(roomId, promise);
+  }
+  return creatingRooms.get(roomId);
 }
 
 export function getRoom(roomId) {

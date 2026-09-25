@@ -9,6 +9,7 @@ import {
   passwordChangeSchema,
   avatarUploadSchema,
   statusUpdateSchema,
+  userIdParamSchema,
 } from '../validation/schemas.js';
 import {
   findUserByPublicId,
@@ -20,6 +21,8 @@ import {
   updateUserStatus,
 } from '../db/users.repo.js';
 import { formatTag } from '../utils/discriminator.js';
+import { countCommonRooms } from '../db/rooms.repo.js';
+import { findExistingFriendship } from '../db/friends.repo.js';
 import { revokeAllRefreshTokensForUser } from '../db/refreshTokens.repo.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { issueSession } from './auth.routes.js';
@@ -58,8 +61,29 @@ function toPublicProfile(user) {
     // grande desta própria tela (ver ProfilePage.jsx).
     avatarPath: user.avatarPath,
     status: user.status,
+    // TURBO: nameStyle aqui é o salvo (cru) pro editor do próprio usuário -
+    // pra terceiros só sai via publicNameStyleSql / publicCard abaixo.
+    isTurbo: user.isTurbo,
+    turboUntil: user.turboUntil,
+    canStyleName: user.canStyleName,
+    nameStyle: user.nameStyle ?? {},
+    showCommonServers: user.showCommonServers,
     createdAt: user.created_at,
     updatedAt: user.updated_at,
+  };
+}
+
+// Cartão público (preview de perfil): sem email/status/datas; nameStyle só
+// com o benefício TURBO ativo (ou conta do sistema).
+function publicCard(user) {
+  return {
+    id: user.publicId,
+    username: user.username,
+    tag: formatTag(user.username, user.discriminator),
+    avatarPath: user.avatarPath,
+    bio: user.bio ?? '',
+    isTurbo: user.isTurbo,
+    nameStyle: user.isSystem || user.canStyleName ? user.nameStyle : {},
   };
 }
 
@@ -80,7 +104,16 @@ router.get('/me', async (req, res, next) => {
 // são alterados (ver profileUpdateSchema e updateProfile).
 router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) => {
   try {
-    const { username, email, bio } = req.body;
+    const { username, email, bio, nameStyle, showCommonServers } = req.body;
+
+    // Estilo do nome é benefício TURBO - checado aqui (não só escondendo o
+    // editor no client).
+    if (nameStyle !== undefined) {
+      const me = await findUserByPublicId(req.user.id);
+      if (!me?.canStyleName) {
+        return res.status(403).json({ error: 'Personalizar o nome é um benefício TURBO.' });
+      }
+    }
 
     // Username sozinho PODE se repetir entre contas (ver discriminator em
     // db/users.repo.js) - trocar de username não muda o discriminator já
@@ -105,7 +138,7 @@ router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) =>
       emailChanged = !existing;
     }
 
-    const updated = await updateProfile(req.user.internalId, { username, email, bio });
+    const updated = await updateProfile(req.user.internalId, { username, email, bio, nameStyle, showCommonServers });
     if (emailChanged) audit('email_changed', { user_id: req.user.id });
     return res.json({ user: toPublicProfile(updated) });
   } catch (err) {
@@ -202,6 +235,54 @@ router.delete('/me/avatar', async (req, res, next) => {
     }
     const updated = await updateAvatarPath(user.id, null);
     return res.json({ user: toPublicProfile(updated) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Preview de perfil (roster de voz etc.). Só pra quem tem relação com o alvo
+// (mesmo servidor ou amizade) - fora disso 404, igual a "não existe", pra não
+// virar enumeração de contas por UUID.
+router.get('/:userId/profile', async (req, res, next) => {
+  try {
+    const parsed = userIdParamSchema.safeParse(req.params.userId);
+    if (!parsed.success) return res.status(400).json({ error: 'ID de usuário inválido.' });
+
+    const target = await findUserByPublicId(parsed.data);
+    if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    const me = req.user.internalId;
+    const isSelf = target.id === me;
+    // As duas consultas servem ao mesmo tempo pra autorizar e pra montar o
+    // cartão - rodam em paralelo em vez de 2 checagens + 2 buscas em série.
+    const [commonCount, friendship] = isSelf
+      ? [0, null]
+      : await Promise.all([countCommonRooms(me, target.id), findExistingFriendship(me, target.id)]);
+
+    const allowed =
+      target.isSystem || isSelf || commonCount > 0 || friendship?.status === 'accepted';
+    if (!allowed) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    // Privacidade mútua: só mostra se os DOIS deixaram ligado (quem desliga
+    // também não vê a dos outros). null = oculto, diferente de 0.
+    const commonServers =
+      !isSelf && target.showCommonServers && req.user.showCommonServers ? commonCount : null;
+
+    return res.json({
+      user: {
+        ...publicCard(target),
+        createdAt: target.created_at,
+        commonServers,
+        // incoming = pedido pendente foi feito PELO alvo (eu posso aceitar).
+        friendship: friendship
+          ? {
+              status: friendship.status,
+              requestId: friendship.id,
+              incoming: friendship.requester_id === target.id,
+            }
+          : { status: 'none' },
+      },
+    });
   } catch (err) {
     return next(err);
   }

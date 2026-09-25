@@ -1,6 +1,7 @@
 // Queries parametrizadas ($1, $2, ...) - nunca concatenar entrada do usuário na string SQL.
 import { randomUUID } from 'node:crypto';
 import { pool } from '../config/db.js';
+import { turboActiveSql, publicNameStyleSql } from './users.repo.js';
 import { sanitizePermissionsBitmask, DEFAULT_ROLE_PERMISSIONS } from '../utils/permissions.js';
 
 const ROLE_FIELDS = 'id, server_id, name, color, permissions, position, is_default AS "isDefault", created_at';
@@ -138,9 +139,12 @@ export async function listMembersWithRoles(serverId) {
        u.public_id AS id,
        u.username,
        u.avatar_path AS "avatarPath",
+       ${turboActiveSql('u')} AS "isTurbo",
+       ${publicNameStyleSql('u')} AS "nameStyle",
+       rm.joined_at AS "joinedAt",
        COALESCE(
          json_agg(
-           json_build_object('id', r.id, 'name', r.name, 'color', r.color, 'position', r.position)
+           json_build_object('id', r.id, 'name', r.name, 'color', r.color, 'position', r.position, 'isDefault', r.is_default)
            ORDER BY r.position DESC
          ) FILTER (WHERE r.id IS NOT NULL),
          '[]'
@@ -153,7 +157,7 @@ export async function listMembersWithRoles(serverId) {
          OR EXISTS (SELECT 1 FROM role_members rmem WHERE rmem.role_id = r.id AND rmem.user_id = rm.user_id)
        )
      WHERE rm.room_id = $1
-     GROUP BY u.public_id, u.username, u.avatar_path`,
+     GROUP BY u.id, rm.joined_at`,
     [serverId]
   );
   return rows;

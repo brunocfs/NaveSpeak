@@ -10,6 +10,7 @@ import MessageInput from "./MessageInput.jsx";
 import MessageContent from "./MessageContent.jsx";
 import AttachmentDropZone from "./AttachmentDropZone.jsx";
 import TypingIndicator from "./TypingIndicator.jsx";
+import StyledUsername from "./StyledUsername.jsx";
 import Avatar from "./Avatar.jsx";
 
 // Depois desse tempo sem receber um refresh de "digitando" de alguém, o
@@ -229,15 +230,15 @@ export default function ChatPanel({
               />
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span
+                  <StyledUsername
+                    username={message.username}
+                    style={message.nameStyle}
                     className={`text-sm font-semibold ${
                       message.user_id === user?.id
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-slate-900 dark:text-white"
                     }`}
-                  >
-                    {message.username}
-                  </span>
+                  />
                   <span className="text-xs text-slate-500 dark:text-slate-400">
                     {formatMessageTime(message.created_at)}
                   </span>

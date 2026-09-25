@@ -16,6 +16,7 @@ import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
+import { createMicGainStream } from '../audio/micGain.js';
 import { playSound, playSoundboardSound } from '../utils/sounds.js';
 import { soundboardSrc } from '../api/soundboard.js';
 import CameraSetupModal from '../components/CameraSetupModal.jsx';
@@ -36,6 +37,15 @@ function screenProduceOptions(quality) {
       videoGoogleMaxBitrate: maxBitrateKbps,
     },
   };
+}
+
+// 'detail' (desktop, código, slides) faz o encoder sacrificar fps e manter a
+// nitidez quando a banda aperta - com 'motion' o Chrome derrubava a
+// resolução primeiro e texto virava borrão. 60 fps = jogo/vídeo, aí vale o
+// contrário (fluidez > nitidez).
+function screenContentHint(quality) {
+  const { frameRate } = { ...DEFAULT_SCREEN_QUALITY, ...quality };
+  return frameRate > 30 ? 'motion' : 'detail';
 }
 
 // Push-to-talk: ignora o próprio código da tecla quando o foco está num
@@ -62,16 +72,52 @@ function isEditableTarget(target) {
 const hasGlobalPushToTalk =
   typeof window !== 'undefined' && Boolean(window.naveSpeak?.pushToTalk);
 
+// Timeout: sem ele, um ack que nunca volta (handler do servidor que lançou
+// antes de responder, socket caído no meio) deixava joinVoice/consumeProducer
+// pendurados pra sempre - "conectando..." eterno ou tile preto sem erro.
+const EMIT_TIMEOUT_MS = 10_000;
+
 function emitAsync(socket, event, payload) {
   return new Promise((resolve, reject) => {
-    socket.emit(event, payload, (response) => {
-      if (response?.error) reject(new Error(response.error));
+    socket.timeout(EMIT_TIMEOUT_MS).emit(event, payload, (err, response) => {
+      if (err) reject(new Error('O servidor não respondeu a tempo.'));
+      else if (response?.error) reject(new Error(response.error));
       else resolve(response ?? {});
     });
   });
 }
 
+// Religa o ICE do transport quando ele cai - antes nada fazia isso: o
+// transport de ENVIO morria sozinho (uplink saturado por tela/câmera, troca de
+// rede) e ficava morto até sair e reentrar na voz. Sintoma: ícone
+// "Conectando" (sem RTT no send), a pessoa ouvia/via todo mundo (recv é outro
+// transport) mas ninguém a ouvia e a câmera dela congelava pros outros.
+// 'disconnected' às vezes volta sozinho - espera um pouco antes de reiniciar.
+function autoRestartIce(socket, channelId, transport) {
+  let timer = null;
+  const restart = () => {
+    if (transport.closed) return;
+    emitAsync(socket, 'media:restartIce', { channelId, transportId: transport.id })
+      .then(({ iceParameters }) => !transport.closed && transport.restartIce({ iceParameters }))
+      .catch((err) => console.error('[ice] restart falhou:', err));
+  };
+  transport.on('connectionstatechange', (state) => {
+    clearTimeout(timer);
+    if (state === 'failed') restart();
+    else if (state === 'disconnected') timer = setTimeout(restart, 3000);
+  });
+}
+
+// Estado inicial/"sem chamada" de networkStats - mesmo objeto reaproveitado
+// em vários lugares abaixo (reset ao desconectar, antes da primeira medição).
+const EMPTY_NETWORK_STATS = { ping: null, packetLoss: null, quality: 'unknown' };
+
 const MediaSessionContext = createContext(null);
+// networkStats muda a cada poll (3 s, ping em ms quase nunca repete) - fica
+// num contexto separado pra não re-renderizar todo consumidor de
+// useMediaSession() (RoomPage/chat, VoicePanel, roster...) a cada medição.
+// Só o ConnectionStatusButton lê isso, via useNetworkStats().
+const NetworkStatsContext = createContext(EMPTY_NETWORK_STATS);
 
 // Encapsula toda a integração com mediasoup-client (voz na Fase 3; tela e
 // câmera na Fase 4 reaproveitam o mesmo sendTransport via produceTrack).
@@ -84,9 +130,6 @@ const MediaSessionContext = createContext(null);
 // a aba) ou por chamada explícita a leaveVoice(). Antes disso vivia como hook
 // local em RoomPage, e cada saída da tela de sala desmontava o hook e derrubava
 // a chamada - esse era o bug.
-// Estado inicial/"sem chamada" de networkStats - mesmo objeto reaproveitado
-// em vários lugares abaixo (reset ao desconectar, antes da primeira medição).
-const EMPTY_NETWORK_STATS = { ping: null, packetLoss: null, quality: 'unknown' };
 
 // good/fair/poor a partir de RTT e perda de pacote - limiares arbitrários
 // (mesma régua informal usada por apps de chamada: <100ms é "bom", >250ms já
@@ -278,6 +321,8 @@ export function MediaSessionProvider({ children }) {
   // sobrar abaixo do threshold), mas é um grafo à parte (destroy próprio) -
   // o gate não sabe nem precisa saber se rodou algum supressor antes dele.
   const gateRef = useRef(null);
+  // Volume do mic (audio/micGain.js) - último estágio da cadeia.
+  const gainRef = useRef(null);
   const micProducerRef = useRef(null);
   const screenProducerRef = useRef(null);
   // Producer À PARTE pro áudio do compartilhamento de tela (kind 'audio',
@@ -294,6 +339,11 @@ export function MediaSessionProvider({ children }) {
   const activeScreenAudioTrackRef = useRef(null);
   const cameraProducerRef = useRef(null);
   const consumersRef = useRef(new Map());
+  // producerId -> info de media:newProducer que chegou antes do recvTransport
+  // existir (ver consumeProducer) - consumido no fim de joinVoice.
+  const pendingProducersRef = useRef(new Map());
+  // Trava de "join em andamento" (ver joinVoice).
+  const joiningRef = useRef(false);
   // Guardam sempre a versão mais atual de stopScreenShare/stopScreenAudio/
   // stopCamera, para que os listeners 'ended' registrados no momento da
   // captura (que não podem depender de um valor de closure que muda a cada
@@ -330,7 +380,12 @@ export function MediaSessionProvider({ children }) {
     micGateThresholdDb,
     pushToTalkEnabled,
     pushToTalkKey,
+    micVolume,
   } = usePreferences();
+  // Ref (não dep de buildMicChain): mudar o volume ajusta o GainNode ao vivo
+  // (efeito mais abaixo), nunca recria a cadeia/reabre o microfone.
+  const micVolumeRef = useRef(micVolume);
+  micVolumeRef.current = micVolume;
 
   const addRemoteStream = useCallback((entry) => {
     setRemoteStreams((prev) => [...prev.filter((s) => s.producerId !== entry.producerId), entry]);
@@ -341,8 +396,17 @@ export function MediaSessionProvider({ children }) {
   }, []);
 
   const consumeProducer = useCallback(
-    async ({ producerId, userId, username, kind, appData, paused }) => {
-      if (!recvTransportRef.current || !deviceRef.current) return;
+    async (producerInfo) => {
+      const { producerId, userId, username, kind, appData, paused } = producerInfo;
+      if (!recvTransportRef.current || !deviceRef.current) {
+        // media:newProducer que chega entre o ack do media:join e o
+        // recvTransport existir - antes era descartado (quem começou a
+        // compartilhar bem nessa hora ficava invisível/mudo pra gente).
+        // joinVoice consome a fila assim que o transport fica pronto.
+        if (channelIdRef.current) pendingProducersRef.current.set(producerId, producerInfo);
+        return;
+      }
+      if (consumersRef.current.has(producerId)) return;
       try {
         const data = await emitAsync(socket, 'media:consume', {
           channelId: channelIdRef.current,
@@ -381,6 +445,7 @@ export function MediaSessionProvider({ children }) {
       consumeProducer(payload);
     }
     function handleProducerClosed({ producerId }) {
+      pendingProducersRef.current.delete(producerId);
       const consumer = consumersRef.current.get(producerId);
       consumer?.close();
       consumersRef.current.delete(producerId);
@@ -615,6 +680,8 @@ export function MediaSessionProvider({ children }) {
       denoiserRef.current = null;
       gateRef.current?.destroy();
       gateRef.current = null;
+      gainRef.current?.destroy();
+      gainRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       setLocalMicStream(null);
@@ -627,6 +694,8 @@ export function MediaSessionProvider({ children }) {
 
       for (const consumer of consumersRef.current.values()) consumer.close();
       consumersRef.current.clear();
+      pendingProducersRef.current.clear();
+      joiningRef.current = false;
 
       sendTransportRef.current?.close();
       recvTransportRef.current?.close();
@@ -725,7 +794,17 @@ export function MediaSessionProvider({ children }) {
         }
       }
 
-      return { rawStream: stream, audioTrack, denoiser, gate, fellBack };
+      // Volume do mic - sempre criado (mesmo em 100%) pra poder ajustar ao
+      // vivo sem recriar a cadeia. Falha não derruba a entrada na voz.
+      let gain = null;
+      try {
+        gain = await createMicGainStream(new MediaStream([audioTrack]), micVolumeRef.current);
+        audioTrack = gain.stream.getAudioTracks()[0];
+      } catch (err) {
+        console.error(err);
+      }
+
+      return { rawStream: stream, audioTrack, denoiser, gate, gain, fellBack };
     },
     [noiseSuppressionMode, noiseSuppressionLevel, micGateEnabled, micGateThresholdDb]
   );
@@ -758,7 +837,7 @@ export function MediaSessionProvider({ children }) {
         setError(err.message ?? 'Não foi possível trocar de microfone.');
         return;
       }
-      const { rawStream, audioTrack, denoiser, gate, fellBack } = built;
+      const { rawStream, audioTrack, denoiser, gate, gain, fellBack } = built;
 
       // Ficou obsoleta (outra troca começou depois desta, ou saiu da voz
       // enquanto isso rodava) - descarta sem tocar em nada que já está no ar.
@@ -766,6 +845,7 @@ export function MediaSessionProvider({ children }) {
         rawStream.getTracks().forEach((t) => t.stop());
         denoiser?.destroy();
         gate?.destroy();
+        gain?.destroy();
         return;
       }
 
@@ -781,19 +861,23 @@ export function MediaSessionProvider({ children }) {
         rawStream.getTracks().forEach((t) => t.stop());
         denoiser?.destroy();
         gate?.destroy();
+        gain?.destroy();
         return;
       }
 
       const oldDenoiser = denoiserRef.current;
       const oldGate = gateRef.current;
+      const oldGain = gainRef.current;
       const oldRawStream = localStreamRef.current;
       denoiserRef.current = denoiser;
       gateRef.current = gate;
+      gainRef.current = gain;
       localStreamRef.current = rawStream;
       setLocalMicStream(rawStream);
 
       oldDenoiser?.destroy();
       oldGate?.destroy();
+      oldGain?.destroy();
       oldRawStream?.getTracks().forEach((t) => t.stop());
     },
     [buildMicChain]
@@ -825,6 +909,10 @@ export function MediaSessionProvider({ children }) {
     denoiserRef.current?.setLevel(noiseSuppressionLevel);
   }, [noiseSuppressionLevel]);
 
+  useEffect(() => {
+    gainRef.current?.setVolume(micVolume);
+  }, [micVolume]);
+
   // Só é chamado a partir de um clique explícito do usuário ("Entrar na
   // voz") - getUserMedia nunca dispara sozinho ao carregar a página. Recebe
   // o channelId do canal de voz alvo para que a conexão seja sempre
@@ -833,6 +921,12 @@ export function MediaSessionProvider({ children }) {
   // de mediasoup.
   const joinVoice = useCallback(
     async (channelId, meta = {}) => {
+      // Duplo clique / segundo join antes do primeiro terminar criava dois
+      // conjuntos de transports e um producer de mic órfão (voz duplicada,
+      // mute que não silenciava o antigo). leaveVoice zera a trava, então o
+      // fluxo de reconexão (leave -> join) nunca fica bloqueado.
+      if (joiningRef.current) return;
+      joiningRef.current = true;
       // Se já estava em outra chamada de voz, sai primeiro para não ficar em
       // dois canais ao mesmo tempo.
       if (channelIdRef.current && channelIdRef.current !== channelId) {
@@ -886,6 +980,7 @@ export function MediaSessionProvider({ children }) {
             .catch(errback);
         });
         watchTransportState(sendTransport, 'send');
+        autoRestartIce(socket, channelId, sendTransport);
         sendTransportRef.current = sendTransport;
 
         const recvParams = await emitAsync(socket, 'media:createTransport', {
@@ -903,11 +998,12 @@ export function MediaSessionProvider({ children }) {
             .catch(errback);
         });
         watchTransportState(recvTransport, 'recv');
+        autoRestartIce(socket, channelId, recvTransport);
         recvTransportRef.current = recvTransport;
 
         // Captura + supressor de ruído + gate, ver buildMicChain acima -
         // mesma lógica reaproveitada por switchMic (troca ao vivo).
-        const { rawStream, audioTrack, denoiser, gate, fellBack } = await buildMicChain(micDeviceId);
+        const { rawStream, audioTrack, denoiser, gate, gain, fellBack } = await buildMicChain(micDeviceId);
         if (fellBack) {
           setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
         }
@@ -915,6 +1011,7 @@ export function MediaSessionProvider({ children }) {
         setLocalMicStream(rawStream);
         denoiserRef.current = denoiser;
         gateRef.current = gate;
+        gainRef.current = gain;
 
         const micProducer = await sendTransport.produce({ track: audioTrack, appData: { source: 'mic' } });
         // Espelha localmente o que já pedimos pro servidor (`paused` no
@@ -925,9 +1022,12 @@ export function MediaSessionProvider({ children }) {
         if (startMuted) micProducer.pause();
         micProducerRef.current = micProducer;
 
-        for (const producer of joinData.producers) {
-          await consumeProducer(producer);
-        }
+        // Em paralelo: em série eram N x 3 round-trips e numa sala cheia o
+        // áudio/vídeo de cada um aparecia aos poucos por segundos.
+        const toConsume = new Map(pendingProducersRef.current);
+        pendingProducersRef.current.clear();
+        for (const producer of joinData.producers) toConsume.set(producer.producerId, producer);
+        await Promise.all(Array.from(toConsume.values(), (producer) => consumeProducer(producer)));
 
         setVoiceChannelId(channelId);
         setConnected(true);
@@ -944,6 +1044,8 @@ export function MediaSessionProvider({ children }) {
         console.error(err);
         setError(err.message ?? 'Não foi possível entrar na voz.');
         await leaveVoice();
+      } finally {
+        joiningRef.current = false;
       }
     },
     [socket, consumeProducer, leaveVoice, micDeviceId, buildMicChain]
@@ -952,16 +1054,6 @@ export function MediaSessionProvider({ children }) {
   useEffect(() => {
     joinVoiceRef.current = joinVoice;
   }, [joinVoice]);
-
-  // O nível do supressor (diferente do modo) é reaplicado AO VIVO no grafo
-  // já rodando, sem precisar reentrar na voz - é só um gain.value (mix
-  // dry/wet, ver createRnnoiseStream/createGtcrnStream), tão barato quanto o
-  // volume individual por participante (RemoteAudioPlayers.jsx). Mudar o
-  // MODO, por outro lado, só vale da próxima entrada (mexe em como o mic foi
-  // capturado, mesmo padrão de micDeviceId).
-  useEffect(() => {
-    denoiserRef.current?.setLevel(noiseSuppressionLevel);
-  }, [noiseSuppressionLevel]);
 
   // Pausa/retoma o producer de mic de verdade (local + servidor) - função
   // única usada tanto pelo mute manual (toggleMute) quanto pelo push-to-talk
@@ -1005,14 +1097,14 @@ export function MediaSessionProvider({ children }) {
   );
 
   const toggleMute = useCallback(async () => {
-    if (!micProducerRef.current) return;
+    if (!micProducerRef.current) return false;
     const nextMuted = !muted;
     // Áudio travado por um moderador: só ele reverte (voice:moderateMute
     // mode:'lock' de novo) - o próprio usuário pode se mutar à vontade, só
     // não consegue se DESmutar sozinho.
     if (!nextMuted && audioLocked) {
       setError('Um moderador bloqueou seu áudio neste canal.');
-      return;
+      return false;
     }
     // Com push-to-talk ligado, desmutar manualmente não deve religar a
     // transmissão sozinho - só tira o mute manual da frente; a tecla
@@ -1021,6 +1113,7 @@ export function MediaSessionProvider({ children }) {
     const shouldTransmit = !nextMuted && (!pushToTalkEnabled || pttActiveRef.current);
     const ok = await applyProducerPause(!shouldTransmit);
     if (ok) setMuted(nextMuted);
+    return ok;
   }, [muted, audioLocked, pushToTalkEnabled, applyProducerPause]);
 
   // Push-to-talk inteiro num efeito só (arma/desarma + segurar tecla) DE
@@ -1138,7 +1231,14 @@ export function MediaSessionProvider({ children }) {
     const channelId = channelIdRef.current;
     if (!deafened) {
       wasMutedBeforeDeafenRef.current = muted;
-      if (!muted) await toggleMute();
+      // Mute falhou (ack perdido - ex.: socket caiu no meio e o
+      // setProducerPaused foi reenviado com o producerId antigo após o
+      // reconnect, que recriou o mic DESTRAVADO): não ensurdece. Antes a UI
+      // e o roster mostravam "ensurdecido" com o mic transmitindo de verdade.
+      if (!muted && !(await toggleMute())) {
+        setError('Não foi possível silenciar o microfone - tente de novo.');
+        return;
+      }
       setDeafened(true);
       playSound('mute');
       if (channelId) socket.emit('media:setDeafened', { channelId, deafened: true });
@@ -1255,10 +1355,14 @@ export function MediaSessionProvider({ children }) {
         return;
       }
       setError(null);
+      let stream = null;
+      let producer = null;
       try {
-        const { stream, hasAudio, audioError } = await requestScreenStream(sourceId, { withAudio, ...quality });
+        const captured = await requestScreenStream(sourceId, { withAudio, ...quality });
+        stream = captured.stream;
+        const { hasAudio, audioError } = captured;
         const [track] = stream.getVideoTracks();
-        track.contentHint = 'motion'; // otimiza o encoder pra conteúdo de alto movimento (jogos)
+        track.contentHint = screenContentHint(quality);
         activeScreenVideoTrackRef.current = track;
 
         // Se o usuário parar a captura pelo controle nativo do navegador/SO
@@ -1270,7 +1374,7 @@ export function MediaSessionProvider({ children }) {
           stopScreenShareRef.current();
         });
 
-        const producer = await sendTransportRef.current.produce({
+        producer = await sendTransportRef.current.produce({
           track,
           ...screenProduceOptions(quality),
           appData: { source: 'screen' },
@@ -1286,6 +1390,15 @@ export function MediaSessionProvider({ children }) {
         if (audioError) setError(audioError);
       } catch (err) {
         console.error(err);
+        // produce recusado (moderador travou mídia, transport caiu): sem
+        // isso a captura seguia viva - indicador de "compartilhando" do SO
+        // aceso e loopback de áudio nativo mandando PCM à toa.
+        if (!producer && stream) {
+          if (stream.getVideoTracks().includes(activeScreenVideoTrackRef.current)) {
+            activeScreenVideoTrackRef.current = null;
+          }
+          stream.getTracks().forEach((t) => t.stop());
+        }
         if (err.name !== 'NotAllowedError') {
           setError(err.message ?? 'Não foi possível compartilhar a tela.');
         }
@@ -1328,10 +1441,16 @@ export function MediaSessionProvider({ children }) {
       }
       setError(null);
       const wantAudio = withAudio ?? screenAudioEnabled;
+      const prevTrack = activeScreenVideoTrackRef.current;
+      let stream = null;
+      let replaced = false;
       try {
-        const { stream, hasAudio, audioError } = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
+        const captured = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
+        stream = captured.stream;
+        const { hasAudio, audioError } = captured;
         const [newTrack] = stream.getVideoTracks();
-        newTrack.contentHint = 'motion'; // mesmo tuning de shareScreen acima
+        // Sem `quality` (troca só de fonte) mantém o hint da captura atual.
+        newTrack.contentHint = quality ? screenContentHint(quality) : prevTrack?.contentHint || screenContentHint();
         // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
         // atribuição que faz o 'ended' dela ser ignorado como "própria
         // troca", ver comentário de activeScreenVideoTrackRef no topo.
@@ -1342,6 +1461,20 @@ export function MediaSessionProvider({ children }) {
         });
 
         await screenProducerRef.current.replaceTrack({ track: newTrack });
+        replaced = true;
+
+        // getTracks() (não só getVideoTracks()) de propósito: também para a
+        // track de ÁUDIO crua da captura anterior, se havia uma - sem isso
+        // ela ficava viva (capturando de verdade) mesmo depois do producer
+        // dela já ter sido fechado abaixo, só porque nada mais segurava essa
+        // referência pra parar. Logo após o replaceTrack (não no fim): se
+        // algo abaixo falhar, a captura antiga já não está mais em uso.
+        setLocalScreenStream((prevStream) => {
+          prevStream?.getTracks().forEach((t) => {
+            if (t !== newTrack) t.stop();
+          });
+          return stream;
+        });
 
         // replaceTrack troca só a track, não os parâmetros RTP - se o
         // usuário escolheu outra qualidade no picker, aplica o novo
@@ -1362,20 +1495,15 @@ export function MediaSessionProvider({ children }) {
         if (screenAudioProducerRef.current) await stopScreenAudioRef.current();
         if (hasAudio) await startScreenAudio(stream.getAudioTracks()[0]);
         if (audioError) setError(audioError);
-
-        // getTracks() (não só getVideoTracks()) de propósito: também para a
-        // track de ÁUDIO crua da captura anterior, se havia uma - sem isso
-        // ela ficava viva (capturando de verdade) mesmo depois do producer
-        // dela já ter sido fechado acima, só porque nada mais segurava essa
-        // referência pra parar.
-        setLocalScreenStream((prevStream) => {
-          prevStream?.getTracks().forEach((t) => {
-            if (t !== newTrack) t.stop();
-          });
-          return stream;
-        });
       } catch (err) {
         console.error(err);
+        // Falhou antes do replaceTrack: a captura nova nunca entrou no
+        // producer - para ela e devolve o ref pra track antiga (senão o
+        // 'ended' da antiga passava a ser ignorado e a UI dessincronizava).
+        if (!replaced && stream) {
+          activeScreenVideoTrackRef.current = prevTrack;
+          stream.getTracks().forEach((t) => t.stop());
+        }
         if (err.name !== 'NotAllowedError') {
           setError(err.message ?? 'Não foi possível trocar a fonte compartilhada.');
         }
@@ -1397,8 +1525,12 @@ export function MediaSessionProvider({ children }) {
       return;
     }
     setError(null);
+    let stream = null;
+    let producer = null;
     try {
-      const { stream, fellBack, backgroundError } = await requestCameraStream(deviceId, background);
+      const captured = await requestCameraStream(deviceId, background);
+      stream = captured.stream;
+      const { fellBack, backgroundError } = captured;
       if (fellBack) {
         setError('A webcam salva em Preferências não foi encontrada - usando o padrão do sistema.');
       } else if (backgroundError) {
@@ -1407,8 +1539,12 @@ export function MediaSessionProvider({ children }) {
       const [track] = stream.getVideoTracks();
       track.addEventListener('ended', () => stopCameraRef.current());
 
-      const producer = await sendTransportRef.current.produce({
+      producer = await sendTransportRef.current.produce({
         track,
+        // Teto de banda da webcam: sem ele o Chrome sobe até ~2,5 Mbps e
+        // disputa o mesmo uplink com a tela compartilhada (tela caindo pra
+        // poucos FPS, transport de envio perdendo o ICE).
+        encodings: [{ maxBitrate: 1_000_000 }],
         appData: { source: 'camera' },
       });
       cameraProducerRef.current = producer;
@@ -1416,6 +1552,9 @@ export function MediaSessionProvider({ children }) {
       setCameraOn(true);
     } catch (err) {
       console.error(err);
+      // produce recusado: desliga a webcam (luz acesa) e o processador de
+      // fundo, que seguiria processando frames sem destino.
+      if (!producer) stream?.getTracks().forEach((t) => t.stop());
       if (err.name !== 'NotAllowedError') {
         setError(err.message ?? 'Não foi possível ligar a câmera.');
       }
@@ -1436,6 +1575,8 @@ export function MediaSessionProvider({ children }) {
     }
   }, [cameraAskEveryTime, mediaLocked, startCamera]);
 
+  // Lado da câmera ligada no celular - ver flipCamera abaixo.
+  const cameraFacingRef = useRef('user');
   const stopCamera = useCallback(async () => {
     await closeProducer(cameraProducerRef.current);
     cameraProducerRef.current = null;
@@ -1444,6 +1585,7 @@ export function MediaSessionProvider({ children }) {
       return null;
     });
     setCameraOn(false);
+    cameraFacingRef.current = 'user';
   }, [closeProducer]);
 
   useEffect(() => {
@@ -1474,7 +1616,13 @@ export function MediaSessionProvider({ children }) {
         return;
       }
       newTrack.addEventListener('ended', () => stopCameraRef.current());
-      await cameraProducerRef.current.replaceTrack({ track: newTrack });
+      try {
+        await cameraProducerRef.current.replaceTrack({ track: newTrack });
+      } catch (err) {
+        // Troca falhou: a captura nova nunca entrou no producer - desliga.
+        stream.getTracks().forEach((t) => t.stop());
+        throw err;
+      }
       setLocalCameraStream((prevStream) => {
         prevStream?.getTracks().forEach((t) => t.stop());
         return stream;
@@ -1484,6 +1632,46 @@ export function MediaSessionProvider({ children }) {
       setError(err.message ?? 'Não foi possível trocar de webcam.');
     }
   }, []);
+
+  // Celular: alterna câmera frontal/traseira ao vivo (mesmo producer, via
+  // replaceTrack). Diferente de switchCamera, solta a câmera atual ANTES de
+  // capturar a outra: a maioria dos Android não abre duas câmeras ao mesmo
+  // tempo (NotReadableError).
+  const localCameraStreamRef = useRef(null);
+  useEffect(() => {
+    localCameraStreamRef.current = localCameraStream;
+  }, [localCameraStream]);
+  const flipCamera = useCallback(async () => {
+    if (!cameraProducerRef.current) return;
+    const next = cameraFacingRef.current === 'environment' ? 'user' : 'environment';
+    setError(null);
+    localCameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+    let stream = null;
+    try {
+      const captured = await requestCameraStream(null, cameraBackground, next);
+      stream = captured.stream;
+      if (!cameraProducerRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const [track] = stream.getVideoTracks();
+      track.addEventListener('ended', () => stopCameraRef.current());
+      await cameraProducerRef.current.replaceTrack({ track });
+      // fellBack = aparelho sem a câmera pedida (ex.: só frontal) - o padrão
+      // do sistema entrou no lugar, então o lado "atual" não mudou.
+      if (captured.fellBack) setError('Este dispositivo não tem outra câmera disponível.');
+      else cameraFacingRef.current = next;
+      if (captured.backgroundError) setError(captured.backgroundError);
+      setLocalCameraStream(stream);
+    } catch (err) {
+      console.error(err);
+      stream?.getTracks().forEach((t) => t.stop());
+      setError(err.message ?? 'Não foi possível trocar de câmera.');
+      // A câmera antiga já foi parada acima - desliga de vez em vez de
+      // deixar o producer mandando uma track morta.
+      stopCameraRef.current();
+    }
+  }, [cameraBackground]);
 
   const cameraLiveDeviceIdRef = useRef(cameraDeviceId);
   useEffect(() => {
@@ -1558,7 +1746,14 @@ export function MediaSessionProvider({ children }) {
         packetLoss = extractPacketLossPercent(recvReport);
       }
 
-      setNetworkStats({ ping, packetLoss, quality: classifyNetworkQuality(ping, packetLoss) });
+      const quality = classifyNetworkQuality(ping, packetLoss);
+      // Mesmo resultado da medição anterior -> devolve o objeto antigo e o
+      // React pula o re-render do ConnectionStatusButton.
+      setNetworkStats((prev) =>
+        prev.ping === ping && prev.packetLoss === packetLoss && prev.quality === quality
+          ? prev
+          : { ping, packetLoss, quality }
+      );
     } catch {
       // getStats() pode falhar num instante de transição (transport
       // fechando por reconexão) - ignora, tenta de novo no próximo tick.
@@ -1612,6 +1807,8 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      flipCamera,
+      buildMicChain,
       localMicStream,
       sendTransportRef,
       deviceRef,
@@ -1623,11 +1820,9 @@ export function MediaSessionProvider({ children }) {
       moderateMove,
       pushToTalkActive: pttActive,
       micTransmitting,
-      networkStats,
     }),
     [
       connected,
-      networkStats,
       voiceChannelId,
       voiceRoomId,
       voiceMeta,
@@ -1657,6 +1852,8 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      flipCamera,
+      buildMicChain,
       localMicStream,
       audioLocked,
       mediaLocked,
@@ -1671,7 +1868,7 @@ export function MediaSessionProvider({ children }) {
 
   return (
     <MediaSessionContext.Provider value={value}>
-      {children}
+      <NetworkStatsContext.Provider value={networkStats}>{children}</NetworkStatsContext.Provider>
       {cameraSetupOpen && (
         <CameraSetupModal
           onConfirm={(choice) => {
@@ -1683,6 +1880,10 @@ export function MediaSessionProvider({ children }) {
       )}
     </MediaSessionContext.Provider>
   );
+}
+
+export function useNetworkStats() {
+  return useContext(NetworkStatsContext);
 }
 
 export function useMediaSession() {

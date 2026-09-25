@@ -288,10 +288,24 @@ export async function requestScreenStream(
 // abaixo - sem isso a luz da câmera ficaria acesa. Se o fundo não puder ser
 // aplicado (imagem sumiu, sem WebGL/WASM), devolve a câmera crua e
 // `backgroundError` explica o porquê.
-export async function requestCameraStream(deviceId, background) {
+// Teto da captura da webcam: sem ele webcams 4K/1080p60 entregavam frames
+// enormes - o fundo (blur/imagem) processava tudo isso por frame e o encoder
+// ainda precisava reduzir pra caber no 1 Mbps do producer. `ideal` (não
+// `exact`) pra nunca falhar em câmera que não suporta 720p.
+const CAMERA_CONSTRAINTS = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { max: 30 } };
+
+// `facingMode` ('user' | 'environment'): usado só pela troca frontal/traseira
+// no celular (flipCamera) - ignora o deviceId, porque Android costuma listar
+// várias câmeras traseiras com rótulos que variam por fabricante.
+export async function requestCameraStream(deviceId, background, facingMode) {
   assertMediaDevicesAvailable();
+  const video = facingMode
+    ? { facingMode: { exact: facingMode }, ...CAMERA_CONSTRAINTS }
+    : deviceId
+      ? { deviceId: { exact: deviceId }, ...CAMERA_CONSTRAINTS }
+      : CAMERA_CONSTRAINTS;
   const result = await getStreamWithFallback(
-    { video: deviceId ? { deviceId: { exact: deviceId } } : true, audio: false },
+    { video, audio: false },
     { video: true, audio: false }
   );
   if (!background || background.mode === 'none') return result;

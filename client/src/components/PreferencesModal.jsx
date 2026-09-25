@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
-import { LANGUAGES, usePreferences } from "../context/PreferencesContext.jsx";
+import {
+  LANGUAGES,
+  NOISE_SUPPRESSION_OPTIONS,
+  usePreferences,
+} from "../context/PreferencesContext.jsx";
 import {
   listMediaDevices,
   unlockDeviceLabels,
@@ -11,6 +15,7 @@ import {
 import { useMicLevel } from "../hooks/useMicLevel.js";
 import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
 import AccountProfileSettings from "./AccountProfileSettings.jsx";
+import PrivacySettings from "./PrivacySettings.jsx";
 
 // Faixa de dB do medidor/slider de sensibilidade - -70 (bem sensível, capta
 // até sussurro/ruído baixo de sala) a -10 (só voz alta bem perto do mic).
@@ -79,10 +84,11 @@ const hasAutoLaunch =
 // com chamada de voz; "Áudio e Vídeo" = tudo que mexe em captura/mic/webcam
 // (dispositivos, supressor de ruído, sensibilidade do microfone).
 const TABS = [
+  { id: "account", label: "Conta e Perfil" },
   { id: "general", label: "Geral" },
   { id: "notifications", label: "Notificações" },
   { id: "audioVideo", label: "Áudio e Vídeo" },
-  { id: "account", label: "Conta e Perfil" },
+  { id: "privacy", label: "Privacidade" },
 ];
 
 // Botão de engrenagem + modal de preferências, no cabeçalho de RoomsPage.jsx
@@ -350,7 +356,7 @@ export default function PreferencesModal() {
         onClick={handleOpen}
         aria-label="Preferências"
         title="Preferências"
-        className="inline-flex cursor-pointer h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        className="inline-flex cursor-pointer h-10 w-10 items-center justify-center rounded-xl border-slate-300  text-slate-700 transition hover:bg-slate-50 dark:border-slate-700  dark:text-slate-200 dark:hover:bg-slate-800"
       >
         <svg
           className="h-5 w-5"
@@ -376,7 +382,7 @@ export default function PreferencesModal() {
         draft &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8"
+            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8 max-md:p-2"
             role="dialog"
             aria-modal="true"
             aria-label="Preferências"
@@ -389,10 +395,10 @@ export default function PreferencesModal() {
               sempre visível desde o topo e rola junto com o overlay. */}
             <div className="mx-auto w-full max-w-5xl">
               <div
-                className="flex max-h-[calc(100vh-4rem)] w-full flex-col rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+                className="flex min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] max-md:min-h-[calc(100dvh-1rem)] max-md:max-h-[calc(100dvh-1rem)] w-full flex-col rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-[#181a20] dark:ring-[#1f2129]"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-6 pb-4 dark:border-slate-800">
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-6 pb-4 max-md:p-4 dark:border-slate-800">
                   <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                     Preferências
                   </h2>
@@ -400,7 +406,7 @@ export default function PreferencesModal() {
                     type="button"
                     onClick={handleClose}
                     aria-label="Fechar"
-                    className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                    className="cursor-pointer rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                   >
                     <svg
                       className="h-5 w-5"
@@ -423,14 +429,14 @@ export default function PreferencesModal() {
                   SÓ o conteúdo da aba rolar (overflow-y-auto), não o modal
                   inteiro - sem isso um card mais alto que a viewport nunca
                   deixaria o footer Cancelar/Salvar visível. */}
-                <div className="flex min-h-0 flex-1">
-                  <nav className="w-40 shrink-0 space-y-1 border-r border-slate-200 p-3 dark:border-slate-800">
+                <div className="flex min-h-0 flex-1 max-md:flex-col">
+                  <nav className="w-40 shrink-0 space-y-1 border-r border-slate-200 p-3 dark:border-slate-800 max-md:flex max-md:w-full max-md:gap-1 max-md:space-y-0 max-md:overflow-x-auto max-md:border-r-0 max-md:border-b">
                     {TABS.map((t) => (
                       <button
                         key={t.id}
                         type="button"
                         onClick={() => setTab(t.id)}
-                        className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                        className={`cursor-pointer w-full max-md:w-auto max-md:shrink-0 max-md:whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                           tab === t.id
                             ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                             : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -441,7 +447,7 @@ export default function PreferencesModal() {
                     ))}
                   </nav>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                  <div className="min-h-0 flex-1 overflow-y-auto p-6 max-md:p-4">
                     <div className="space-y-6">
                       {tab === "general" && (
                         <>
@@ -460,7 +466,7 @@ export default function PreferencesModal() {
                                   }))
                                 }
                                 aria-pressed={draft.theme === "light"}
-                                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                                className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium transition ${
                                   draft.theme === "light"
                                     ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-300"
                                     : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -625,9 +631,9 @@ export default function PreferencesModal() {
                               className="mt-1.5 w-full accent-blue-600"
                             />
                             <span className="block text-xs text-slate-400 dark:text-slate-500">
-                              Volume dos sons do soundboard tocados por
-                              membros do servidor num canal de voz - separado
-                              do volume de notificações acima.
+                              Volume dos sons do soundboard tocados por membros
+                              do servidor num canal de voz - separado do volume
+                              de notificações acima.
                             </span>
                           </label>
 
@@ -659,7 +665,7 @@ export default function PreferencesModal() {
                                     }
                                     className="peer sr-only"
                                   />
-                                  <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-blue-600 dark:bg-slate-700" />
+                                  <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-purple-600 dark:bg-slate-700" />
                                   <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
                                 </span>
                               </label>
@@ -816,7 +822,8 @@ export default function PreferencesModal() {
                                   Perguntar ao ligar a câmera
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Abre a prévia com escolha de webcam e plano de fundo
+                                  Abre a prévia com escolha de webcam e plano de
+                                  fundo
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -991,16 +998,7 @@ export default function PreferencesModal() {
                         servidor estático, não o WASM em si; corrigido em
                         audio/deepfilternet.js (asset servido como `.bin`). */}
                             <div className="grid grid-cols-2 gap-2">
-                              {[
-                                { value: "off", label: "Desligado" },
-                                { value: "native", label: "Nativo" },
-                                { value: "rnnoise", label: "RNNoise" },
-                                { value: "gtcrn", label: "GTCRN" },
-                                {
-                                  value: "deepfilternet",
-                                  label: "DeepFilterNet3",
-                                },
-                              ].map((opt) => (
+                              {NOISE_SUPPRESSION_OPTIONS.map((opt) => (
                                 <button
                                   key={opt.value}
                                   type="button"
@@ -1338,6 +1336,7 @@ export default function PreferencesModal() {
                       )}
 
                       {tab === "account" && <AccountProfileSettings />}
+                      {tab === "privacy" && <PrivacySettings />}
                     </div>
                   </div>
                 </div>

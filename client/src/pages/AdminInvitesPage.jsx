@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { createInvite, listInvites, revokeInvite } from "../api/invites.js";
-import DownloadAppLink from "../components/DownloadAppLink.jsx";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -28,9 +26,10 @@ function inviteStatusLabel(invite) {
 }
 
 const inputClass =
-  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20";
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500";
 
-export default function AdminInvitesPage() {
+// Corpo do painel (form + histórico) - aba do painel admin (AdminPanel.jsx).
+export function InvitesPanel() {
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -116,23 +115,7 @@ export default function AdminInvitesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <Link
-              to="/rooms"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              &larr;
-            </Link>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Convites</h1>
-          </div>
-          <DownloadAppLink />
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="space-y-6">
         <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Novo convite</h2>
 
@@ -144,10 +127,10 @@ export default function AdminInvitesPage() {
                   type="button"
                   onClick={() => setForm((prev) => ({ ...prev, type: "link" }))}
                   aria-pressed={form.type === "link"}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                  className={`cursor-pointer rounded-xl border px-4 py-3 text-left transition ${
                     form.type === "link"
-                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10"
-                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-950/40"
+                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0f1117] dark:hover:bg-slate-800"
                   }`}
                 >
                   <span className="block text-sm font-semibold text-slate-900 dark:text-white">Link</span>
@@ -159,10 +142,10 @@ export default function AdminInvitesPage() {
                   type="button"
                   onClick={() => setForm((prev) => ({ ...prev, type: "email" }))}
                   aria-pressed={form.type === "email"}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                  className={`cursor-pointer rounded-xl border px-4 py-3 text-left transition ${
                     form.type === "email"
-                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10"
-                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-950/40"
+                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0f1117] dark:hover:bg-slate-800"
                   }`}
                 >
                   <span className="block text-sm font-semibold text-slate-900 dark:text-white">Email</span>
@@ -175,7 +158,7 @@ export default function AdminInvitesPage() {
 
             {form.type === "email" && (
               <div>
-                <label htmlFor="invite-email" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label htmlFor="invite-email" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Email do convidado
                 </label>
                 <input
@@ -192,7 +175,7 @@ export default function AdminInvitesPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="invite-max-uses" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label htmlFor="invite-max-uses" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Limite de contas
                 </label>
                 <input
@@ -206,7 +189,7 @@ export default function AdminInvitesPage() {
                 />
               </div>
               <div>
-                <label htmlFor="invite-expires" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label htmlFor="invite-expires" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Expira em (dias, opcional)
                 </label>
                 <input
@@ -236,7 +219,7 @@ export default function AdminInvitesPage() {
             <button
               type="submit"
               disabled={busy}
-              className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400"
+              className="w-full cursor-pointer rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:opacity-60 dark:bg-purple-500 dark:hover:bg-purple-400"
             >
               {busy ? "Criando..." : "Criar convite"}
             </button>
@@ -294,7 +277,7 @@ export default function AdminInvitesPage() {
                       <button
                         type="button"
                         onClick={() => handleCopy(invite)}
-                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                        className="cursor-pointer rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
                       >
                         {copiedId === invite.id ? "Copiado!" : "Copiar link"}
                       </button>
@@ -302,7 +285,7 @@ export default function AdminInvitesPage() {
                         <button
                           type="button"
                           onClick={() => handleRevoke(invite)}
-                          className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"
+                          className="cursor-pointer rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"
                         >
                           Revogar
                         </button>
@@ -311,7 +294,7 @@ export default function AdminInvitesPage() {
                         <button
                           type="button"
                           onClick={() => setExpandedId((prev) => (prev === invite.id ? null : invite.id))}
-                          className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                          className="cursor-pointer rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
                         >
                           {expandedId === invite.id ? "Ocultar" : `Ver quem entrou (${redemptions.length})`}
                         </button>
@@ -336,7 +319,6 @@ export default function AdminInvitesPage() {
             })}
           </ul>
         </section>
-      </main>
     </div>
   );
 }

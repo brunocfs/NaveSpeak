@@ -30,6 +30,40 @@ async function isRateLimited(socket) {
   }
 }
 
+// Checa uma ou mais ações (view/send) de canal pro usuário, lendo room,
+// bitmask e roles do banco. Membership do servidor fica a cargo de quem chama.
+export async function canUserAccessChannel(channel, user, ...actions) {
+  const [room, bitmask, roleIds] = await Promise.all([
+    findRoomById(channel.server_id),
+    getUserPermissionBitmask(channel.server_id, user.internalId),
+    listRoleIdsForUser(channel.server_id, user.internalId),
+  ]);
+  return actions.every((action) => canAccessChannel({ channel, room, user, bitmask, roleIds, action }));
+}
+
+// Quem recebe chat:message. Canal sem role de visualização: room do canal +
+// room do servidor (todo membro pode ver). Canal restrito: só os sockets
+// (dessas duas rooms) de quem tem `view` - antes a room do servidor recebia
+// o conteúdo inteiro, então membro sem acesso lia o canal em tempo real.
+// Devolve uma lista de rooms/socket ids; vazia = ninguém.
+// ponytail: 2 queries por membro conectado a cada mensagem em canal restrito;
+// cachear as permissões por usuário se servidores grandes pesarem.
+async function messageRecipients(io, channel) {
+  if (!channel.viewRoleId) return [channel.id, channel.server_id];
+  const sockets = await io.in([channel.id, channel.server_id]).fetchSockets();
+  const accessByUser = new Map();
+  const ids = [];
+  for (const s of sockets) {
+    const member = s.data.user;
+    if (!member) continue;
+    if (!accessByUser.has(member.internalId)) {
+      accessByUser.set(member.internalId, canUserAccessChannel(channel, member, "view"));
+    }
+    if (await accessByUser.get(member.internalId)) ids.push(s.id);
+  }
+  return ids;
+}
+
 export function registerChatHandlers(io, socket) {
   const user = socket.data.user;
 
@@ -49,6 +83,7 @@ export function registerChatHandlers(io, socket) {
     if (!channel || channel.type !== "text") return;
     const member = await isRoomMember(channel.server_id, user.internalId);
     if (!member) return;
+    if (!(await canUserAccessChannel(channel, user, "view"))) return;
 
     socket.to(channelId).emit("chat:typing", {
       channelId,
@@ -106,12 +141,7 @@ export function registerChatHandlers(io, socket) {
     const member = await isRoomMember(channel.server_id, user.internalId);
     if (!member) return ack({ error: "Você não é membro desse servidor." });
 
-    const room = await findRoomById(channel.server_id);
-    const [bitmask, roleIds] = await Promise.all([
-      getUserPermissionBitmask(channel.server_id, user.internalId),
-      listRoleIdsForUser(channel.server_id, user.internalId),
-    ]);
-    const canSend = canAccessChannel({ channel, room, user, bitmask, roleIds, action: "send" });
+    const canSend = await canUserAccessChannel(channel, user, "view", "send");
     if (!canSend) return ack({ error: "Você não tem permissão para enviar mensagens neste canal." });
 
     let attachments = [];
@@ -128,17 +158,19 @@ export function registerChatHandlers(io, socket) {
         content,
         attachments,
       });
-      // Emite tanto para a room do CANAL (quem tem ele aberto agora, ver
-      // presence.handler.js/channel:join) quanto para a room do SERVIDOR
+      // Emite para a room do CANAL (quem tem ele aberto agora, ver
+      // presence.handler.js/channel:join) e para a room do SERVIDOR
       // (channel.server_id - todo socket já entra nela sozinho ao conectar,
-      // ver online.handler.js) - é o que permite notificação desktop de
-      // mensagem em canal que a pessoa não está olhando no momento
-      // (NotificationContext.jsx), sem precisar "espiar" todo canal de todo
-      // servidor sozinho. socket.io deduplica: quem está nas duas rooms
+      // ver online.handler.js) - é o que permite notificação desktop e badge
+      // de não lidas de canal que a pessoa não está olhando no momento
+      // (NotificationContext.jsx), filtrado por `view` em canal restrito
+      // (messageRecipients). socket.io deduplica: quem está nas duas rooms
       // recebe o evento uma vez só. `serverId` vai junto no payload (a
       // mensagem em si não carrega isso) para o clique da notificação saber
       // pra qual /rooms/:roomId navegar.
-      io.to(channelId).to(channel.server_id).emit("chat:message", { ...message, serverId: channel.server_id });
+      const recipients = await messageRecipients(io, channel);
+      // io.to([]) viraria broadcast pra TODO socket - lista vazia não emite.
+      if (recipients.length) io.to(recipients).emit("chat:message", { ...message, serverId: channel.server_id });
       return ack({ ok: true, message });
     } catch (err) {
       logError("chat_message_send_failed", err, { channel_id: channelId, room_id: channel.server_id }, "Chat message could not be sent");

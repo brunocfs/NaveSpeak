@@ -62,8 +62,8 @@ export const channelCreateSchema = z.object({
 // Roles de servidor (nome, cor, permissões, posição) - server/src/routes/roles.routes.js.
 export const roleNameSchema = z.string().trim().min(1, 'Nome da role é obrigatório.').max(32, 'Nome muito longo.');
 export const roleColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Cor inválida (use #rrggbb).');
-export const rolePermissionsSchema = z.number().int().min(0, 'Permissões inválidas.');
-export const rolePositionSchema = z.number().int();
+export const rolePermissionsSchema = z.number().int().min(0, 'Permissões inválidas.').max(2147483647, 'Permissões inválidas.');
+export const rolePositionSchema = z.number().int().min(-2147483648).max(2147483647);
 
 export const roleCreateSchema = z.object({
   name: roleNameSchema,
@@ -91,7 +91,7 @@ export const channelUpdateSchema = z
   .object({
     name: channelNameSchema.optional(),
     topic: z.string().trim().max(255, 'Tópico muito longo.').optional().nullable(),
-    position: z.number().int().optional(),
+    position: z.number().int().min(-2147483648).max(2147483647).optional(),
     viewRoleId: channelRoleFieldSchema.optional(),
     sendRoleId: channelRoleFieldSchema.optional(),
     shareRoleId: channelRoleFieldSchema.optional(),
@@ -121,7 +121,9 @@ export const roomUpdateSchema = z
 export const friendRequestIdParamSchema = z.coerce
   .number()
   .int('ID de solicitação inválido.')
-  .positive('ID de solicitação inválido.');
+  .positive('ID de solicitação inválido.')
+  // Sem teto, 1e20 passava e o Postgres respondia "bigint out of range".
+  .max(Number.MAX_SAFE_INTEGER, 'ID de solicitação inválido.');
 
 export const userIdParamSchema = z.string().uuid('ID de usuário inválido.');
 
@@ -211,6 +213,9 @@ export const profileUpdateSchema = z
     username: usernameFieldSchema.optional(),
     email: emailFieldSchema.optional(),
     bio: bioFieldSchema.optional(),
+    // Benefício TURBO - users.routes.js recusa se o usuário não tem.
+    nameStyle: z.lazy(() => nameStyleSchema).optional(),
+    showCommonServers: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 
@@ -239,6 +244,26 @@ export const nameStyleSchema = z
     effect: z.enum(['none', 'shine', 'pulse']).optional(),
   })
   .strict();
+
+// Catálogo de benefícios TURBO. Benefício novo = chave nova aqui + checagem
+// no ponto de uso via turboBenefitSql (db/users.repo.js). O mesmo formato
+// serve pro catálogo global e pro override por usuário (chave ausente =
+// segue o global).
+export const turboBenefitsSchema = z
+  .object({
+    nameStyle: z.boolean().optional(),
+  })
+  .strict();
+
+const turboUserIdsSchema = z.array(userIdParamSchema).min(1, 'Selecione ao menos um usuário.').max(500, 'Máximo de 500 usuários por vez.');
+
+// days = null -> TURBO sem expiração.
+export const turboGrantSchema = z.object({
+  userIds: turboUserIdsSchema,
+  days: z.number().int().min(1).max(3650).nullable(),
+});
+
+export const turboRevokeSchema = z.object({ userIds: turboUserIdsSchema });
 
 export const systemUserUpdateSchema = z
   .object({
@@ -272,6 +297,30 @@ export const reportCreateSchema = z.object({
     .min(1, 'Descrição é obrigatória.')
     .max(4000, 'Descrição muito longa (máx. 4000 caracteres).'),
 });
+
+// POST /api/admin/users/:userId/ban (adminUsers.routes.js) - sem
+// durationHours = ban permanente; com = bloqueio temporário.
+export const adminBanSchema = z.object({
+  reason: z.string().trim().max(280, 'Motivo muito longo (máx. 280 caracteres).').optional(),
+  durationHours: z.number().int().min(1).max(24 * 365).optional(),
+});
+
+// Status de triagem da equipe (reports.status) - default ABERTO no banco.
+export const reportStatusSchema = z.enum(
+  ['ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO', 'REPROVADO'],
+  { errorMap: () => ({ message: 'Status de report inválido.' }) },
+);
+
+// Atualização feita pela equipe (requireAdmin em reports.routes.js) - status
+// e/ou resposta, pelo menos um dos dois precisa vir preenchido.
+export const reportUpdateSchema = z
+  .object({
+    status: reportStatusSchema.optional(),
+    response: z.string().trim().max(4000, 'Resposta muito longa (máx. 4000 caracteres).').optional(),
+  })
+  .refine((data) => data.status !== undefined || data.response !== undefined, {
+    message: 'Informe ao menos status ou resposta.',
+  });
 
 // `image` é o data URL completo (ex.: "data:image/png;base64,AAAA...") - só
 // o formato do prefixo é checado aqui; o tipo e o tamanho REAIS são
@@ -357,8 +406,12 @@ export const appSettingsUpdateSchema = z
   .object({
     soundboardMaxSounds: z.number().int().min(1).max(200).optional(),
     soundboardMaxDurationMs: z.number().int().min(1000).max(60_000).optional(),
+    // Teto de 10MB: o body JSON do upload (base64, ~13,4MB) precisa caber no
+    // limite de 15mb de /api/rooms/:roomId/soundboard em index.js.
+    soundboardMaxBytes: z.number().int().min(64 * 1024).max(10 * 1024 * 1024).optional(),
     userBackgroundsServerEnabled: z.boolean().optional(),
     userBackgroundsMaxCount: z.number().int().min(1).max(50).optional(),
+    turboBenefits: turboBenefitsSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 

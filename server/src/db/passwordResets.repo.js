@@ -24,8 +24,25 @@ export async function findValidPasswordReset(userId) {
   return rows[0] ?? null;
 }
 
-export async function registerFailedAttempt(id) {
-  await pool.query('UPDATE password_resets SET attempts = attempts + 1 WHERE id = $1', [id]);
+// Consome uma tentativa ANTES de comparar o código, num único UPDATE
+// atômico - checar `attempts` e incrementar depois deixava requisições
+// paralelas passarem do limite. Devolve false se as tentativas acabaram.
+export async function consumeResetAttempt(id, maxAttempts) {
+  const { rowCount } = await pool.query(
+    'UPDATE password_resets SET attempts = attempts + 1 WHERE id = $1 AND attempts < $2 RETURNING id',
+    [id, maxAttempts]
+  );
+  return rowCount > 0;
+}
+
+// Códigos pedidos na última hora - pedir código novo zerava as tentativas,
+// então sem esse teto dava pra forçar os 6 dígitos em rodadas de 5.
+export async function countRecentPasswordResets(userId) {
+  const { rows } = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM password_resets WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'",
+    [userId]
+  );
+  return rows[0].n;
 }
 
 export async function markPasswordResetUsed(id) {

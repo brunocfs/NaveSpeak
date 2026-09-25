@@ -280,6 +280,7 @@ Conteúdo (baseado em `server/.env.example`, com os valores de produção):
 NODE_ENV=production
 PORT=4100
 CORS_ORIGIN=https://SEU_DOMINIO
+TRUST_PROXY=1
 
 # ---- Banco de dados ----
 DB_HOST=127.0.0.1
@@ -312,13 +313,12 @@ se forem). `COOKIE_SECURE=true` só funciona corretamente com HTTPS de
 verdade na frente (seção 13) — sem isso o cookie de refresh token não seria
 enviado pelo navegador.
 
-**Pré-requisito de código antes do primeiro deploy**: adicione
-`app.set('trust proxy', 1)` em `server/src/index.js` (perto do
-`const app = express()`). Sem isso, atrás do Nginx, o Express não enxerga o
-IP real do cliente via `X-Forwarded-For` — o rate limit por IP
-(`server/src/middleware/rateLimit.js`) passaria a contar todas as requisições
-como vindas do próprio Nginx (`127.0.0.1`), compartilhando o limite entre
-todos os usuários em vez de aplicar por pessoa.
+**`TRUST_PROXY=1` é obrigatório atrás do Nginx.** Sem ele, o Express não
+enxerga o IP real do cliente via `X-Forwarded-For`: o rate limit por IP
+(`server/src/middleware/rateLimit.js`) conta todas as requisições como vindas
+do próprio Nginx (`127.0.0.1`), e um único atacante esgota o limite de login
+(20 requisições a cada 15 minutos) de todos os usuários. O servidor loga um
+aviso no boot se estiver em produção sem essa variável.
 
 `client/.env` **não precisa existir em produção** — em build de produção
 (`vite build`), `VITE_API_URL` vazio já significa "mesma origem", e é

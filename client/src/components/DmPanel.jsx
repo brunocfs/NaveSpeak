@@ -256,7 +256,8 @@ export default function DmPanel({ friend }) {
             />
           )}
         </h3>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
+          {error && <p className="error-text truncate text-xs" title={error}>{error}</p>}
           {/* Ligar não faz sentido pra conta oficial (não atende) - some só o
               botão de INICIAR chamada; "Sair da chamada" continua visível se
               já houver uma chamada em andamento com outra pessoa. */}
@@ -268,7 +269,7 @@ export default function DmPanel({ friend }) {
               title={
                 inAnyCall ? "Sair da chamada" : `Ligar para ${friend.username}`
               }
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
                 inAnyCall
                   ? "bg-red-600 hover:bg-red-700"
                   : "bg-emerald-600 hover:bg-emerald-700"
@@ -299,7 +300,6 @@ export default function DmPanel({ friend }) {
         className="h-full space-y-4 overflow-y-auto px-4 py-4 sm:px-5"
       >
         {loading && <p className="hint">Carregando mensagens...</p>}
-        {error && <p className="error-text">{error}</p>}
         {!loading && messages.length === 0 && (
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Nenhuma mensagem ainda. Diga oi para {friend.username}!

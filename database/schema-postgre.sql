@@ -118,6 +118,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT fal
 -- is_system=true.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false;
 
+-- Privacidade: mostrar a contagem de servidores em comum no preview de perfil.
+-- Regra mútua (reforçada em users.routes.js): só aparece se OS DOIS lados
+-- deixarem ligado - quem desliga também deixa de ver a dos outros.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS show_common_servers BOOLEAN NOT NULL DEFAULT true;
+
 -- Personalização de como o NOME aparece em toda a aplicação (cor/gradiente,
 -- negrito/itálico/sublinhado, fonte, efeito animado - ver
 -- client/src/components/StyledUsername.jsx e validation/schemas.js:
@@ -127,6 +132,23 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT fa
 -- reaproveitar pra usuários comuns como recurso premium mais adiante, sem
 -- precisar de migração nova quando isso acontecer.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS name_style JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Plano NaveSpeak TURBO (concedido pelo painel admin, routes/adminUsers.routes.js;
+-- gateway de pagamento futuro só vai mexer nesta mesma coluna).
+-- turbo_until = 'infinity' é TURBO sem expiração; data futura = ativo até
+-- ela; NULL ou data passada = sem TURBO. Mesmo esquema de banned_until.
+-- turbo_benefits = override POR USUÁRIO do catálogo global
+-- (app_settings.turbo_benefits): chave ausente segue o global. Benefício
+-- efetivo calculado no SQL (ver turboBenefitSql em db/users.repo.js).
+-- name_style NÃO é apagado quando o TURBO expira - só deixa de ser exibido.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_until TIMESTAMP NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_benefits JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Moderacao da plataforma (painel admin, routes/adminUsers.routes.js):
+-- banned_until = 'infinity' e ban permanente; data futura e bloqueio
+-- temporario (expira sozinho); NULL ou data passada = conta liberada.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_until TIMESTAMP NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason VARCHAR(280) NULL;
 
 -- Refresh tokens sao guardados como HASH (nunca o token em texto puro), assim
 -- um vazamento do banco nao da acesso direto a sessoes validas. Rotacionados
@@ -183,6 +205,9 @@ CREATE TABLE IF NOT EXISTS room_members (
   CONSTRAINT fk_room_members_room FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
   CONSTRAINT fk_room_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+-- PK começa por room_id, então buscas "servidores DO usuário" (shareCommonRoom,
+-- countCommonRooms, lista de salas) não usavam índice nenhum.
+CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members (user_id);
 
 -- Canais de texto ou voz dentro de um servidor (rooms.id = o servidor).
 -- type: 'text' (recebe mensagens) | 'voice' (estado de voz fica no Redis,
@@ -348,6 +373,8 @@ CREATE TABLE IF NOT EXISTS system_broadcasts (
   CONSTRAINT fk_system_broadcasts_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT ck_system_broadcasts_target CHECK (target IN ('all', 'user'))
 );
+-- MIGRACAO (bancos ja existentes, criados antes do campo attachments):
+ALTER TABLE system_broadcasts ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Estado de leitura de um canal de TEXTO, POR USUARIO - mesmo padrao de
 -- conversation_clears.last_read_message_id, so que sobre messages.id em vez
@@ -365,18 +392,23 @@ CREATE TABLE IF NOT EXISTS channel_reads (
 );
 
 -- Report enviado por um usuario pela pagina /reports (ReportsPage.jsx):
--- relato de bug ou sugestao de melhoria. type distingue os dois; nao ha
--- status/atribuicao ainda - so registro + listagem (todo usuario
--- autenticado ve todos, ver reports.routes.js), por ser um grupo fechado.
+-- relato de bug ou sugestao de melhoria. type distingue os dois. status
+-- acompanha o triagem da equipe (default ABERTO) e admin_response guarda a
+-- resposta dela - só quem tem users.is_admin pode alterar os dois (ver
+-- requireAdmin em reports.routes.js). Todo usuario autenticado ve todos os
+-- reports (por ser um grupo fechado).
 CREATE TABLE IF NOT EXISTS reports (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL,
   type VARCHAR(10) NOT NULL,
   title VARCHAR(120) NOT NULL,
   description VARCHAR(4000) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ABERTO',
+  admin_response VARCHAR(4000),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_reports_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT ck_reports_type CHECK (type IN ('bug', 'suggestion'))
+  CONSTRAINT ck_reports_type CHECK (type IN ('bug', 'suggestion')),
+  CONSTRAINT ck_reports_status CHECK (status IN ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO', 'REPROVADO'))
 );
 CREATE INDEX IF NOT EXISTS ix_reports_created ON reports (created_at DESC);
 
@@ -602,6 +634,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
 -- app_settings pode ja existir em bancos anteriores a este recurso.
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_backgrounds_server_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_backgrounds_max_count INTEGER NOT NULL DEFAULT 10;
+
+-- Tamanho maximo (bytes, ja decodificado) de cada efeito sonoro.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS soundboard_max_bytes INTEGER NOT NULL DEFAULT 2097152;
+
+-- Catálogo global de benefícios TURBO ({ "nameStyle": true, ... }); chave
+-- ausente = benefício ligado. Override por usuário em users.turbo_benefits.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS turbo_benefits JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Fundos de camera (virtual background): user_id NULL = fundo PADRAO do
 -- sistema (visivel a todos, gerenciado so por admin da aplicacao); user_id

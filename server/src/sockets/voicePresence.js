@@ -103,6 +103,23 @@ export async function removeVoicePresence(channelId, userId, socketId) {
 
 export const removeSocketFromAllVoiceChannels = store.removeSocketFromAll;
 
+// Painel admin: quem está em voz e de que TIPO ('server' | 'call') - nunca
+// o canal, por privacidade.
+// ponytail: KEYS é O(N) no Redis; trocar por SCAN se a base crescer muito.
+export async function listUsersInVoice() {
+  const result = new Map();
+  try {
+    const keys = await redis.keys('voice:channel:*:members');
+    for (const key of keys) {
+      const type = key.startsWith('voice:channel:call:') ? 'call' : 'server';
+      for (const userId of await redis.hkeys(key)) result.set(userId, type);
+    }
+  } catch {
+    /* fail-open: sem Redis, ninguém aparece em voz */
+  }
+  return result;
+}
+
 // Roster de um canal de voz já com o estado de mídia de cada participante
 // mesclado - RoomPage/VoiceRosterEntry leem micMuted/cameraOn/sharingScreen
 // direto do participante, sem precisar estar conectado à chamada pra saber.

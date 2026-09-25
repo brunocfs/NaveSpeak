@@ -7,7 +7,6 @@
 // de existir um convite antes de poder entrar.
 import { randomUUID } from 'node:crypto';
 import { findUserByPublicId } from '../db/users.repo.js';
-import { areFriends } from '../db/friends.repo.js';
 import { isBlockedEitherDirection } from '../db/blocks.repo.js';
 import { userIdParamSchema, mediaChannelIdSchema } from '../validation/schemas.js';
 import {
@@ -70,8 +69,8 @@ export async function handleCallLeave(io, callId, userId) {
 export function registerCallHandlers(io, socket) {
   const user = socket.data.user;
 
-  // Amizade + bloqueio são checados a cada convite (nunca só na abertura do
-  // chat privado) - mesma regra do DM (ver dm.handler.js).
+  // Bloqueio é checado a cada convite (nunca só na abertura do chat
+  // privado). Amizade não é exigida - qualquer usuário pode ligar.
   async function resolveInvitable(targetPublicId) {
     const parsed = userIdParamSchema.safeParse(targetPublicId);
     if (!parsed.success) return { error: 'ID de usuário inválido.' };
@@ -80,9 +79,6 @@ export function registerCallHandlers(io, socket) {
     if (!target || target.id === user.internalId) return { error: 'Usuário inválido.' };
     if (await isBlockedEitherDirection(user.internalId, target.id)) {
       return { error: 'Não é possível chamar este usuário.' };
-    }
-    if (!(await areFriends(user.internalId, target.id))) {
-      return { error: 'Vocês precisam ser amigos para iniciar uma chamada.' };
     }
     return { target };
   }

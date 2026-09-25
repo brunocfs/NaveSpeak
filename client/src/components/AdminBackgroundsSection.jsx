@@ -6,6 +6,7 @@ import {
   deleteSystemBackground,
   backgroundSrc,
 } from "../api/backgrounds.js";
+import { Toggle } from "./Toggle.jsx";
 
 const MAX_BYTES = 2 * 1024 * 1024; // mesmo teto de backgrounds.routes.js
 
@@ -93,7 +94,7 @@ export default function AdminBackgroundsSection() {
               <button
                 type="button"
                 onClick={() => handleDelete(b.id)}
-                className="cursor-pointer text-red-600 hover:underline dark:text-red-400"
+                className="cursor-pointer rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/40"
               >
                 Remover
               </button>
@@ -104,7 +105,7 @@ export default function AdminBackgroundsSection() {
       <button
         type="button"
         onClick={() => fileInputRef.current.click()}
-        className="mb-6 cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        className="mb-6 cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
       >
         Adicionar fundo padrão
       </button>
@@ -116,32 +117,36 @@ export default function AdminBackgroundsSection() {
         onChange={handleUpload}
       />
 
-      <form onSubmit={handleSaveSettings} className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-          <input type="checkbox" checked={serverEnabled} onChange={(e) => setServerEnabled(e.target.checked)} />
-          Permitir que usuários enviem fundos pessoais para o servidor
-        </label>
-        <label className="block text-sm text-slate-700 dark:text-slate-200">
-          Máximo de fundos por usuário
+      <form onSubmit={handleSaveSettings} className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+        <Toggle
+          checked={serverEnabled}
+          label="Permitir que usuários enviem fundos pessoais para o servidor"
+          onChange={setServerEnabled}
+        />
+        <div>
+          <label htmlFor="backgrounds-max-count" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Máximo de fundos por usuário
+          </label>
           <input
+            id="backgrounds-max-count"
             type="number"
             min={1}
             max={50}
             value={maxCount}
             onChange={(e) => setMaxCount(e.target.value)}
-            className="ml-2 w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800"
+            className="w-32 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white"
           />
-        </label>
+        </div>
         <button
           type="submit"
-          className="cursor-pointer rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          className="cursor-pointer rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:opacity-60 dark:bg-purple-500 dark:hover:bg-purple-400"
         >
           Salvar
         </button>
       </form>
 
-      {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {notice && <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">{notice}</p>}
+      {error && <p className="mt-3 text-xs text-red-500 dark:text-red-400">{error}</p>}
+      {notice && <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">{notice}</p>}
     </section>
   );
 }

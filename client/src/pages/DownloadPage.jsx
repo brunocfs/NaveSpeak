@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import { Download, Monitor, Terminal } from "lucide-react";
 import { isElectron } from "../api/media.js";
 import { API_URL } from "../api/config.js";
-import logo from "../assets/nvspk.svg";
-import logoDark from "../assets/nvspk-dark.svg";
+import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 
 // Detecção só pra destacar a opção "recomendada" - quem clica no botão
 // errado ainda baixa o instalador certo (o link já força ?os=, ver
@@ -55,7 +54,7 @@ export default function DownloadPage() {
       {/* Painel de apresentação - ver LoginPage.jsx pro mesmo comentário: fica
           sempre em tema escuro de propósito, some em telas pequenas. */}
       <aside className="login-panel relative hidden w-full shrink-0 flex-col justify-between overflow-hidden bg-[#070b12] px-12 py-14 text-slate-100 lg:flex lg:w-[46%] xl:w-[42%] xl:px-16">
-        <img src={logoDark} alt="" className="relative h-14 w-14" />
+        <NavespeakLogoV1 className="relative h-14 w-14" />
 
         <div className="relative max-w-md">
           <div className="mb-6 flex items-center gap-2.5 font-signal text-[11px] font-medium uppercase tracking-[0.2em] text-teal-300/90">
@@ -94,11 +93,7 @@ export default function DownloadPage() {
         <div className="w-full max-w-md">
           <div className="mb-6 lg:hidden">
             <div className="flex items-center gap-3">
-              <img
-                src={darkMode ? logoDark : logo}
-                alt=""
-                className="h-11 w-11 shrink-0"
-              />
+              <NavespeakLogoV1 className="h-11 w-11 shrink-0" />
               <div>
                 <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
                   NaveSpeak

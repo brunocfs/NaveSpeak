@@ -73,6 +73,7 @@ export function attachSockets(httpServer) {
         logSocketAuthFailure(socket, 'user_not_found');
         return next(new Error('unauthorized'));
       }
+      if (user.isBanned) return next(new Error('banned'));
       // `id` = public_id (UUID) exposto ao cliente; `internalId` = PK BIGINT
       // usada só em FKs/joins no banco.
       socket.data.user = {

@@ -113,30 +113,30 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl ring-1  ring-slate-200  dark:bg-[#181a20] dark:ring-[#1f2129]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Adicionar um servidor
+            Criar / Entrar em um servidor
           </h2>
           <button
             type="button"
             onClick={handleClose}
             aria-label="Fechar"
-            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="cursor-pointer rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-[#0f1117]">
           <button
             type="button"
             onClick={() => switchTab(TABS.CREATE)}
-            className={`rounded-lg py-2 text-sm font-semibold transition ${
+            className={`cursor-pointer rounded-lg py-2 text-sm font-semibold transition ${
               tab === TABS.CREATE
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-purple-700 dark:text-white"
                 : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
           >
@@ -145,9 +145,9 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
           <button
             type="button"
             onClick={() => switchTab(TABS.JOIN)}
-            className={`rounded-lg py-2 text-sm font-semibold transition ${
+            className={`cursor-pointer rounded-lg py-2 text-sm font-semibold transition ${
               tab === TABS.JOIN
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-purple-700 dark:text-white"
                 : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
           >
@@ -167,12 +167,12 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
               maxLength={64}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+              className="w-full rounded-xl border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-purple-500"
             />
             <button
               type="submit"
               disabled={busy || !name.trim()}
-              className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
+              className="cursor-pointer inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-purple-800 dark:hover:bg-purple-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
               {busy ? "Criando..." : "Criar servidor"}
             </button>
@@ -180,7 +180,8 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
         ) : (
           <form onSubmit={handleJoin} className="space-y-3">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Cole um código de convite ou o link inteiro (ex.: .../join/ABC123DEF456).
+              Cole um código de convite ou o link inteiro (ex.:
+              .../join/ABC123DEF456).
             </p>
             <input
               type="text"
@@ -188,12 +189,12 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
               placeholder="Código ou link de convite"
               value={inviteInput}
               onChange={(e) => setInviteInput(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
             />
             <button
               type="submit"
               disabled={busy || !inviteInput.trim()}
-              className="inline-flex w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
+              className="cursor-pointer inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-purple-800 dark:hover:bg-purple-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
               {busy ? "Entrando..." : "Entrar no servidor"}
             </button>

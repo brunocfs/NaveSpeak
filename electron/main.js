@@ -257,6 +257,44 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const SERVER_URL = process.env.NAVESPEAK_SERVER_URL || "https://navespeak.tech";
 const SERVER_ORIGIN = new URL(SERVER_URL).origin;
 
+// shell.openExternal aceita file:, ms-msdt:, search-ms:, UNC... - somado a um
+// XSS, vira execução de código na máquina. Só esquemas de navegador/email.
+const EXTERNAL_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
+function openExternalSafe(url) {
+  let protocol = null;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {}
+  if (EXTERNAL_PROTOCOLS.has(protocol)) shell.openExternal(url);
+  else console.warn("[security] openExternal bloqueado:", url);
+}
+
+// Todo handler IPC (daqui e de screenAudio.js) só atende frames da origem do
+// app - ou das janelas destacadas (about:blank, só scriptáveis por ela, ver
+// setWindowOpenHandler). Patch único em ipcMain em vez de checar em cada
+// handler, pra um handler novo nunca nascer sem a checagem.
+function isTrustedSender(event) {
+  const url = event.senderFrame?.url;
+  if (!url) return false;
+  if (url === "about:blank") return true;
+  try {
+    return new URL(url).origin === SERVER_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+for (const method of ["handle", "on"]) {
+  const register = ipcMain[method].bind(ipcMain);
+  ipcMain[method] = (channel, listener) =>
+    register(channel, (event, ...args) => {
+      if (!isTrustedSender(event)) {
+        console.warn("[security] IPC recusado de", event.senderFrame?.url, channel);
+        return method === "handle" ? null : undefined;
+      }
+      return listener(event, ...args);
+    });
+}
+
 // Atualização automática do SHELL nativo (main.js/preload.js/instalador em
 // si) - a UI React já se atualiza sozinha a cada load (comentário acima:
 // é servida fresca pelo mesmo server), então isso aqui NUNCA é necessário
@@ -454,7 +492,7 @@ function guardWindow(webContents) {
     }
     if (targetOrigin !== SERVER_ORIGIN) {
       event.preventDefault();
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
   });
 
@@ -476,7 +514,7 @@ function guardWindow(webContents) {
         },
       };
     }
-    shell.openExternal(url);
+    openExternalSafe(url);
     return { action: "deny" };
   });
 
@@ -651,11 +689,19 @@ app.whenReady().then(() => {
   // continua sendo o próprio limite documentado.
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
+      // Sem thumbnails/ícones: aqui só o `id` importa (o picker já mostrou as
+      // miniaturas antes). Com o padrão (150x150 de TODA janela aberta) cada
+      // início/troca de compartilhamento levava 100-500 ms a mais.
       const sources = await desktopCapturer.getSources({
         types: ["window", "screen"],
+        thumbnailSize: { width: 0, height: 0 },
+        fetchWindowIcons: false,
       });
-      const video =
-        sources.find((s) => s.id === pendingScreenSourceId) ?? sources[0];
+      // Só a fonte escolhida no <ScreenSourcePicker>, e uma vez só: antes
+      // caía em sources[0] e a tela podia ser capturada sem seletor nenhum.
+      const video = sources.find((s) => s.id === pendingScreenSourceId);
+      pendingScreenSourceId = null;
+      if (!video) return callback({});
       callback({
         video,
         audio: request.audioRequested ? "loopbackWithMute" : undefined,

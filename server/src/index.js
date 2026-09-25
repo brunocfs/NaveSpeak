@@ -1,3 +1,5 @@
+// Primeiro import de propósito - ver o comentário no arquivo.
+import './middleware/asyncErrors.js';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -26,11 +28,15 @@ import dmConversationsRoutes from './routes/dmConversations.routes.js';
 import adminBroadcastsRoutes from './routes/adminBroadcasts.routes.js';
 import adminSystemUserRoutes from './routes/adminSystemUser.routes.js';
 import adminSettingsRoutes from './routes/adminSettings.routes.js';
+import adminAdminsRoutes from './routes/adminAdmins.routes.js';
+import adminUsersRoutes from './routes/adminUsers.routes.js';
+import adminStatsRoutes from './routes/adminStats.routes.js';
 import backgroundsRoutes from './routes/backgrounds.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
-import attachmentsRoutes from './routes/attachments.routes.js';
+import attachmentsRoutes, { startOrphanAttachmentCleanup } from './routes/attachments.routes.js';
+import { requireAuth } from './middleware/auth.js';
 import clientErrorsRoutes from './routes/clientErrors.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { attachSockets } from './sockets/index.js';
@@ -141,16 +147,21 @@ app.get('/metrics', metricsHandler);
 // do express.json global (100kb): o body-parser marca req._body assim que
 // parseia e o próximo express.json na cadeia simplesmente pula, então só o
 // primeiro a bater com o path é que decide o limite aplicado.
-app.use('/api/users/me/avatar', express.json({ limit: '3mb' }));
+// requireAuth ANTES dos parsers grandes: senão um anônimo fazia o servidor
+// bufferizar até 28MB por requisição antes de ser recusado. Todos esses
+// routers já exigem login inteiros (requireAuth pula se req.user já existe).
+app.use('/api/users/me/avatar', requireAuth, express.json({ limit: '3mb' }));
 // Mesmo motivo do avatar acima - upload de foto do Zeno (adminSystemUser.routes.js)
 // também manda a imagem em base64 dentro do JSON.
-app.use('/api/admin/system-user/avatar', express.json({ limit: '3mb' }));
-app.use('/api/rooms', express.json({ limit: '3mb' }));
-app.use('/api/backgrounds', express.json({ limit: '3mb' }));
+app.use('/api/admin/system-user/avatar', requireAuth, express.json({ limit: '3mb' }));
+// Efeito sonoro: app_settings.soundboard_max_bytes (teto 10MB) em base64 ~13,4MB.
+app.use('/api/rooms/:roomId/soundboard', requireAuth, express.json({ limit: '15mb' }));
+app.use('/api/rooms', requireAuth, express.json({ limit: '3mb' }));
+app.use('/api/backgrounds', requireAuth, express.json({ limit: '3mb' }));
 // Anexo de chat vai de base64 dentro do JSON também (mesmo motivo do
 // comentário acima) - 20MB decodificados vira ~27MB em base64, mais folga
 // pro resto do payload.
-app.use('/api/attachments', express.json({ limit: '28mb' }));
+app.use('/api/attachments', requireAuth, express.json({ limit: '28mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 
@@ -189,9 +200,34 @@ app.use('/api/invites', invitesRoutes);
 app.use('/api/admin/broadcasts', adminBroadcastsRoutes);
 app.use('/api/admin/system-user', adminSystemUserRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
+app.use('/api/admin/admins', adminAdminsRoutes);
+app.use('/api/admin/users', adminUsersRoutes);
+app.use('/api/admin/stats', adminStatsRoutes);
 app.use('/api/backgrounds', backgroundsRoutes);
 app.use('/api/attachments', attachmentsRoutes);
 app.use('/api/client-errors', clientErrorsRoutes);
+
+// Anexos de chat são arquivos arbitrários enviados por usuário (qualquer
+// formato, inclusive html/svg/js): nunca podem ser renderizados/executados
+// na origem do app (XSS armazenado -> roubo de token via /api/auth/refresh).
+// - Content-Disposition: attachment -> abrir o link baixa, não renderiza.
+// - CSP sandbox -> se algum navegador renderizar mesmo assim, sem script.
+// - Content-Type neutro (octet-stream) pra tudo que não é imagem/vídeo/
+//   áudio + nosniff -> um .js enviado não roda nem via <script src> de outra
+//   página da mesma origem (o navegador recusa script com MIME errado).
+//   Mídia mantém o tipo real pro <img>/<video> do chat continuar exibindo;
+//   <img> nunca executa script, nem de SVG. O serve-static não sobrescreve
+//   um Content-Type já definido.
+// ponytail: o ideal é servir anexos de outra origem, sem cookie.
+app.use('/uploads/attachments', (req, res, next) => {
+  res.setHeader('Content-Disposition', 'attachment');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+  if (!/^(image|video|audio)\//.test(express.static.mime.lookup(req.path))) {
+    res.setHeader('Content-Type', 'application/octet-stream');
+  }
+  next();
+});
 
 // Avatares enviados por usuário (users.routes.js) - fora de /api de
 // propósito, são arquivos estáticos, não respostas JSON.
@@ -340,6 +376,7 @@ async function start() {
   // comentário em config/redis.js). Roda antes do listen() de propósito -
   // nenhum socket consegue conectar antes da porta abrir.
   await resetEphemeralPresenceOnBoot();
+  startOrphanAttachmentCleanup();
 
   httpServer.once('error', (err) =>
     startupFailed('http_server', err.code === 'EADDRINUSE' ? 'PORT_IN_USE' : 'HTTP_SERVER_ERROR', err, 'HTTP server failed to start')

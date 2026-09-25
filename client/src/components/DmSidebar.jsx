@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck } from "lucide-react";
+import {
+  BadgeCheck,
+  Bug,
+  Download,
+  Lock,
+  Mail,
+  Rocket,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { getSocket } from "../api/socket.js";
@@ -10,6 +19,7 @@ import Avatar from "./Avatar.jsx";
 import VoiceControlBar from "./VoiceControlBar.jsx";
 import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
 import StyledUsername from "./StyledUsername.jsx";
+import { randomCipher } from "../utils/cipher.js";
 
 function compareConversations(a, b) {
   const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
@@ -23,7 +33,14 @@ function compareConversations(a, b) {
 // "Amigos", que só desseleciona a conversa aberta pra deixar o painel
 // direito mostrar o FriendsPanel.jsx existente (nada aqui duplica a lista de
 // amigos - ver decisão do usuário).
-export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
+// `panel`: qual painel fixo está aberto ao lado ("bugs", "turbo", "invites",
+// "admin") - null quando é Amigos ou uma conversa.
+export default function DmSidebar({
+  selectedFriendId,
+  panel,
+  onSelectFriend,
+  onSelectPanel,
+}) {
   const { user } = useAuth();
   const ownUserId = user?.id;
   // Chamada de voz é global (MediaSessionProvider em App.jsx) - o
@@ -34,6 +51,14 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [cipherText, setCipherText] = useState(() => randomCipher(9));
+
+  // Botão-mistério (teaser, abre o CipherPanel) - texto "criptografado"
+  // trocando de glifos pra parecer algo escondido/em progresso.
+  useEffect(() => {
+    const interval = setInterval(() => setCipherText(randomCipher(9)), 110);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fontes de tela/janela do Electron pro botão de compartilhar tela do
   // VoiceControlBar - mesma lógica duplicada de propósito em
@@ -53,8 +78,13 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
   // "Amigos" ativa quando nenhuma conversa está selecionada - o painel
   // direito de RoomsPage.jsx já decide sozinho o que mostrar a partir disso,
   // esse booleano é só pra destacar a aba certa aqui.
-  const friendsActive = !selectedFriendId;
-
+  const friendsActive = !selectedFriendId && !panel;
+  const navClass = (active) =>
+    `cursor-pointer items-center flex rounded-xl px-3 py-2 gap-3 text-sm font-semibold transition ${
+      active
+        ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+        : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+    }`;
   useEffect(() => {
     setLoading(true);
     listConversations()
@@ -81,7 +111,8 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
     function handleDmMessage(message) {
       const isIncoming = message.recipient_id === ownUserId;
       const peerId = isIncoming ? message.sender_id : message.recipient_id;
-      const shouldCountUnread = isIncoming && peerId !== selectedFriendIdRef.current;
+      const shouldCountUnread =
+        isIncoming && peerId !== selectedFriendIdRef.current;
 
       if (isIncoming && peerId === selectedFriendIdRef.current) {
         markConversationRead(peerId).catch(() => {});
@@ -94,7 +125,9 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
               ? {
                   ...c,
                   lastMessageAt: message.created_at,
-                  unreadCount: shouldCountUnread ? (c.unreadCount ?? 0) + 1 : c.unreadCount,
+                  unreadCount: shouldCountUnread
+                    ? (c.unreadCount ?? 0) + 1
+                    : c.unreadCount,
                 }
               : c,
           );
@@ -106,7 +139,9 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
           ...prev,
           {
             id: peerId,
-            username: isIncoming ? message.sender_username : message.recipient_username,
+            username: isIncoming
+              ? message.sender_username
+              : message.recipient_username,
             avatarPath: isIncoming ? message.senderAvatarPath : undefined,
             isSystem: isIncoming ? Boolean(message.senderIsSystem) : false,
             nameStyle: isIncoming ? message.senderNameStyle : undefined,
@@ -179,35 +214,88 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex gap-2 border-b border-slate-200 p-4 dark:border-slate-800">
-        <button
+      <div className="flex flex-col gap-2 border-b border-slate-200 p-4 dark:border-slate-800">
+        {/* <button
           type="button"
           onClick={handleMessagesTab}
-          className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+          className={` cursor-pointer flex rounded-xl px-3 py-2 text-sm font-semibold transition ${
             !friendsActive
               ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
               : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
           }`}
         >
           Mensagens
-        </button>
+        </button> */}
         <button
           type="button"
           onClick={() => onSelectFriend?.(null)}
-          title="Em breve terá novas opções"
-          className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-            friendsActive
-              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-              : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-          }`}
+          className={navClass(friendsActive)}
         >
-          Amigos
+          <Users className="size-5" /> Amigos
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectPanel?.("bugs")}
+          className={navClass(panel === "bugs")}
+        >
+          <Bug className="size-5" /> Reportar bug ou sugestão
+        </button>
+        {user?.isAdmin && (
+          <>
+            <button
+              type="button"
+              onClick={() => onSelectPanel?.("invites")}
+              className={navClass(panel === "invites")}
+            >
+              <Mail className="size-5" /> Convites
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectPanel?.("admin")}
+              className={navClass(panel === "admin")}
+            >
+              <ShieldCheck className="size-5" /> Painel admin
+            </button>
+          </>
+        )}
+        {!isElectron() && (
+          <a
+            href="/baixar"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Baixar o app NaveSpeak para desktop"
+            className="cursor-pointer items-center flex rounded-xl px-3 py-2 gap-3 text-sm font-semibold transition text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            <Download className="size-5" /> Baixar app
+          </a>
+        )}
+        {/* <button
+          type="button"
+          onClick={() => onSelectPanel?.("turbo")}
+          title="Conheça o TURBO"
+          className="turbo-button cursor-pointer items-center flex rounded-xl px-3 py-2 gap-2 text-sm font-bold tracking-wide transition hover:brightness-110"
+        >
+          <Rocket className="turbo-icon size-5" /> TURBO
+        </button> */}
+
+        <button
+          type="button"
+          onClick={() => onSelectPanel?.("cipher")}
+          title="???"
+          aria-label="Transmissão criptografada"
+          aria-pressed={panel === "cipher"}
+          className="cipher-button cursor-pointer items-center flex rounded-xl px-3 py-2 gap-2 text-sm font-semibold transition"
+        >
+          <Lock className="cipher-icon size-5" />
+          <span className="cipher-text font-mono">{cipherText}</span>
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {error && <p className="error-text px-3 text-sm">{error}</p>}
-        {loading && <p className="hint px-3 text-sm">Carregando conversas...</p>}
+        {loading && (
+          <p className="hint px-3 text-sm">Carregando conversas...</p>
+        )}
         {!loading && sorted.length === 0 && (
           <p className="px-3 text-sm text-slate-500 dark:text-slate-400">
             Nenhuma mensagem ainda. Abra uma conversa pela aba Amigos ou pelo
@@ -220,14 +308,18 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
               <button
                 type="button"
                 onClick={() => handleSelect(conv)}
-                className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition ${
+                className={`cursor-pointer flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition ${
                   selectedFriendId === conv.id
                     ? "bg-slate-900 dark:bg-slate-100"
                     : "hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
                 <span className="relative inline-flex shrink-0">
-                  <Avatar avatarPath={conv.avatarPath} username={conv.username} size="sm" />
+                  <Avatar
+                    avatarPath={conv.avatarPath}
+                    username={conv.username}
+                    size="sm"
+                  />
                   <StatusDot
                     status={conv.status}
                     className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-900"
@@ -240,7 +332,11 @@ export default function DmSidebar({ selectedFriendId, onSelectFriend }) {
                       : "text-slate-800 dark:text-slate-100"
                   }`}
                 >
-                  <StyledUsername username={conv.username} style={conv.nameStyle} className="truncate" />
+                  <StyledUsername
+                    username={conv.username}
+                    style={conv.nameStyle}
+                    className="truncate"
+                  />
                   {conv.isSystem && (
                     <BadgeCheck
                       className="size-3.5 shrink-0 text-sky-500"

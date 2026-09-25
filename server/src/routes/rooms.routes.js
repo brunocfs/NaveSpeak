@@ -63,13 +63,13 @@ import { decodeSoundboardAudioDataUrl } from '../utils/soundboardUpload.js';
 import { PERMISSIONS, canAccessChannel, permissionKeysFor, isServerOwner } from '../utils/permissions.js';
 import { formatTag } from '../utils/discriminator.js';
 import { audit } from '../observability/logger.js';
+import { evictUserFromServer } from '../sockets/mediasoup.handler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 const SERVER_ICON_DIR = path.join(UPLOADS_DIR, 'servers');
 const MAX_ICON_BYTES = 2 * 1024 * 1024; // 2MB, já decodificado
 const SOUNDBOARD_DIR = path.join(UPLOADS_DIR, 'soundboard');
-const MAX_SOUND_BYTES = 1 * 1024 * 1024; // 1MB, já decodificado - sobra pra alguns segundos de áudio comprimido
 
 // Link "bonito" pra compartilhar (ver ServerUserInvite.jsx) - página própria
 // (/join/:code), distinta de /invite/:code (convite de CADASTRO, ver
@@ -453,6 +453,8 @@ router.delete(
         roomId: req.room.id,
         reason: 'kick',
       });
+      const io = req.app.get('io');
+      if (io) await evictUserFromServer(io, req.room.id, req.targetUser.publicId);
       return res.status(204).end();
     } catch (err) {
       return next(err);
@@ -492,6 +494,8 @@ router.post(
         roomId: req.room.id,
         reason: 'ban',
       });
+      const io = req.app.get('io');
+      if (io) await evictUserFromServer(io, req.room.id, req.targetUser.publicId);
       return res.status(204).end();
     } catch (err) {
       return next(err);
@@ -532,6 +536,7 @@ router.get('/:roomId/soundboard', loadRoomForMember, async (req, res, next) => {
       sounds,
       maxSounds: appSettings.soundboardMaxSounds,
       maxDurationMs: appSettings.soundboardMaxDurationMs,
+      maxBytes: appSettings.soundboardMaxBytes,
     });
   } catch (err) {
     return next(err);
@@ -551,7 +556,7 @@ router.post(
         return res.status(400).json({ error: `Limite de ${appSettings.soundboardMaxSounds} efeitos sonoros atingido.` });
       }
 
-      const decoded = decodeSoundboardAudioDataUrl(req.body.fileData, { maxBytes: MAX_SOUND_BYTES });
+      const decoded = decodeSoundboardAudioDataUrl(req.body.fileData, { maxBytes: appSettings.soundboardMaxBytes });
       if (decoded.error) return res.status(400).json({ error: decoded.error });
 
       // Duração REAL do áudio (nunca confia em nada que o client possa

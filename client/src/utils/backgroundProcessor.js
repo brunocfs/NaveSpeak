@@ -137,10 +137,17 @@ export async function createBackgroundProcessor(input, background) {
       personCtx.drawImage(maskCanvas, 0, 0, w, h); // upscale bilinear = borda suave
       outCtx.drawImage(person, 0, 0);
     }
-    // setTimeout (não rAF): com a janela em segundo plano rAF congela e a
-    // câmera travaria pros outros participantes.
-    timer = setTimeout(tick, FRAME_INTERVAL_MS);
   }
+  // Relógio num Worker (nem rAF, nem setTimeout da página): com a aba em
+  // segundo plano o navegador congela rAF e segura o setTimeout em 1x/s (e
+  // até 1x/min depois de 5 min em silêncio) - a câmera com fundo travava ou
+  // "sumia" pros outros. Timers de Worker não sofrem esse throttling.
+  const timerUrl = URL.createObjectURL(
+    new Blob([`setInterval(() => postMessage(0), ${FRAME_INTERVAL_MS});`], { type: 'text/javascript' })
+  );
+  timer = new Worker(timerUrl);
+  URL.revokeObjectURL(timerUrl);
+  timer.onmessage = tick;
   tick();
 
   return {
@@ -148,7 +155,7 @@ export async function createBackgroundProcessor(input, background) {
     stop() {
       if (stopped) return;
       stopped = true;
-      clearTimeout(timer);
+      timer.terminate();
       video.srcObject = null;
       background.image?.close?.(); // ImageBitmap (fundo local)
     },

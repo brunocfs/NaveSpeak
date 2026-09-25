@@ -49,7 +49,7 @@ export default function EmojiPicker({ onSelect, disabled }) {
         className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
           open
             ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300"
-            : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-[#0f1117] dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
         }`}
       >
         <Smile className="size-4" />
@@ -59,7 +59,7 @@ export default function EmojiPicker({ onSelect, disabled }) {
         <div
           role="dialog"
           aria-label="Seletor de emoji"
-          className="absolute bottom-full right-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+          className="absolute bottom-full right-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-[#0f1117]"
         >
           <div className="border-b border-slate-200 p-2 dark:border-slate-700">
             <input

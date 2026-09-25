@@ -1,5 +1,5 @@
 import { verifyAccessToken } from '../utils/tokens.js';
-import { findUserByPublicId } from '../db/users.repo.js';
+import { findUserByPublicId, banMessage } from '../db/users.repo.js';
 import { setContext } from '../observability/logger.js';
 
 // Motivo da recusa só pro log (res.locals.log, ver observability/http.js) -
@@ -20,6 +20,9 @@ function deny(res, reasonCode, message) {
 // apenas em FKs/joins no banco. Todas as rotas que devolvem dados de usuário/sala/
 // mensagem devem passar por aqui primeiro - nunca confiar em um ID vindo da URL sozinho.
 export async function requireAuth(req, res, next) {
+  // Já autenticado por um requireAuth anterior na cadeia (index.js monta
+  // um antes dos parsers de body grandes) - evita a segunda ida ao banco.
+  if (req.user) return next();
   const header = req.headers.authorization ?? '';
   const [scheme, token] = header.split(' ');
 
@@ -31,6 +34,7 @@ export async function requireAuth(req, res, next) {
     const payload = verifyAccessToken(token);
     const user = await findUserByPublicId(payload.sub);
     if (!user) return deny(res, 'user_not_found', 'Sessão inválida ou expirada.');
+    if (user.isBanned) return res.status(403).json({ error: banMessage(user) });
 
     req.user = {
       id: user.publicId,
@@ -40,6 +44,7 @@ export async function requireAuth(req, res, next) {
       status: user.status,
       avatarPath: user.avatarPath,
       isAdmin: user.isAdmin,
+      showCommonServers: user.showCommonServers,
     };
     setContext({ user_id: user.publicId });
     return next();

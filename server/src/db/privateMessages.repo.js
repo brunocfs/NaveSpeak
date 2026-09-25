@@ -5,6 +5,7 @@
 // IMPORTANTE: como messages.repo.js, esta função não checa amizade nem
 // bloqueio - quem chama (sockets/dm.handler.js) é responsável por isso antes.
 import { pool } from '../config/db.js';
+import { publicNameStyleSql } from './users.repo.js';
 
 // Mesmo raciocínio de ATTACHMENTS_AGG em messages.repo.js.
 const ATTACHMENTS_AGG = `
@@ -18,7 +19,7 @@ const CONVERSATION_ROW = `
   SELECT pm.id, pm.content, pm.created_at,
          su.public_id AS sender_id, su.username AS sender_username, su.avatar_path AS "senderAvatarPath",
          su.is_system AS "senderIsSystem",
-         su.name_style AS "senderNameStyle",
+         ${publicNameStyleSql('su')} AS "senderNameStyle",
          ru.public_id AS recipient_id,
          ${ATTACHMENTS_AGG}
   FROM private_messages pm
@@ -136,7 +137,7 @@ export async function getLastMessageTimestamps(userId) {
 export async function listConversationPeers(userId) {
   const { rows } = await pool.query(
     `SELECT u.public_id AS id, u.username, u.discriminator, u.avatar_path AS "avatarPath",
-            u.is_system AS "isSystem", u.name_style AS "nameStyle",
+            u.is_system AS "isSystem", ${publicNameStyleSql('u')} AS "nameStyle",
             MAX(pm.created_at) AS "lastMessageAt"
      FROM private_messages pm
      INNER JOIN users u ON u.id = CASE WHEN pm.sender_id = $1 THEN pm.recipient_id ELSE pm.sender_id END
@@ -146,7 +147,7 @@ export async function listConversationPeers(userId) {
          WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
             OR (b.blocker_id = u.id AND b.blocked_id = $1)
        )
-     GROUP BY u.public_id, u.username, u.discriminator, u.avatar_path, u.is_system, u.name_style
+     GROUP BY u.id
      ORDER BY "lastMessageAt" DESC`,
     [userId]
   );
