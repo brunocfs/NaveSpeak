@@ -219,7 +219,7 @@ export default function UserProfilePreview({
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.stopPropagation()}
       style={{ position: "fixed", ...pos }}
-      className="z-[9999] w-80 rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-[#181a20] dark:ring-slate-800"
+      className="z-[9999] w-80 max-w-[calc(100vw-1rem)] rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-[#181a20] dark:ring-slate-800"
     >
       <div className="flex flex-col p-3">
         <div className="relative -mx-3 -mt-3 h-25 rounded-t-2xl bg-slate-200 dark:bg-black">

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { usePreferences } from "../context/PreferencesContext.jsx";
 
 // Um <audio> por participante remoto com mic (ou por compartilhamento de
 // tela com áudio) - tocando sempre, INDEPENDENTE do tile dele aparecer no
@@ -82,6 +83,10 @@ export default function RemoteAudioPlayers({
   // acima pro porquê de aplicar por elemento em vez de globalmente.
   outputDeviceId,
 }) {
+  // Volume geral da chamada (seta do fone na VoiceControlBar) - multiplica o
+  // volume individual de cada um. Clamp: valor vem do localStorage.
+  const { callVolume } = usePreferences();
+  const master = Math.min(100, Math.max(0, Number(callVolume) || 0)) / 100;
   return (
     <>
       {tiles
@@ -91,7 +96,7 @@ export default function RemoteAudioPlayers({
             key={t.key}
             stream={t.micStream}
             muted={deafened || Boolean(isLocallyMuted?.(t.userId))}
-            volume={getUserVolume ? getUserVolume(t.userId) : 100}
+            volume={(getUserVolume ? getUserVolume(t.userId) : 100) * master}
             outputDeviceId={outputDeviceId}
           />
         ))}
@@ -100,7 +105,10 @@ export default function RemoteAudioPlayers({
           key={t.key}
           stream={t.stream}
           muted={deafened}
-          volume={getScreenAudioVolume ? getScreenAudioVolume(t.userId) : 100}
+          volume={
+            (getScreenAudioVolume ? getScreenAudioVolume(t.userId) : 100) *
+            master
+          }
           outputDeviceId={outputDeviceId}
         />
       ))}

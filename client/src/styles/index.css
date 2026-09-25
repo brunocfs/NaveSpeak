@@ -106,6 +106,25 @@ html.electron-app .min-h-screen {
   min-height: calc(100vh - 36px);
 }
 
+/* Celular/tablet (toque): 100vh inclui a área atrás da barra de endereço do
+   navegador, que cortava o rodapé (campo de mensagem, controles de voz) -
+   100dvh é a altura visível de verdade. No desktop dvh == vh, e o Electron
+   segue com a regra acima. Inputs com fonte < 16px fazem o Safari do iPhone
+   dar zoom na página ao focar - no toque sobem pra 16px. */
+@media (pointer: coarse) {
+  html:not(.electron-app) .h-screen {
+    height: 100dvh;
+  }
+  html:not(.electron-app) .min-h-screen {
+    min-height: 100dvh;
+  }
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
 .centered {
   display: flex;
   align-items: center;

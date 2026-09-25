@@ -16,6 +16,7 @@ import { createRnnoiseStream } from '../audio/rnnoise.js';
 import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
+import { createMicGainStream } from '../audio/micGain.js';
 import { playSound, playSoundboardSound } from '../utils/sounds.js';
 import { soundboardSrc } from '../api/soundboard.js';
 import CameraSetupModal from '../components/CameraSetupModal.jsx';
@@ -320,6 +321,8 @@ export function MediaSessionProvider({ children }) {
   // sobrar abaixo do threshold), mas é um grafo à parte (destroy próprio) -
   // o gate não sabe nem precisa saber se rodou algum supressor antes dele.
   const gateRef = useRef(null);
+  // Volume do mic (audio/micGain.js) - último estágio da cadeia.
+  const gainRef = useRef(null);
   const micProducerRef = useRef(null);
   const screenProducerRef = useRef(null);
   // Producer À PARTE pro áudio do compartilhamento de tela (kind 'audio',
@@ -377,7 +380,12 @@ export function MediaSessionProvider({ children }) {
     micGateThresholdDb,
     pushToTalkEnabled,
     pushToTalkKey,
+    micVolume,
   } = usePreferences();
+  // Ref (não dep de buildMicChain): mudar o volume ajusta o GainNode ao vivo
+  // (efeito mais abaixo), nunca recria a cadeia/reabre o microfone.
+  const micVolumeRef = useRef(micVolume);
+  micVolumeRef.current = micVolume;
 
   const addRemoteStream = useCallback((entry) => {
     setRemoteStreams((prev) => [...prev.filter((s) => s.producerId !== entry.producerId), entry]);
@@ -672,6 +680,8 @@ export function MediaSessionProvider({ children }) {
       denoiserRef.current = null;
       gateRef.current?.destroy();
       gateRef.current = null;
+      gainRef.current?.destroy();
+      gainRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       setLocalMicStream(null);
@@ -784,7 +794,17 @@ export function MediaSessionProvider({ children }) {
         }
       }
 
-      return { rawStream: stream, audioTrack, denoiser, gate, fellBack };
+      // Volume do mic - sempre criado (mesmo em 100%) pra poder ajustar ao
+      // vivo sem recriar a cadeia. Falha não derruba a entrada na voz.
+      let gain = null;
+      try {
+        gain = await createMicGainStream(new MediaStream([audioTrack]), micVolumeRef.current);
+        audioTrack = gain.stream.getAudioTracks()[0];
+      } catch (err) {
+        console.error(err);
+      }
+
+      return { rawStream: stream, audioTrack, denoiser, gate, gain, fellBack };
     },
     [noiseSuppressionMode, noiseSuppressionLevel, micGateEnabled, micGateThresholdDb]
   );
@@ -817,7 +837,7 @@ export function MediaSessionProvider({ children }) {
         setError(err.message ?? 'Não foi possível trocar de microfone.');
         return;
       }
-      const { rawStream, audioTrack, denoiser, gate, fellBack } = built;
+      const { rawStream, audioTrack, denoiser, gate, gain, fellBack } = built;
 
       // Ficou obsoleta (outra troca começou depois desta, ou saiu da voz
       // enquanto isso rodava) - descarta sem tocar em nada que já está no ar.
@@ -825,6 +845,7 @@ export function MediaSessionProvider({ children }) {
         rawStream.getTracks().forEach((t) => t.stop());
         denoiser?.destroy();
         gate?.destroy();
+        gain?.destroy();
         return;
       }
 
@@ -840,19 +861,23 @@ export function MediaSessionProvider({ children }) {
         rawStream.getTracks().forEach((t) => t.stop());
         denoiser?.destroy();
         gate?.destroy();
+        gain?.destroy();
         return;
       }
 
       const oldDenoiser = denoiserRef.current;
       const oldGate = gateRef.current;
+      const oldGain = gainRef.current;
       const oldRawStream = localStreamRef.current;
       denoiserRef.current = denoiser;
       gateRef.current = gate;
+      gainRef.current = gain;
       localStreamRef.current = rawStream;
       setLocalMicStream(rawStream);
 
       oldDenoiser?.destroy();
       oldGate?.destroy();
+      oldGain?.destroy();
       oldRawStream?.getTracks().forEach((t) => t.stop());
     },
     [buildMicChain]
@@ -883,6 +908,10 @@ export function MediaSessionProvider({ children }) {
   useEffect(() => {
     denoiserRef.current?.setLevel(noiseSuppressionLevel);
   }, [noiseSuppressionLevel]);
+
+  useEffect(() => {
+    gainRef.current?.setVolume(micVolume);
+  }, [micVolume]);
 
   // Só é chamado a partir de um clique explícito do usuário ("Entrar na
   // voz") - getUserMedia nunca dispara sozinho ao carregar a página. Recebe
@@ -974,7 +1003,7 @@ export function MediaSessionProvider({ children }) {
 
         // Captura + supressor de ruído + gate, ver buildMicChain acima -
         // mesma lógica reaproveitada por switchMic (troca ao vivo).
-        const { rawStream, audioTrack, denoiser, gate, fellBack } = await buildMicChain(micDeviceId);
+        const { rawStream, audioTrack, denoiser, gate, gain, fellBack } = await buildMicChain(micDeviceId);
         if (fellBack) {
           setError('O microfone salvo em Preferências não foi encontrado - usando o padrão do sistema.');
         }
@@ -982,6 +1011,7 @@ export function MediaSessionProvider({ children }) {
         setLocalMicStream(rawStream);
         denoiserRef.current = denoiser;
         gateRef.current = gate;
+        gainRef.current = gain;
 
         const micProducer = await sendTransport.produce({ track: audioTrack, appData: { source: 'mic' } });
         // Espelha localmente o que já pedimos pro servidor (`paused` no
@@ -1545,6 +1575,8 @@ export function MediaSessionProvider({ children }) {
     }
   }, [cameraAskEveryTime, mediaLocked, startCamera]);
 
+  // Lado da câmera ligada no celular - ver flipCamera abaixo.
+  const cameraFacingRef = useRef('user');
   const stopCamera = useCallback(async () => {
     await closeProducer(cameraProducerRef.current);
     cameraProducerRef.current = null;
@@ -1553,6 +1585,7 @@ export function MediaSessionProvider({ children }) {
       return null;
     });
     setCameraOn(false);
+    cameraFacingRef.current = 'user';
   }, [closeProducer]);
 
   useEffect(() => {
@@ -1599,6 +1632,46 @@ export function MediaSessionProvider({ children }) {
       setError(err.message ?? 'Não foi possível trocar de webcam.');
     }
   }, []);
+
+  // Celular: alterna câmera frontal/traseira ao vivo (mesmo producer, via
+  // replaceTrack). Diferente de switchCamera, solta a câmera atual ANTES de
+  // capturar a outra: a maioria dos Android não abre duas câmeras ao mesmo
+  // tempo (NotReadableError).
+  const localCameraStreamRef = useRef(null);
+  useEffect(() => {
+    localCameraStreamRef.current = localCameraStream;
+  }, [localCameraStream]);
+  const flipCamera = useCallback(async () => {
+    if (!cameraProducerRef.current) return;
+    const next = cameraFacingRef.current === 'environment' ? 'user' : 'environment';
+    setError(null);
+    localCameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+    let stream = null;
+    try {
+      const captured = await requestCameraStream(null, cameraBackground, next);
+      stream = captured.stream;
+      if (!cameraProducerRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const [track] = stream.getVideoTracks();
+      track.addEventListener('ended', () => stopCameraRef.current());
+      await cameraProducerRef.current.replaceTrack({ track });
+      // fellBack = aparelho sem a câmera pedida (ex.: só frontal) - o padrão
+      // do sistema entrou no lugar, então o lado "atual" não mudou.
+      if (captured.fellBack) setError('Este dispositivo não tem outra câmera disponível.');
+      else cameraFacingRef.current = next;
+      if (captured.backgroundError) setError(captured.backgroundError);
+      setLocalCameraStream(stream);
+    } catch (err) {
+      console.error(err);
+      stream?.getTracks().forEach((t) => t.stop());
+      setError(err.message ?? 'Não foi possível trocar de câmera.');
+      // A câmera antiga já foi parada acima - desliga de vez em vez de
+      // deixar o producer mandando uma track morta.
+      stopCameraRef.current();
+    }
+  }, [cameraBackground]);
 
   const cameraLiveDeviceIdRef = useRef(cameraDeviceId);
   useEffect(() => {
@@ -1734,6 +1807,8 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      flipCamera,
+      buildMicChain,
       localMicStream,
       sendTransportRef,
       deviceRef,
@@ -1777,6 +1852,8 @@ export function MediaSessionProvider({ children }) {
       localCameraStream,
       shareCamera,
       stopCamera,
+      flipCamera,
+      buildMicChain,
       localMicStream,
       audioLocked,
       mediaLocked,

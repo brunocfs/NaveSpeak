@@ -294,10 +294,18 @@ export async function requestScreenStream(
 // `exact`) pra nunca falhar em câmera que não suporta 720p.
 const CAMERA_CONSTRAINTS = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { max: 30 } };
 
-export async function requestCameraStream(deviceId, background) {
+// `facingMode` ('user' | 'environment'): usado só pela troca frontal/traseira
+// no celular (flipCamera) - ignora o deviceId, porque Android costuma listar
+// várias câmeras traseiras com rótulos que variam por fabricante.
+export async function requestCameraStream(deviceId, background, facingMode) {
   assertMediaDevicesAvailable();
+  const video = facingMode
+    ? { facingMode: { exact: facingMode }, ...CAMERA_CONSTRAINTS }
+    : deviceId
+      ? { deviceId: { exact: deviceId }, ...CAMERA_CONSTRAINTS }
+      : CAMERA_CONSTRAINTS;
   const result = await getStreamWithFallback(
-    { video: deviceId ? { deviceId: { exact: deviceId }, ...CAMERA_CONSTRAINTS } : CAMERA_CONSTRAINTS, audio: false },
+    { video, audio: false },
     { video: true, audio: false }
   );
   if (!background || background.mode === 'none') return result;

@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
-import { LANGUAGES, usePreferences } from "../context/PreferencesContext.jsx";
+import {
+  LANGUAGES,
+  NOISE_SUPPRESSION_OPTIONS,
+  usePreferences,
+} from "../context/PreferencesContext.jsx";
 import {
   listMediaDevices,
   unlockDeviceLabels,
@@ -378,7 +382,7 @@ export default function PreferencesModal() {
         draft &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8"
+            className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8 max-md:p-2"
             role="dialog"
             aria-modal="true"
             aria-label="Preferências"
@@ -391,10 +395,10 @@ export default function PreferencesModal() {
               sempre visível desde o topo e rola junto com o overlay. */}
             <div className="mx-auto w-full max-w-5xl">
               <div
-                className="flex min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full flex-col rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-[#181a20] dark:ring-[#1f2129]"
+                className="flex min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] max-md:min-h-[calc(100dvh-1rem)] max-md:max-h-[calc(100dvh-1rem)] w-full flex-col rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 dark:bg-[#181a20] dark:ring-[#1f2129]"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-6 pb-4 dark:border-slate-800">
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-6 pb-4 max-md:p-4 dark:border-slate-800">
                   <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                     Preferências
                   </h2>
@@ -425,14 +429,14 @@ export default function PreferencesModal() {
                   SÓ o conteúdo da aba rolar (overflow-y-auto), não o modal
                   inteiro - sem isso um card mais alto que a viewport nunca
                   deixaria o footer Cancelar/Salvar visível. */}
-                <div className="flex min-h-0 flex-1">
-                  <nav className="w-40 shrink-0 space-y-1 border-r border-slate-200 p-3 dark:border-slate-800">
+                <div className="flex min-h-0 flex-1 max-md:flex-col">
+                  <nav className="w-40 shrink-0 space-y-1 border-r border-slate-200 p-3 dark:border-slate-800 max-md:flex max-md:w-full max-md:gap-1 max-md:space-y-0 max-md:overflow-x-auto max-md:border-r-0 max-md:border-b">
                     {TABS.map((t) => (
                       <button
                         key={t.id}
                         type="button"
                         onClick={() => setTab(t.id)}
-                        className={`cursor-pointer w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                        className={`cursor-pointer w-full max-md:w-auto max-md:shrink-0 max-md:whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                           tab === t.id
                             ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                             : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -443,7 +447,7 @@ export default function PreferencesModal() {
                     ))}
                   </nav>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                  <div className="min-h-0 flex-1 overflow-y-auto p-6 max-md:p-4">
                     <div className="space-y-6">
                       {tab === "general" && (
                         <>
@@ -994,16 +998,7 @@ export default function PreferencesModal() {
                         servidor estático, não o WASM em si; corrigido em
                         audio/deepfilternet.js (asset servido como `.bin`). */}
                             <div className="grid grid-cols-2 gap-2">
-                              {[
-                                { value: "off", label: "Desligado" },
-                                { value: "native", label: "Nativo" },
-                                { value: "rnnoise", label: "RNNoise" },
-                                { value: "gtcrn", label: "GTCRN" },
-                                {
-                                  value: "deepfilternet",
-                                  label: "DeepFilterNet3",
-                                },
-                              ].map((opt) => (
+                              {NOISE_SUPPRESSION_OPTIONS.map((opt) => (
                                 <button
                                   key={opt.value}
                                   type="button"

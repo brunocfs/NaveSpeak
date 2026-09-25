@@ -10,8 +10,7 @@ import {
   RefreshCw,
   PhoneOff,
   Volume2,
-  ChevronUp,
-  ChevronDown,
+  SwitchCamera,
 } from "lucide-react";
 import Avatar from "./Avatar.jsx";
 import StatusDot from "./StatusDot.jsx";
@@ -21,6 +20,7 @@ import PreferencesModal from "./PreferencesModal.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import SoundboardPanel from "./SoundboardPanel.jsx";
+import AudioQuickSettings from "./AudioQuickSettings.jsx";
 // Mini painel de controles de mídia da sidebar de voz - extraído de
 // RoomPage.jsx pra poder ser reusado em outras telas (ex.: uma janela
 // separada/PiP no futuro). `media` (useMediaSession) e `user` (useAuth) vêm
@@ -33,6 +33,18 @@ import SoundboardPanel from "./SoundboardPanel.jsx";
 // cujo estado/modal mora na tela que hospeda este painel - mover isso pra cá
 // também exigiria mover o modal inteiro junto, o que foge do escopo de só
 // reaproveitar os botões de mic/câmera/tela/status.
+// Troca frontal/traseira só faz sentido em aparelho de toque (celular/tablet);
+// no desktop a webcam é escolhida em Preferências.
+const isTouchDevice =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(pointer: coarse)").matches;
+// Navegador de celular não tem getDisplayMedia - esconde o botão em vez de
+// deixar um clique que só falha.
+const canShareScreen =
+  typeof navigator !== "undefined" &&
+  (Boolean(navigator.mediaDevices?.getDisplayMedia) ||
+    Boolean(window.naveSpeak?.getScreenSources));
+
 export default function VoiceControlBar({
   toggleScreenShare,
   switchScreenSource,
@@ -73,6 +85,17 @@ export default function VoiceControlBar({
                   <Camera className="size-4" />
                 )}
               </button>
+              {media.cameraOn && isTouchDevice && (
+                <button
+                  onClick={() => media.flipCamera()}
+                  title="Alternar câmera frontal/traseira"
+                  aria-label="Alternar câmera frontal/traseira"
+                  className="rounded-xl px-2 py-2 cursor-pointer transition text-slate-600 hover:bg-slate-200 dark:text-white dark:hover:bg-gray-500"
+                >
+                  <SwitchCamera className="size-4" />
+                </button>
+              )}
+              {canShareScreen && (
               <button
                 onClick={toggleScreenShare}
                 title={
@@ -88,6 +111,7 @@ export default function VoiceControlBar({
               >
                 <ScreenShare className="size-4" />
               </button>
+              )}
               {media.sharingScreen && (
                 <button
                   onClick={switchScreenSource}
@@ -128,7 +152,7 @@ export default function VoiceControlBar({
         </div>
       )}
       <div className="flex justify-between p-1 shadow-sm min-w-0 overflow-hidden bg-slate-50 dark:bg-[#0b0c10f8]">
-        <div className="hidden w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 transition sm:flex  dark:text-slate-200 min-w-0  ">
+        <div className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 transition dark:text-slate-200 min-w-0">
           <span className="relative inline-flex shrink-0">
             <button
               className="cursor-pointer"
@@ -163,9 +187,7 @@ export default function VoiceControlBar({
                 <MicOff className="size-5 text-red-600" />
               )}
             </button>
-            <button className="cursor-pointer">
-              <ChevronDown className="size-4" />
-            </button>
+            <AudioQuickSettings kind="mic" />
           </div>
           <div className="flex flex-1 gap-2 items-center mr-2  ">
             <button
@@ -179,9 +201,7 @@ export default function VoiceControlBar({
                 <Headphones className="size-5" />
               )}
             </button>
-            <button className="cursor-pointer">
-              <ChevronDown className="size-4" />
-            </button>
+            <AudioQuickSettings kind="output" />
           </div>
           {media.connected && (
             <button

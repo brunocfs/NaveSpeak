@@ -18,7 +18,7 @@ import { useNotifications } from "../context/NotificationContext.jsx";
 import { useWhatsNew } from "../hooks/useWhatsNew.js";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
-import { Plus } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import RoomPage from "./RoomPage.jsx";
 export default function RoomsPage() {
   const [rooms, setRooms] = useState([]);
@@ -33,6 +33,9 @@ export default function RoomsPage() {
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [roomPanel, setRoomPanel] = useState(false);
   const [addServerOpen, setAddServerOpen] = useState(false);
+  // Celular (abaixo de `md`): DmSidebar e painel da direita viram telas
+  // separadas - true = painel aberto por cima de tudo, com botão voltar.
+  const [mobileContentOpen, setMobileContentOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   // Espelha selectedRoomId/roomPanel em ref pro listener de socket (efeito
@@ -45,10 +48,12 @@ export default function RoomsPage() {
   function selectFriend(friend) {
     setSelectedFriend(friend);
     setPanel(null);
+    setMobileContentOpen(true);
   }
   function selectPanel(next) {
     setPanel(next);
     setSelectedFriend(null);
+    setMobileContentOpen(true);
   }
   async function loadRooms() {
     setLoading(true);
@@ -200,7 +205,23 @@ export default function RoomsPage() {
                   onSelectFriend={selectFriend}
                   onSelectPanel={selectPanel}
                 />
-                <div className="w-full h-full overflow-y-auto bg-white dark:bg-[#161820]">
+                <div
+                  className={`w-full h-full overflow-y-auto bg-white dark:bg-[#161820] ${
+                    mobileContentOpen
+                      ? "max-md:fixed max-md:inset-0 max-md:z-40 max-md:flex max-md:flex-col"
+                      : "max-md:hidden"
+                  }`}
+                >
+                  <div className="shrink-0 border-b border-slate-200 p-2 md:hidden dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setMobileContentOpen(false)}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      <ArrowLeft className="size-5" /> Voltar
+                    </button>
+                  </div>
+                  <div className="h-full max-md:h-auto max-md:min-h-0 max-md:flex-1">
                   {selectedFriend ? (
                     <DmPanel friend={selectedFriend} />
                   ) : panel === "bugs" ? (
@@ -224,6 +245,7 @@ export default function RoomsPage() {
                     //   Selecione um amigo para abrir uma conversa privada.
                     // </div>
                   )}
+                  </div>
                 </div>
               </div>
             </section>

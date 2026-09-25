@@ -9,6 +9,7 @@ import {
   UserRoundPlus,
   Bookmark,
   Volume2,
+  ArrowLeft,
 } from "lucide-react";
 import {
   Link,
@@ -40,6 +41,7 @@ import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
 import StyledUsername from "../components/StyledUsername.jsx";
 import TurboBadge from "../components/TurboBadge.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
+import { useMediaQuery } from "../hooks/useMediaQuery.js";
 export default function RoomPage(serverId) {
   const { roomId } = serverId;
   const navigate = useNavigate();
@@ -121,6 +123,13 @@ export default function RoomPage(serverId) {
   const serverMenuRef = useRef(null);
   const scrollRef = useRef(null);
   const [dragOverChannelId, setDragOverChannelId] = useState(null);
+  // Celular/tablet (abaixo de `lg`): lista de canais e conteúdo (chat/voz)
+  // viram telas separadas, e a lista de membros vira gaveta - estado próprio
+  // pra não mexer na preferência membersSidebarVisible do desktop.
+  const isMobile = useMediaQuery("(max-width: 1023.98px)");
+  const [mobileContentOpen, setMobileContentOpen] = useState(false);
+  const [mobileMembersOpen, setMobileMembersOpen] = useState(false);
+  const showMembers = isMobile ? mobileMembersOpen : membersSidebarVisible;
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem("roomSidebarWidth"));
     return saved >= 260 && saved <= 480 ? saved : 260;
@@ -177,6 +186,7 @@ export default function RoomPage(serverId) {
   // cursor de leitura no servidor em seguida.
   function selectTextChannel(channelId) {
     setActiveChannelId(channelId);
+    setMobileContentOpen(true);
     const previousUnread =
       channels.find((c) => c.id === channelId)?.unreadCount ?? 0;
     setChannels((prev) =>
@@ -203,6 +213,7 @@ export default function RoomPage(serverId) {
   function openVoiceChannel(channelId) {
     setIdServerVoiceActive(roomId);
     setActiveChannelId(channelId);
+    setMobileContentOpen(true);
     if (media.voiceChannelId !== channelId) {
       media.joinVoice(channelId, {
         roomId,
@@ -681,7 +692,7 @@ export default function RoomPage(serverId) {
   })();
 
   return (
-    <div className="flex w-full h-screen  overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-[#0f1117] dark:text-slate-100 lg:overflow-hidden">
+    <div className="flex w-full h-screen  overflow-y-auto max-lg:overflow-hidden bg-slate-100 text-slate-900 transition-colors dark:bg-[#0f1117] dark:text-slate-100 lg:overflow-hidden">
       {settingsOpen && (
         <ServerSettingsModal
           room={room}
@@ -734,7 +745,7 @@ export default function RoomPage(serverId) {
         } lg:min-h-0 lg:overflow-hidden`}
       >
         {/* <aside className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"> */}
-        <section className="relative lg:flex lg:min-h-0 lg:flex-col">
+        <section className="relative lg:flex lg:min-h-0 lg:flex-col max-lg:flex max-lg:min-h-0 max-lg:flex-col">
           <div className="relative flex items-center  max-h-10 bg-white p-4 0 dark:bg-[#0f1117] ">
             <button
               onClick={() => setServerMenuOpen((prev) => !prev)}
@@ -749,7 +760,7 @@ export default function RoomPage(serverId) {
             {serverMenuOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-20 mt-2 w-100 border overflow-hidden rounded-xl  border-slate-200 bg-white shadow-lg dark:border-gray-700/40 dark:bg-[#181a20]"
+                className="absolute left-0 top-full z-20 mt-2 w-100 max-lg:w-72 border overflow-hidden rounded-xl  border-slate-200 bg-white shadow-lg dark:border-gray-700/40 dark:bg-[#181a20]"
               >
                 <div className="p-1">
                   {canOpenSettings ? (
@@ -1087,7 +1098,13 @@ export default function RoomPage(serverId) {
           />
         </section>
 
-        <section className="min-w-0  bg-white dark:bg-[#161820] dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col">
+        <section
+          className={`min-w-0  bg-white dark:bg-[#161820] dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col ${
+            mobileContentOpen
+              ? "max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:flex max-lg:flex-col"
+              : "max-lg:hidden"
+          }`}
+        >
           {isVoice ? (
             // flex flex-col (sem overflow-y-auto aqui) - o painel de voz
             // precisa de uma ALTURA DE VERDADE pra medir (useElementSize em
@@ -1098,7 +1115,20 @@ export default function RoomPage(serverId) {
             // useWindowPopout já dá height:100% pro body). O scroll, se
             // precisar, é o próprio VoicePanel que cuida (min-h-0 flex-1
             // overflow-auto lá dentro).
-            <div className="flex min-h-0 flex-1 flex-col p-4">
+            <div className="flex min-h-0 flex-1 flex-col p-4 max-lg:p-2">
+              <div className="mb-2 flex items-center gap-2 lg:hidden">
+                <button
+                  onClick={() => setMobileContentOpen(false)}
+                  title="Voltar para os canais"
+                  aria-label="Voltar para os canais"
+                  className="cursor-pointer rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <ArrowLeft className="size-5" />
+                </button>
+                <h2 className="truncate text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {activeChannel.name}
+                </h2>
+              </div>
               {showingVoicePanel ? (
                 <>
                   {/* Container vazio: o conteúdo real (grade de
@@ -1148,26 +1178,40 @@ export default function RoomPage(serverId) {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div class="flex justify-between border-b border-slate-200 dark:border-slate-800 items-center pr-3">
-                <h2 className="shrink-0  px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-500  dark:text-slate-400">
+              <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 items-center pr-3 max-lg:pl-2">
+                <div className="flex min-w-0 items-center">
+                <button
+                    onClick={() => setMobileContentOpen(false)}
+                    title="Voltar para os canais"
+                    aria-label="Voltar para os canais"
+                    className="cursor-pointer rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    <ArrowLeft className="size-5" />
+                  </button>
+                <h2 className="truncate  px-4 py-3 max-lg:px-2 text-sm font-semibold uppercase tracking-wide text-slate-500  dark:text-slate-400">
                   {activeChannel.name ? `  ${activeChannel.name}` : ""}
                 </h2>
+                </div>
                 <button
-                  onClick={toggleMembersSidebar}
+                  onClick={
+                    isMobile
+                      ? () => setMobileMembersOpen((v) => !v)
+                      : toggleMembersSidebar
+                  }
                   title={
-                    membersSidebarVisible
+                    showMembers
                       ? "Ocultar membros"
                       : "Mostrar membros"
                   }
                   aria-label={
-                    membersSidebarVisible
+                    showMembers
                       ? "Ocultar membros"
                       : "Mostrar membros"
                   }
-                  aria-pressed={membersSidebarVisible}
+                  aria-pressed={showMembers}
                   className="cursor-pointer inline-flex h-8 w-8 p-1.5 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
-                  {membersSidebarVisible ? (
+                  {showMembers ? (
                     <PanelRightClose />
                   ) : (
                     <PanelRightOpen />
@@ -1187,8 +1231,14 @@ export default function RoomPage(serverId) {
           )}
         </section>
 
-        {membersSidebarVisible && (
-          <aside className="lg:flex lg:min-h-0 lg:flex-col">
+        {showMembers && isMobile && (
+          <div
+            className="fixed inset-0 z-50 bg-black/60 lg:hidden"
+            onClick={() => setMobileMembersOpen(false)}
+          />
+        )}
+        {showMembers && (
+          <aside className="lg:flex lg:min-h-0 lg:flex-col max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-lg:flex max-lg:w-72 max-lg:max-w-[85vw] max-lg:flex-col">
             <div className="flex min-h-0 flex-1 flex-col  bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-[#0f1117] dark:ring-slate-800">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">

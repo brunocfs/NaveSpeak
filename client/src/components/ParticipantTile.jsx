@@ -160,7 +160,14 @@ export default function ParticipantTile({
           // própria tela ficaria ilegível. `gated` some com o vídeo via
           // CSS (não desmonta - ver comentário acima).
           className={`h-full w-full ${gated ? "hidden" : ""} ${kind === "screen" ? "object-contain bg-black" : "object-cover"} ${
-            isLocal && kind === "person" ? "-scale-x-100" : ""
+            isLocal &&
+            kind === "person" &&
+            // Câmera traseira do celular (ver flipCamera) não espelha - é o
+            // mundo à frente, não o próprio rosto.
+            videoStream?.getVideoTracks()[0]?.getSettings?.().facingMode !==
+              "environment"
+              ? "-scale-x-100"
+              : ""
           }`}
         />
       )}

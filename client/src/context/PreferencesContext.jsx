@@ -158,12 +158,30 @@ const DEFAULT_PREFERENCES = {
   // notificationVolume (aquele é join/leave/mute/mensagem, fixos do próprio
   // app) e de userVolumes (voz dos participantes). 0-100, padrão 100.
   soundboardVolume: 100,
+  // Volume do PRÓPRIO microfone (0-100, só atenua) - GainNode no fim da
+  // cadeia do mic (audio/micGain.js), ajustado ao vivo sem recriar nada.
+  micVolume: 100,
+  // Volume geral da CHAMADA (vozes + áudio de tela compartilhada), 0-100 -
+  // multiplica os volumes individuais em RemoteAudioPlayers.jsx. Soundboard
+  // e notificações têm volume próprio (acima). Teto 100%: ver o porquê em
+  // RemoteAudioPlayers.jsx (sem Web Audio na reprodução).
+  callVolume: 100,
 };
 
 // Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
 // mas guardar o `code` já no formato BCP 47 deixa a troca por um i18n de
 // verdade (react-i18next etc.) direta no futuro: só passar a consumir
 // `language` num provider de traduções, sem mexer nesta tela.
+// Modos do supressor de ruído (ver noiseSuppressionMode acima) - usado em
+// Preferências e no ajuste rápido do mic (AudioQuickSettings.jsx).
+export const NOISE_SUPPRESSION_OPTIONS = [
+  { value: 'off', label: 'Desligado' },
+  { value: 'native', label: 'Nativo' },
+  { value: 'rnnoise', label: 'RNNoise' },
+  { value: 'gtcrn', label: 'GTCRN' },
+  { value: 'deepfilternet', label: 'DeepFilterNet3' },
+];
+
 export const LANGUAGES = [
   { code: 'pt-BR', label: 'Português (Brasil)' },
   { code: 'en-US', label: 'English (US)' },
@@ -264,6 +282,8 @@ export function PreferencesProvider({ children }) {
       notificationOutputEnabled: preferences.notificationOutputEnabled,
       notificationOutputDeviceId: preferences.notificationOutputDeviceId,
       soundboardVolume: preferences.soundboardVolume,
+      micVolume: preferences.micVolume,
+      callVolume: preferences.callVolume,
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),
@@ -333,6 +353,8 @@ export function PreferencesProvider({ children }) {
         setPreferences((prev) => ({ ...prev, notificationOutputDeviceId })),
       setSoundboardVolume: (soundboardVolume) =>
         setPreferences((prev) => ({ ...prev, soundboardVolume })),
+      setMicVolume: (micVolume) => setPreferences((prev) => ({ ...prev, micVolume })),
+      setCallVolume: (callVolume) => setPreferences((prev) => ({ ...prev, callVolume })),
     }),
     [preferences]
   );

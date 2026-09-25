@@ -71,7 +71,7 @@ export default function ServerSettingsModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8 max-md:p-2"
       role="dialog"
       aria-modal="true"
       aria-label="Configurações do servidor"
@@ -80,18 +80,18 @@ export default function ServerSettingsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="mx-auto flex min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] w-full max-w-7xl overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#181a20]"
+        className="mx-auto flex min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] max-md:min-h-[calc(100dvh-1rem)] max-md:max-h-[calc(100dvh-1rem)] max-md:flex-col w-full max-w-7xl overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#181a20]"
       >
-        <nav className="w-68 shrink-0 border-r border-slate-200 bg-slate-50 p-3 dark:border-[#303238] dark:bg-[#181a20]">
-          <h2 className="mb-3 px-2 text-sm font-semibold text-slate-900 dark:text-white">
+        <nav className="w-68 shrink-0 border-r border-slate-200 bg-slate-50 p-3 dark:border-[#303238] dark:bg-[#181a20] max-md:flex max-md:w-full max-md:items-center max-md:gap-2 max-md:border-r-0 max-md:border-b">
+          <h2 className="max-md:hidden mb-3 px-2 text-sm font-semibold text-slate-900 dark:text-white">
             Configurações
           </h2>
-          <ul className="space-y-1">
+          <ul className="space-y-1 max-md:flex max-md:min-w-0 max-md:flex-1 max-md:gap-1 max-md:space-y-0 max-md:overflow-x-auto">
             {availableTabs.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="max-md:shrink-0">
                 <button
                   onClick={() => setTab(t.id)}
-                  className={`cursor-pointer w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
+                  className={`cursor-pointer w-full max-md:whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
                     tab === t.id
                       ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                       : "text-slate-700 hover:bg-slate-200 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -104,13 +104,13 @@ export default function ServerSettingsModal({
           </ul>
           <button
             onClick={onClose}
-            className="cursor-pointer mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="cursor-pointer mt-4 w-full max-md:mt-0 max-md:w-auto max-md:shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Fechar
           </button>
         </nav>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-5 max-md:min-h-0 max-md:p-3">
           {tab === "general" && (
             <GeneralTab room={room} settings={settings} onRefresh={onRefresh} />
           )}
@@ -561,8 +561,8 @@ function RolesTab({ room, roles, members, onRefresh }) {
   }
 
   return (
-    <div className="flex gap-6">
-      <div className="w-48 shrink-0">
+    <div className="flex gap-6 max-md:flex-col">
+      <div className="w-48 shrink-0 max-md:w-full">
         <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
           Roles
         </h3>
@@ -859,8 +859,8 @@ function ChannelsTab({ room, roles, channels, onRefresh }) {
   }
 
   return (
-    <div className="flex gap-6">
-      <div className="w-56 shrink-0">
+    <div className="flex gap-6 max-md:flex-col">
+      <div className="w-56 shrink-0 max-md:w-full">
         <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
           Canais
         </h3>
