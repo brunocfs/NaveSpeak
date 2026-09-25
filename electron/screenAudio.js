@@ -44,15 +44,19 @@ function pidOfWindowSource(sourceId) {
   return out[0];
 }
 
-const captures = new Map(); // id -> LoopbackCapture
+const captures = new Map(); // id -> { capture, sender, onDestroyed }
 let nextId = 1;
 
 function stop(id) {
-  const capture = captures.get(id);
-  if (!capture) return;
+  const entry = captures.get(id);
+  if (!entry) return;
   captures.delete(id);
+  // Remove o listener de 'destroyed' desta captura - antes ficava um por
+  // compartilhamento acumulado no webContents (MaxListenersExceeded depois
+  // de ~10 shares na mesma janela).
+  if (!entry.sender.isDestroyed()) entry.sender.removeListener("destroyed", entry.onDestroyed);
   try {
-    capture.stop();
+    entry.capture.stop();
   } catch {}
 }
 
@@ -72,9 +76,10 @@ function registerScreenAudioIpc() {
       capture.start(pid, isWindow, (chunk) => {
         if (!sender.isDestroyed()) sender.send("screen-audio:chunk", id, chunk);
       });
-      captures.set(id, capture);
       // Se a janela que pediu fechar sem parar, libera a captura.
-      sender.once("destroyed", () => stop(id));
+      const onDestroyed = () => stop(id);
+      captures.set(id, { capture, sender, onDestroyed });
+      sender.once("destroyed", onDestroyed);
       return id;
     } catch (err) {
       console.error("[screenAudio] start falhou:", err);

@@ -80,6 +80,17 @@ export async function shareCommonRoom(userA, userB) {
   return rows.length > 0;
 }
 
+// Quantidade (não quais) de servidores em comum - preview de perfil.
+export async function countCommonRooms(userA, userB) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM room_members a
+     INNER JOIN room_members b ON b.room_id = a.room_id
+     WHERE a.user_id = $1 AND b.user_id = $2`,
+    [userA, userB]
+  );
+  return rows[0].n;
+}
+
 export async function removeRoomMember(roomId, userId) {
   await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId]);
 }

@@ -142,6 +142,13 @@ if (env.NODE_ENV === 'production' && env.METRICS_ENABLED && !env.METRICS_TOKEN) 
     'METRICS_TOKEN is not set; /metrics stays closed in production'
   );
 }
+// Não recusa subir: produção sem proxy na frente (VPN direta) é válida.
+if (env.NODE_ENV === 'production' && env.TRUST_PROXY === false) {
+  logger.warn(
+    { event: 'trust_proxy_disabled', reason_code: 'trust_proxy_missing' },
+    'TRUST_PROXY is false in production; behind Nginx every client shares 127.0.0.1 and the auth rate limit (set TRUST_PROXY=1)'
+  );
+}
 if (env.LOG_REQUEST_BODY || env.LOG_RESPONSE_BODY) {
   logger.warn(
     { event: 'body_logging_enabled', request_body: env.LOG_REQUEST_BODY, response_body: env.LOG_RESPONSE_BODY, log_level: env.LOG_LEVEL },

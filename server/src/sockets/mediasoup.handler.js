@@ -1,5 +1,5 @@
 import { isRoomMember, findRoomById } from '../db/rooms.repo.js';
-import { findChannelById } from '../db/channels.repo.js';
+import { findChannelById, listChannelsForServer } from '../db/channels.repo.js';
 import { mediaChannelIdSchema, channelIdParamSchema, userIdParamSchema, soundIdParamSchema } from '../validation/schemas.js';
 import { webRtcTransportOptions } from '../mediasoup/config.js';
 import {
@@ -25,6 +25,8 @@ import { permissionName } from '../middleware/permissions.js';
 
 const SOUNDBOARD_RATE_LIMIT_WINDOW_MS = 10_000;
 const SOUNDBOARD_RATE_LIMIT_MAX_PLAYS = 10;
+const MAX_TRANSPORTS_PER_PEER = 2;
+const MAX_INCOMING_BITRATE = 10_000_000;
 
 // Mesmo esquema de chat.handler.js#isRateLimited (INCR + PEXPIRE no Redis,
 // fail-open se o Redis falhar) - chave própria pra não compartilhar janela
@@ -265,6 +267,26 @@ async function leaveVoiceChannel(io, { channelId, socketId, userId, reason = 'un
   if (isCallChannel(channelId)) await handleCallLeave(io, channelId, userId);
 }
 
+// Kick/ban (rooms.routes.js): só emitir server:removed deixava um client
+// modificado ignorar o evento e continuar recebendo chat, presença e roster
+// de voz - e na call. Tira TODOS os sockets do usuário das rooms socket.io do
+// servidor (vale entre instâncias, via adapter Redis) e derruba da voz os
+// peers mediasoup desta instância em canais desse servidor.
+export async function evictUserFromServer(io, serverId, userId) {
+  const channelIds = (await listChannelsForServer(serverId)).map((c) => c.id);
+  io.in(`user:${userId}`).socketsLeave([serverId, ...channelIds, ...channelIds.map(voiceRoomOf)]);
+
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.user?.id !== userId || socket.data.voiceServerId !== serverId) continue;
+    const channelId = socket.data.voiceChannelId;
+    await leaveVoiceChannel(io, { channelId, socketId: socket.id, userId, reason: 'removed_from_server' });
+    socket.data.voiceChannelId = null;
+    socket.data.voiceServerId = null;
+    await broadcastVoicePresence(io, channelId, serverId);
+    socket.emit('voice:kicked', { channelId });
+  }
+}
+
 // Checagem de permissão de SERVIDOR (não de canal) para as ações de
 // moderação abaixo - resolve channelId -> server -> bitmask do MODERADOR.
 // Devolve { error } pronto pra virar ack(), ou { channel, room } em caso de
@@ -366,10 +388,36 @@ export function registerMediasoupHandlers(io, socket) {
     }
 
     try {
+      // Mesmo socket repetindo media:join no mesmo canal (duplo clique,
+      // reconexão sobreposta): fecha o peer antigo antes - addPeer só
+      // sobrescrevia, deixando transports/producer de mic antigos vivos
+      // (áudio duplicado, portas presas) até o socket desconectar. Antes do
+      // getOrCreateRoom: removePeer fecha o router se o canal esvaziar.
+      if (getPeer(id, socket.id)) {
+        for (const producerId of removePeer(id, socket.id)) {
+          io.to(voiceRoomOf(id)).except(socket.id).emit('media:producerClosed', { producerId });
+        }
+      }
+      // Trocar de canal sem media:leave: o peer do canal anterior ficava vivo
+      // (transports/portas presas, voz em dois canais ao mesmo tempo).
+      const previousChannelId = socket.data.voiceChannelId;
+      if (previousChannelId && previousChannelId !== id) {
+        const previousServerId = socket.data.voiceServerId;
+        await leaveVoiceChannel(io, { channelId: previousChannelId, socketId: socket.id, userId: user.id, reason: 'switched_channel' });
+        await broadcastVoicePresence(io, previousChannelId, previousServerId);
+      }
       const room = await getOrCreateRoom(id);
       const sessionId = `vs-${randomUUID()}`;
       addPeer(id, socket.id, { userId: user.id, username: user.username, sessionId, serverId });
       await addVoicePresence(id, user, socket.id);
+      // Entrada nova = estado de mídia novo. O hash de mídia é por USUÁRIO e só
+      // é limpo quando o último socket dele sai - um socket antigo morto sem
+      // close (aba congelada/rede trocada, até ~45s de ping timeout) mantinha
+      // micMuted/deafened=true de antes, e o producer novo (destravado) não
+      // sobrescrevia micMuted: todos viam "mutado/ensurdecido" ouvindo a voz.
+      // O reconnect reaplica o estado real logo depois (produce pausado +
+      // media:setDeafened).
+      await setVoiceMediaState(id, user.id, { micMuted: false, cameraOn: false, sharingScreen: false, deafened: false });
       socket.data.voiceChannelId = id;
       socket.data.voiceServerId = serverId;
       // Garante que o socket receba media:newProducer e voice:update deste
@@ -406,10 +454,20 @@ export function registerMediasoupHandlers(io, socket) {
     const peer = getPeer(channelId, socket.id);
     if (!room || !peer) return ack({ error: 'Entre no canal de voz antes de criar um transporte.' });
     if (direction !== 'send' && direction !== 'recv') return ack({ error: 'Direção inválida.' });
+    // Um send + um recv por peer. Sem teto, um client criava ~100
+    // transports, esgotava a faixa de portas do mediasoup e derrubava a voz
+    // de todo mundo.
+    if (peer.transports.size >= MAX_TRANSPORTS_PER_PEER) {
+      return ack({ error: 'Limite de transportes atingido.' });
+    }
 
     try {
       const transport = await room.router.createWebRtcTransport(webRtcTransportOptions);
       peer.transports.set(transport.id, transport);
+      // Transport fechado (DTLS falhou) libera a vaga do limite acima.
+      transport.observer.once('close', () => peer.transports.delete(transport.id));
+      // Teto de upload por client (tela 8 Mbps + câmera + áudio cabem).
+      if (direction === 'send') await transport.setMaxIncomingBitrate(MAX_INCOMING_BITRATE);
       instrumentTransport(transport, {
         connection_id: socket.id,
         user_id: user.id,
@@ -446,6 +504,21 @@ export function registerMediasoupHandlers(io, socket) {
     } catch (err) {
       logWebrtcFailure('connect_transport', err, { channel_id: channelId, session_id: peer.sessionId });
       return ack({ error: 'Falha ao conectar transporte.' });
+    }
+  });
+
+  // ICE caiu (rede trocou, uplink saturado perdendo os checks de consent):
+  // o cliente pede credenciais ICE novas e religa o MESMO transport - producers
+  // e consumers continuam, sem sair/reentrar na voz.
+  socket.on('media:restartIce', async ({ channelId, transportId } = {}, callback) => {
+    const ack = wrapAck(callback);
+    const transport = getPeer(channelId, socket.id)?.transports.get(transportId);
+    if (!transport) return ack({ error: 'Transporte não encontrado.' });
+    try {
+      return ack({ iceParameters: await transport.restartIce() });
+    } catch (err) {
+      logWebrtcFailure('restart_ice', err, { channel_id: channelId });
+      return ack({ error: 'Falha ao reiniciar ICE.' });
     }
   });
 
@@ -586,8 +659,13 @@ export function registerMediasoupHandlers(io, socket) {
     const consumer = peer?.consumers.get(consumerId);
     if (!consumer) return ack({ error: 'Consumidor não encontrado.' });
 
-    await consumer.resume();
-    return ack({ ok: true });
+    try {
+      await consumer.resume();
+      return ack({ ok: true });
+    } catch (err) {
+      logWebrtcFailure('resume_consumer', err, { channel_id: channelId, session_id: peer.sessionId });
+      return ack({ error: 'Não foi possível retomar a mídia.' });
+    }
   });
 
   // Mute/unmute: pausa o producer em vez de fechá-lo, é mais barato e mais

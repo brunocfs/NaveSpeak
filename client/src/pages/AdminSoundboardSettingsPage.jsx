@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { getAppSettings, updateAppSettings } from "../api/soundboard.js";
-import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import AdminBackgroundsSection from "../components/AdminBackgroundsSection.jsx";
 
 const inputClass =
-  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20";
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500";
 
 // Painel admin de configuração GLOBAL da plataforma (hoje só os limites do
 // soundboard: quantos sons cabem por servidor e a duração máxima aceita) -
 // distinto das configurações de UM servidor (ServerSettingsModal.jsx). Só
-// visível/acessível pra quem tem users.is_admin (ver App.jsx/RoomsPage.jsx),
-// mesmo padrão de AdminInvitesPage/AdminBroadcastsPage.
-export default function AdminSoundboardSettingsPage() {
+// visível/acessível pra quem tem users.is_admin - aba do painel admin
+// (AdminPanel.jsx).
+export function SoundboardSettingsPanel() {
   const [maxSounds, setMaxSounds] = useState("");
   const [maxDurationSeconds, setMaxDurationSeconds] = useState("");
+  const [maxSizeMb, setMaxSizeMb] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -26,6 +25,7 @@ export default function AdminSoundboardSettingsPage() {
       .then(({ settings }) => {
         setMaxSounds(String(settings.soundboardMaxSounds));
         setMaxDurationSeconds(String(settings.soundboardMaxDurationMs / 1000));
+        setMaxSizeMb(String(settings.soundboardMaxBytes / 1024 / 1024));
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
@@ -40,9 +40,11 @@ export default function AdminSoundboardSettingsPage() {
       const { settings } = await updateAppSettings({
         soundboardMaxSounds: Number(maxSounds),
         soundboardMaxDurationMs: Math.round(Number(maxDurationSeconds) * 1000),
+        soundboardMaxBytes: Math.round(Number(maxSizeMb) * 1024 * 1024),
       });
       setMaxSounds(String(settings.soundboardMaxSounds));
       setMaxDurationSeconds(String(settings.soundboardMaxDurationMs / 1000));
+      setMaxSizeMb(String(settings.soundboardMaxBytes / 1024 / 1024));
       setSaveNotice("Salvo.");
     } catch (err) {
       setSaveError(err.message);
@@ -52,23 +54,7 @@ export default function AdminSoundboardSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <Link
-              to="/rooms"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              &larr;
-            </Link>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Soundboard e fundos de câmera</h1>
-          </div>
-          <DownloadAppLink />
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-6">
         <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <h2 className="mb-1 text-lg font-semibold text-slate-900 dark:text-white">Limites globais</h2>
           <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
@@ -80,14 +66,15 @@ export default function AdminSoundboardSettingsPage() {
           {loading ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">Carregando...</p>
           ) : loadError ? (
-            <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+            <p className="text-xs text-red-500 dark:text-red-400">{loadError}</p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <label htmlFor="soundboard-max-sounds" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Máximo de sons por servidor
                 </label>
                 <input
+                  id="soundboard-max-sounds"
                   type="number"
                   min={1}
                   max={200}
@@ -97,10 +84,11 @@ export default function AdminSoundboardSettingsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <label htmlFor="soundboard-max-duration" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Duração máxima por som (segundos)
                 </label>
                 <input
+                  id="soundboard-max-duration"
                   type="number"
                   min={1}
                   max={60}
@@ -110,14 +98,29 @@ export default function AdminSoundboardSettingsPage() {
                   onChange={(e) => setMaxDurationSeconds(e.target.value)}
                 />
               </div>
+              <div>
+                <label htmlFor="soundboard-max-size" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Tamanho máximo por som (MB)
+                </label>
+                <input
+                  id="soundboard-max-size"
+                  type="number"
+                  min={0.0625}
+                  max={10}
+                  step={0.25}
+                  className={inputClass}
+                  value={maxSizeMb}
+                  onChange={(e) => setMaxSizeMb(e.target.value)}
+                />
+              </div>
 
-              {saveError && <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
-              {saveNotice && <p className="text-sm text-emerald-600 dark:text-emerald-400">{saveNotice}</p>}
+              {saveError && <p className="text-xs text-red-500 dark:text-red-400">{saveError}</p>}
+              {saveNotice && <p className="text-xs text-emerald-600 dark:text-emerald-400">{saveNotice}</p>}
 
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="cursor-pointer rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:opacity-60 dark:bg-purple-500 dark:hover:bg-purple-400"
               >
                 {saving ? "Salvando..." : "Salvar"}
               </button>
@@ -126,7 +129,6 @@ export default function AdminSoundboardSettingsPage() {
         </section>
 
         <AdminBackgroundsSection />
-      </main>
-    </div>
+      </div>
   );
 }

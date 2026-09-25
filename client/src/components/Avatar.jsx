@@ -24,6 +24,7 @@ const SIZES = {
   xs: "h-6 w-6 text-[10px]",
   sm: "h-8 w-8 text-xs",
   md: "h-10 w-10 text-sm",
+  lm: "h-12 w-12 text-sm",
   lg: "h-14 w-14 text-lg",
   xl: "h-20 w-20 text-2xl",
 };
@@ -33,7 +34,12 @@ const SIZES = {
 // fallback em todo lugar (servidor, chat de servidor/privado, lista de
 // amigos, topbar). Usado também dentro de ParticipantTile.jsx como estado
 // visual padrão de quem está sem câmera/tela compartilhada na chamada.
-export default function Avatar({ avatarPath, username, size = "md", className = "" }) {
+export default function Avatar({
+  avatarPath,
+  username,
+  size = "md",
+  className = "",
+}) {
   const src = avatarSrc(avatarPath);
   const [broken, setBroken] = useState(false);
 
@@ -60,7 +66,7 @@ export default function Avatar({ avatarPath, username, size = "md", className = 
 
   return (
     <span
-      className={`${sizeClass} inline-flex shrink-0 items-center justify-center rounded-full bg-slate-300 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200 ${className}`}
+      className={`${sizeClass} inline-flex shrink-0 items-center justify-center rounded-full bg-slate-300 font-semibold text-slate-700 dark:bg-[#191a1e] dark:text-slate-200 ${className}`}
     >
       {initials(username)}
     </span>

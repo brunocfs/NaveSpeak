@@ -99,6 +99,24 @@ async function migrateLegacyRoomInvites(pool) {
   }
 }
 
+// reports já existia sem status/admin_response em bancos antigos - CREATE
+// TABLE IF NOT EXISTS não adiciona coluna em tabela já criada, então precisa
+// de ALTER explícito. Idempotente: ADD COLUMN IF NOT EXISTS + constraint só
+// criada se ainda não existir.
+async function migrateReportsStatusColumns(pool) {
+  await pool.query(`ALTER TABLE reports ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ABERTO';`);
+  await pool.query(`ALTER TABLE reports ADD COLUMN IF NOT EXISTS admin_response VARCHAR(4000);`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_reports_status') THEN
+        ALTER TABLE reports ADD CONSTRAINT ck_reports_status
+          CHECK (status IN ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO', 'REPROVADO'));
+      END IF;
+    END $$;
+  `);
+}
+
 async function main() {
   const sql = await readFile(schemaPath, 'utf8');
 
@@ -114,6 +132,7 @@ async function main() {
     await pool.query(sql);
     await migrateLegacyMessages(pool);
     await migrateLegacyRoomInvites(pool);
+    await migrateReportsStatusColumns(pool);
     await ensureSystemUser(pool);
     console.log(`Migração aplicada com sucesso em "${process.env.DB_NAME}" (PostgreSQL).`);
   } finally {

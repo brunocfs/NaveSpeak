@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest, setAccessToken } from '../api/http.js';
-import { connectSocket, disconnectSocket } from '../api/socket.js';
+import { connectSocket, disconnectSocket, getSocket } from '../api/socket.js';
 
 const AuthContext = createContext(null);
 
@@ -78,9 +78,24 @@ export function AuthProvider({ children }) {
     }
   }, [user]);
 
+  // Admin baniu/bloqueou/desconectou esta conta (adminUsers.routes.js) - a
+  // sessão já foi revogada no servidor; só descarta a local e guarda o aviso
+  // pra tela de login mostrar.
+  const [logoutNotice, setLogoutNotice] = useState(null);
+  useEffect(() => {
+    const socket = getSocket();
+    function handleForceLogout({ message }) {
+      setLogoutNotice(message);
+      setAccessToken(null);
+      setUser(null);
+    }
+    socket.on('account:forceLogout', handleForceLogout);
+    return () => socket.off('account:forceLogout', handleForceLogout);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, updateUser }),
-    [user, loading, login, register, logout, updateUser]
+    () => ({ user, loading, login, register, logout, updateUser, logoutNotice }),
+    [user, loading, login, register, logout, updateUser, logoutNotice]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

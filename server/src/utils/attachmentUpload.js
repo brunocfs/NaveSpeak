@@ -4,7 +4,10 @@
 // formato fixo. A defesa aqui é outra: nunca grava com um nome/extensão que
 // o navegador execute inline se alguém abrir o link direto do /uploads
 // estático (ver server/src/index.js) - SVG e HTML podem carregar <script>.
-const DANGEROUS_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'shtml', 'svg']);
+// Todo formato é aceito (html, svg, js, xml... são comuns em trabalho). A
+// defesa contra XSS armazenado fica nos headers de /uploads/attachments em
+// server/src/index.js: download forçado, nosniff, CSP sandbox e
+// Content-Type neutro pra tudo que não é mídia.
 
 // Note: aceita qualquer "tipo/subtipo" ASCII simples no prefixo, só o
 // suficiente pra separar o mime declarado do payload base64 - o mime em si é
@@ -22,20 +25,11 @@ function sanitizeFileName(name) {
   return safe || 'arquivo';
 }
 
-function extensionOf(fileName) {
-  const match = /\.([a-zA-Z0-9]+)$/.exec(fileName ?? '');
-  return match ? match[1].toLowerCase() : '';
-}
-
 // Decodifica e valida um data URL de anexo. Devolve { buffer, mime, safeName }
 // em caso de sucesso, ou { error: '<mensagem>' } - nunca lança.
 export function decodeAttachmentDataUrl(dataUrl, fileName, { maxBytes }) {
   const match = DATA_URL_RE.exec(dataUrl ?? '');
   if (!match) return { error: 'Arquivo inválido.' };
-
-  if (DANGEROUS_EXTENSIONS.has(extensionOf(fileName))) {
-    return { error: 'Este tipo de arquivo não é permitido como anexo.' };
-  }
 
   const [, mime, base64Data] = match;
   let buffer;

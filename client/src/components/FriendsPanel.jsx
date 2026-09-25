@@ -325,7 +325,7 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
   }
   //   <div className="flex h-full min-h-0 flex-col rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300">
   return (
-    <div className="flex p-5 h-full min-h-0 flex-col transition-all duration-300 gap-3">
+    <div className="flex p-5 h-full min-h-0 flex-col transition-all  duration-300 gap-3">
       <div className="flex items-center justify-between">
         <div class="flex">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">

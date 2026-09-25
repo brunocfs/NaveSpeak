@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
-import UserProfilePreview from "./UserProfilePreview.jsx";
+import UserProfilePreview, { previewPosFromEvent } from "./UserProfilePreview.jsx";
 import Avatar from "./Avatar.jsx";
 import {
   sendFriendRequest,
@@ -71,6 +71,7 @@ export default function VoiceRosterEntry({
   moderation,
   volumeControl,
   localControls,
+  member,
 }) {
   const navigate = useNavigate();
   const speaking = useSpeaking(micStream);
@@ -80,7 +81,6 @@ export default function VoiceRosterEntry({
   // "none" | "pending" | "accepted" - ver GET /friends/isMyFriend/:tag.
   const [friendship, setFriendship] = useState({ status: "none" });
   const menuRef = useRef(null);
-  const profilePreviewRef = useRef(null);
   const { showToast, dismissToast } = useToast();
   // Menu agora abre só com clique direito (botão ⋮ foi removido - ver
   // pedido do usuário). Posição vem do próprio evento de contexto e o menu
@@ -97,12 +97,11 @@ export default function VoiceRosterEntry({
     setMenuPos({ x: Math.max(8, x), y });
   }
 
+  const closeProfilePreview = useCallback(() => setProfilePreviewPos(null), []);
+
   function handleUserProfilePreview(e) {
     e.preventDefault();
-    const menuWidth = 224; // w-56
-    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
-    const y = Math.min(e.clientY, window.innerHeight - 8);
-    setProfilePreviewPos({ x: Math.max(8, x), y });
+    setProfilePreviewPos(previewPosFromEvent(e));
   }
 
   // Sai da room de voz e abre a conversa em /rooms - mesmo formato de state
@@ -111,7 +110,9 @@ export default function VoiceRosterEntry({
   // não (ver dm.handler.js: DM libera pra quem está no mesmo servidor).
   function handleMessage() {
     setMenuPos(null);
-    navigate("/rooms", { state: { openDmWith: { id: userId, username, avatarPath } } });
+    navigate("/rooms", {
+      state: { openDmWith: { id: userId, username, avatarPath } },
+    });
   }
 
   async function handleAddFriend(tag) {
@@ -172,19 +173,6 @@ export default function VoiceRosterEntry({
   }, [menuPos]);
 
   useEffect(() => {
-    if (!profilePreviewPos) return;
-    function handlePointerDown(e) {
-      if (
-        profilePreviewRef.current &&
-        !profilePreviewRef.current.contains(e.target)
-      ) {
-        setProfilePreviewPos(null);
-      }
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [profilePreviewPos]);
-  useEffect(() => {
     if (!menuPos || isSelf) return;
     let cancelled = false;
     isMyFriend(`${username}#${discriminator}`)
@@ -199,32 +187,37 @@ export default function VoiceRosterEntry({
 
   return (
     <li
+      draggable={Boolean(moderation?.canMove)}
+      onDragStart={moderation?.canMove ? moderation.onDragStart : undefined}
       onContextMenu={handleContextMenu}
       onClick={handleUserProfilePreview}
-      className=" cursor-pointer flex rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+      className=" cursor-pointer flex justify-between rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
     >
-      <Avatar
-        avatarPath={avatarPath}
-        username={username}
-        size="xs"
-        className={`ring-2 transition ${speaking ? "ring-emerald-500" : "ring-transparent"}`}
-      />
+      <div className="flex min-w-0 items-center">
+        <Avatar
+          avatarPath={avatarPath}
+          username={username}
+          size="xs"
+          className={`ring-2 transition ${speaking ? "ring-emerald-500" : "ring-transparent"}`}
+        />
 
-      <span className="ml-1 truncate">{username}</span>
+        <span className="ml-1 truncate">{username}</span>
+      </div>
 
-      {micMuted ? (
-        <MicOff className="size-3.5 shrink-0 text-red-400"></MicOff>
-      ) : (
-        ""
-      )}
+      <div className="flex shrink-0 gap-1 items-center">
+        {micMuted ? (
+          <MicOff className="size-3.5 shrink-0 text-red-400"></MicOff>
+        ) : (
+          ""
+        )}
 
-      {deafened ? (
-        <HeadphoneOff className="size-3.5 shrink-0 text-red-400"></HeadphoneOff>
-      ) : (
-        ""
-      )}
+        {deafened ? (
+          <HeadphoneOff className="size-3.5 shrink-0 text-red-400"></HeadphoneOff>
+        ) : (
+          ""
+        )}
 
-      {/* Câmera/tela clicáveis quando `localControls` existe: atalho pra
+        {/* Câmera/tela clicáveis quando `localControls` existe: atalho pra
           reativar rápido uma mídia que o próprio usuário ocultou (ver
           onToggleCameraHidden/onToggleScreenHidden) SEM precisar desligar
           "esconder quem está sem câmera/tela" em VoicePanel.jsx só pra achar
@@ -234,84 +227,73 @@ export default function VoiceRosterEntry({
           clicável, clique de novo mostra); cor cheia = visível normalmente.
           Sem `localControls` (é você mesmo, ou não há nada pra alternar),
           continua um indicador não-clicável, como sempre foi. */}
-      {cameraOn ? (
-        localControls ? (
-          <button
-            type="button"
-            onClick={localControls.onToggleCameraHidden}
-            title={
-              localControls.cameraHidden
-                ? "Webcam ocultada por você - clique para mostrar"
-                : "Ocultar webcam (só pra você)"
-            }
-            className={`shrink-0 transition ${
-              localControls.cameraHidden
-                ? "text-slate-400 hover:text-slate-300"
-                : "text-green-400 hover:text-green-300"
-            }`}
-          >
-            <Camera className="size-3.5" />
-          </button>
+        {cameraOn ? (
+          localControls ? (
+            <button
+              type="button"
+              onClick={localControls.onToggleCameraHidden}
+              title={
+                localControls.cameraHidden
+                  ? "Webcam ocultada por você - clique para mostrar"
+                  : "Ocultar webcam (só pra você)"
+              }
+              className={`shrink-0 transition ${
+                localControls.cameraHidden
+                  ? "text-slate-400 hover:text-slate-500 dark:hover:text-slate-300"
+                  : "text-emerald-600 hover:text-emerald-500 dark:text-green-400 dark:hover:text-green-300"
+              }`}
+            >
+              <Camera className="size-3.5" />
+            </button>
+          ) : (
+            <Camera className="size-3.5 shrink-0 text-green-400" />
+          )
         ) : (
-          <Camera className="size-3.5 shrink-0 text-green-400" />
-        )
-      ) : (
-        ""
-      )}
-
-      {sharingScreen ? (
-        localControls ? (
-          <button
-            type="button"
-            onClick={localControls.onToggleScreenHidden}
-            title={
-              localControls.screenHidden
-                ? "Tela ocultada por você - clique para mostrar"
-                : "Ocultar tela compartilhada (só pra você)"
-            }
-            className={`group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out ${
-              localControls.screenHidden ? "opacity-50 grayscale" : ""
-            }`}
-          >
-            <span className="relative flex size-4 items-center justify-center">
-              <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
-              <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
-              <MonitorUp className="relative z-10 size-3 text-emerald-400" />
-            </span>
-          </button>
-        ) : (
-          <div className="group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out">
-            <span className="relative flex size-4 items-center justify-center">
-              <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
-              <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
-              <MonitorUp className="relative z-10 size-3 text-emerald-400" />
-            </span>
-          </div>
-        )
-      ) : null}
-
-      {profilePreviewPos &&
-        createPortal(
-          <div
-            ref={profilePreviewRef}
-            onClick={(e) => e.stopPropagation()}
-            onContextMenu={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              left: profilePreviewPos.x,
-              top: profilePreviewPos.y,
-            }}
-          >
-            <UserProfilePreview
-              isSelf={isSelf}
-              userId={userId}
-              avatarPath={avatarPath}
-              username={username}
-              discriminator={discriminator}
-            />
-          </div>,
-          document.body,
+          ""
         )}
+
+        {sharingScreen ? (
+          localControls ? (
+            <button
+              type="button"
+              onClick={localControls.onToggleScreenHidden}
+              title={
+                localControls.screenHidden
+                  ? "Tela ocultada por você - clique para mostrar"
+                  : "Ocultar tela compartilhada (só pra você)"
+              }
+              className={`group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out ${
+                localControls.screenHidden ? "opacity-50 grayscale" : ""
+              }`}
+            >
+              <span className="relative flex size-4 items-center justify-center">
+                <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
+                <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
+                <MonitorUp className="relative z-10 size-3 text-emerald-400" />
+              </span>
+            </button>
+          ) : (
+            <div className="group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.12)] backdrop-blur-md transition-all duration-200 ease-out">
+              <span className="relative flex size-4 items-center justify-center">
+                <span className="absolute size-4 rounded-full bg-emerald-400/20 animate-pulse" />
+                <span className="absolute size-4 rounded-full border border-emerald-300/40 animate-ping" />
+                <MonitorUp className="relative z-10 size-3 text-emerald-400" />
+              </span>
+            </div>
+          )
+        ) : null}
+      </div>
+      {profilePreviewPos && (
+        <UserProfilePreview
+          pos={profilePreviewPos}
+          onClose={closeProfilePreview}
+          isSelf={isSelf}
+          userId={userId}
+          avatarPath={avatarPath}
+          username={username}
+          member={member}
+        />
+      )}
 
       {hasMenu &&
         menuPos &&
@@ -321,7 +303,7 @@ export default function VoiceRosterEntry({
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.stopPropagation()}
             style={{ position: "fixed", left: menuPos.x, top: menuPos.y }}
-            className="z-[9999]  space-y-1 rounded-lg border border-slate-200 bg-white p-3  shadow-lg dark:border-slate-700 dark:bg-slate-800"
+            className="z-[9999]  space-y-1 rounded-lg  bg-white p-3  shadow-sm  dark:bg-[#181a20]"
           >
             <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
               Perfil
@@ -460,7 +442,7 @@ export default function VoiceRosterEntry({
                   className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
                   onClick={() => moderation.onDisableMedia(false, "lock")}
                 >
-                  Rativar mídia
+                  Reativar mídia
                 </button>
               </>
             )}

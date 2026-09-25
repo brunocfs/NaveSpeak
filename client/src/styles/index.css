@@ -48,6 +48,45 @@
   box-sizing: border-box;
 }
 
+/* Scrollbar temática - aplica global (Firefox via scrollbar-color, resto via
+   ::-webkit-scrollbar) pra qualquer overflow:auto/scroll do app herdar sem
+   precisar de classe extra por componente. Usa os tokens de tema já
+   existentes, então acompanha light/dark sozinha. Em @layer base pra ficar
+   ABAIXO de @layer utilities na ordem do Tailwind - assim classes tipo
+   [&::-webkit-scrollbar]:hidden (RoomsPage.jsx, rail de servidores) e
+   scrollbar-hide continuam vencendo mesmo com specificity menor, já que
+   layer decide antes de specificity. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--panel-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--panel-border);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -654,6 +693,892 @@ html.electron-app .min-h-screen {
 @media (prefers-reduced-motion: reduce) {
   .styled-name-shine,
   .styled-name-pulse {
+    animation: none;
+  }
+}
+
+.turbo-button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(160deg, #0b0620 0%, #1e1044 45%, #3b0764 100%);
+  color: #ede9fe;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.35);
+  transition:
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
+}
+
+.turbo-button > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* starfield - fundo lembrando espaço, quieto em repouso */
+.turbo-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 15% 25%, #fff, transparent),
+    radial-gradient(1px 1px at 38% 65%, #e9d5ff, transparent),
+    radial-gradient(1.5px 1.5px at 62% 15%, #fff, transparent),
+    radial-gradient(1px 1px at 78% 55%, #c4b5fd, transparent),
+    radial-gradient(1px 1px at 90% 30%, #fff, transparent),
+    radial-gradient(1px 1px at 25% 80%, #f0abfc, transparent);
+  opacity: 0.35;
+  animation: turbo-twinkle 4s ease-in-out infinite;
+  z-index: 0;
+}
+
+/* chama/plasma subindo da base, quase parada em repouso */
+.turbo-button::after {
+  content: "";
+  position: absolute;
+  left: -15%;
+  right: -15%;
+  bottom: -55%;
+  height: 90%;
+  background:
+    radial-gradient(closest-side, rgba(244, 114, 182, 0.85), transparent 70%) 18% 100% /
+      42% 85% no-repeat,
+    radial-gradient(closest-side, rgba(168, 85, 247, 0.9), transparent 70%) 50% 100% /
+      55% 100% no-repeat,
+    radial-gradient(closest-side, rgba(217, 70, 239, 0.85), transparent 70%) 82% 100% /
+      40% 80% no-repeat;
+  filter: blur(3px);
+  opacity: 0.3;
+  transform: scaleY(0.8);
+  transform-origin: bottom;
+  animation: turbo-flame 3s ease-in-out infinite;
+  z-index: 0;
+}
+
+.turbo-button .turbo-icon {
+  filter: drop-shadow(0 0 3px rgba(240, 171, 252, 0.8));
+  transition: filter 0.3s ease;
+}
+
+/* hover: acende - chama viva + brilho de foguete */
+.turbo-button:hover {
+  border-color: rgba(240, 171, 252, 0.85);
+  box-shadow:
+    0 0 16px rgba(217, 70, 239, 0.9),
+    0 0 34px rgba(124, 58, 237, 0.75);
+}
+
+.turbo-button:hover::before {
+  opacity: 0.9;
+  animation-duration: 1.2s;
+}
+
+.turbo-button:hover::after {
+  opacity: 1;
+  filter: blur(2px) brightness(1.35);
+  animation: turbo-flame-hot 0.5s ease-in-out infinite;
+}
+
+.turbo-button:hover .turbo-icon {
+  filter: drop-shadow(0 0 6px rgba(240, 171, 252, 1));
+  animation: turbo-icon-flicker 0.4s ease-in-out infinite;
+}
+
+.turbo-button:active {
+  transform: scale(0.95);
+}
+
+@keyframes turbo-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes turbo-flame {
+  0%,
+  100% {
+    transform: scaleY(0.8) translateX(0);
+  }
+  50% {
+    transform: scaleY(0.95) translateX(2%);
+  }
+}
+
+@keyframes turbo-flame-hot {
+  0%,
+  100% {
+    transform: scaleY(1.05) translateX(0) skewX(0deg);
+  }
+  30% {
+    transform: scaleY(1.25) translateX(-3%) skewX(-2deg);
+  }
+  60% {
+    transform: scaleY(1.15) translateX(3%) skewX(2deg);
+  }
+}
+
+@keyframes turbo-icon-flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.12) rotate(-4deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turbo-button,
+  .turbo-button::before,
+  .turbo-button::after,
+  .turbo-button .turbo-icon {
+    animation: none;
+  }
+}
+
+.cipher-button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(160deg, #09070f, #180a2e 55%, #241242);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.cipher-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(167, 139, 250, 0.08) 0px,
+    rgba(167, 139, 250, 0.08) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: cipher-scan 3s linear infinite;
+  pointer-events: none;
+}
+
+.cipher-icon {
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.7));
+  animation: cipher-flicker 2.6s ease-in-out infinite;
+}
+
+.cipher-text {
+  letter-spacing: 0.08em;
+  text-shadow:
+    1px 0 rgba(217, 70, 239, 0.6),
+    -1px 0 rgba(96, 165, 250, 0.6);
+  animation: cipher-flicker 2.6s ease-in-out infinite;
+}
+
+/* scanlines do CipherPanel - mesma textura do botão, em tela cheia */
+.cipher-page-scan {
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(167, 139, 250, 0.05) 0px,
+    rgba(167, 139, 250, 0.05) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: cipher-scan 3s linear infinite;
+  pointer-events: none;
+}
+
+.cipher-button:hover {
+  border-color: rgba(196, 181, 253, 0.6);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.45);
+}
+
+.cipher-button:hover .cipher-text,
+.cipher-button:hover .cipher-icon {
+  animation-duration: 0.5s;
+}
+
+@keyframes cipher-scan {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(12px);
+  }
+}
+
+@keyframes cipher-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  93% {
+    opacity: 0.3;
+  }
+  95% {
+    opacity: 1;
+  }
+  96% {
+    opacity: 0.4;
+  }
+  98% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cipher-button::before,
+  .cipher-page-scan,
+  .cipher-icon,
+  .cipher-text {
+    animation: none;
+  }
+}
+
+.turbo-page-stars {
+  background-image:
+    radial-gradient(1.5px 1.5px at 10% 20%, #fff, transparent),
+    radial-gradient(1px 1px at 25% 55%, #e9d5ff, transparent),
+    radial-gradient(1.5px 1.5px at 40% 15%, #fff, transparent),
+    radial-gradient(1px 1px at 55% 70%, #c4b5fd, transparent),
+    radial-gradient(1px 1px at 70% 35%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 85% 60%, #f0abfc, transparent),
+    radial-gradient(1px 1px at 92% 20%, #fff, transparent),
+    radial-gradient(1px 1px at 15% 85%, #fff, transparent);
+  animation: turbo-twinkle 5s ease-in-out infinite;
+}
+
+.turbo-page-flame {
+  background:
+    radial-gradient(closest-side, rgba(217, 70, 239, 0.28), transparent 70%) 20% 100% /
+      55% 100% no-repeat,
+    radial-gradient(closest-side, rgba(124, 58, 237, 0.35), transparent 70%) 55% 100% /
+      70% 100% no-repeat,
+    radial-gradient(closest-side, rgba(168, 85, 247, 0.28), transparent 70%) 85% 100% /
+      50% 100% no-repeat;
+  filter: blur(30px);
+  animation: turbo-flame 5s ease-in-out infinite;
+}
+
+.turbo-page-icon {
+  box-shadow: 0 0 30px rgba(217, 70, 239, 0.35);
+}
+
+.turbo-page-title {
+  background: linear-gradient(115deg, #f0abfc, #c084fc, #a855f7, #f0abfc);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: turbo-shine 4s ease infinite;
+  filter: drop-shadow(0 0 18px rgba(192, 132, 252, 0.4));
+}
+
+@keyframes turbo-shine {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* NavespeakLogo.jsx (logo nova, em validação). No hover o foguete dá uma
+   volta completa e depois "trepida" enquanto a chama cresce e tremula, como
+   propulsão ligada. transform-box: view-box + origem no centro do viewBox
+   (100x100). A inclinação de repouso fica no JSX (grupo interno). */
+.nvs-logo-rocket {
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+  transform: rotate(0deg);
+}
+
+.nvs-logo-flame {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  transition:
+    transform 0.3s ease,
+    filter 0.3s ease;
+}
+
+.nvs-logo-core {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+
+.nvs-logo:hover .nvs-logo-rocket {
+  animation:
+    nvs-spin 0.9s cubic-bezier(0.6, 0, 0.2, 1),
+    nvs-rumble 0.12s linear 0.9s infinite;
+}
+
+.nvs-logo:hover .nvs-logo-flame {
+  filter: drop-shadow(0 0 3px #a855f7) drop-shadow(0 0 8px rgba(217, 70, 239, 0.6));
+  animation: nvs-thrust 0.14s ease-in-out infinite alternate;
+}
+
+.nvs-logo:hover .nvs-logo-core {
+  animation: nvs-thrust-core 0.1s ease-in-out infinite alternate;
+}
+
+@keyframes nvs-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes nvs-rumble {
+  0%,
+  100% {
+    transform: rotate(0deg) translate(0, 0);
+  }
+  25% {
+    transform: rotate(-1deg) translate(0.4px, -0.3px);
+  }
+  75% {
+    transform: rotate(1deg) translate(-0.4px, 0.3px);
+  }
+}
+
+@keyframes nvs-thrust {
+  from {
+    transform: scale(1, 1.35) skewX(-3deg);
+  }
+  to {
+    transform: scale(0.88, 1.7) skewX(3deg);
+  }
+}
+
+@keyframes nvs-thrust-core {
+  from {
+    transform: scale(1, 1.2);
+  }
+  to {
+    transform: scale(0.8, 1.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvs-logo:hover .nvs-logo-rocket,
+  .nvs-logo:hover .nvs-logo-flame,
+  .nvs-logo:hover .nvs-logo-core {
+    animation: none;
+  }
+}
+
+/* NavespeakLogoV3.jsx (em validação). Órbita parada em repouso e rodando no
+   hover - play-state em vez de ligar/desligar a animação pra o foguete ficar
+   onde parou ao tirar o mouse, sem pular de volta. Keyframes da órbita são
+   gerados no componente. */
+.nvs3-orbit,
+.nvs3-counter {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  animation: 2.6s linear infinite paused;
+}
+.nvs3-orbit {
+  animation-name: nvs3-orbit;
+}
+.nvs3-counter {
+  animation-name: nvs3-counter;
+}
+.nvs3-logo:hover .nvs3-orbit,
+.nvs3-logo:hover .nvs3-counter {
+  animation-play-state: running;
+}
+
+.nvs3-bar {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.nvs3-logo:hover .nvs3-bar {
+  animation: nvs3-voice 0.5s ease-in-out infinite alternate;
+}
+.nvs3-logo:hover .nvs3-bar-2 {
+  animation-delay: 0.15s;
+}
+.nvs3-logo:hover .nvs3-bar-3 {
+  animation-delay: 0.3s;
+}
+
+.nvs3-flame {
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+}
+.nvs3-logo:hover .nvs3-flame {
+  animation: nvs3-flame 0.12s ease-in-out infinite alternate;
+}
+
+.nvs3-star {
+  opacity: 0.6;
+}
+.nvs3-logo:hover .nvs3-star {
+  animation: turbo-twinkle 1.2s ease-in-out infinite;
+}
+.nvs3-logo:hover .nvs3-star-2 {
+  animation-delay: 0.4s;
+}
+.nvs3-logo:hover .nvs3-star-3 {
+  animation-delay: 0.8s;
+}
+
+@keyframes nvs3-voice {
+  from {
+    transform: scaleY(1);
+  }
+  to {
+    transform: scaleY(0.45);
+  }
+}
+
+@keyframes nvs3-flame {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(1.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvs3-orbit,
+  .nvs3-counter,
+  .nvs3-logo:hover .nvs3-bar,
+  .nvs3-logo:hover .nvs3-flame,
+  .nvs3-logo:hover .nvs3-star {
+    animation: none;
+  }
+}
+
+/* NavespeakLogoV4.jsx "Eclipse" (em validação). Hover: lua desliza pra
+   baixo/esquerda revelando mais do sol, anéis de voz saem da coroa e o brilho
+   de diamante cintila. */
+.nvs4-moon {
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.nvs4-logo:hover .nvs4-moon {
+  transform: translate(-3px, 3px);
+}
+
+.nvs4-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.nvs4-logo:hover .nvs4-ring {
+  animation: nvs4-ring 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.nvs4-logo:hover .nvs4-ring-2 {
+  animation-delay: 0.8s;
+}
+
+.nvs4-glint {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.5s ease;
+}
+.nvs4-logo:hover .nvs4-glint {
+  animation: nvs4-glint 1.6s ease-in-out infinite;
+}
+
+@keyframes nvs4-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+@keyframes nvs4-glint {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.5) rotate(45deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvs4-moon {
+    transition: none;
+  }
+  .nvs4-logo:hover .nvs4-ring,
+  .nvs4-logo:hover .nvs4-glint {
+    animation: none;
+  }
+}
+
+/* NavespeakLogoV5.jsx "Nave" (em validação). Hover: nave avança (no
+   referencial dela, -Y = frente) e trepida; rastros oscilam como
+   equalizador, crescendo a partir da traseira da nave. */
+.nvs5-ship {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.nvs5-logo:hover .nvs5-ship {
+  transform: translateY(-4px);
+  animation: nvs5-rumble 0.12s linear 0.4s infinite;
+}
+
+.nvs5-trail {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+.nvs5-logo:hover .nvs5-trail {
+  animation: nvs5-eq 0.42s ease-in-out infinite alternate;
+}
+.nvs5-logo:hover .nvs5-trail-2 {
+  animation-duration: 0.3s;
+  animation-delay: 0.1s;
+}
+.nvs5-logo:hover .nvs5-trail-3 {
+  animation-duration: 0.36s;
+  animation-delay: 0.2s;
+}
+
+@keyframes nvs5-rumble {
+  0%,
+  100% {
+    transform: translate(0, -4px);
+  }
+  25% {
+    transform: translate(0.4px, -4.3px);
+  }
+  75% {
+    transform: translate(-0.4px, -3.7px);
+  }
+}
+
+@keyframes nvs5-eq {
+  from {
+    transform: scaleY(0.6);
+  }
+  to {
+    transform: scaleY(1.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvs5-ship {
+    transition: none;
+  }
+  .nvs5-logo:hover .nvs5-ship,
+  .nvs5-logo:hover .nvs5-trail {
+    animation: none;
+  }
+}
+
+/* NavespeakLogoV6.jsx (em validação) - sol central; órbita e estrelas de
+   fundo vêm das regras nvs3-* (mesma cena da V3). Hover: coroa gira e
+   tremula, sol pulsa, brilho respira. */
+.nvs6-sun,
+.nvs6-corona,
+.nvs6-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.nvs6-logo:hover .nvs6-corona {
+  animation: nvs6-corona 2.4s linear infinite;
+}
+.nvs6-logo:hover .nvs6-sun {
+  animation: nvs6-pulse 1.2s ease-in-out infinite alternate;
+}
+.nvs6-logo:hover .nvs6-glow {
+  animation: nvs6-glow 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes nvs6-corona {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes nvs6-pulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes nvs6-glow {
+  from {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0.8;
+    transform: scale(1.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvs6-logo:hover .nvs6-corona,
+  .nvs6-logo:hover .nvs6-sun,
+  .nvs6-logo:hover .nvs6-glow {
+    animation: none;
+  }
+}
+
+/* NavespeakLanding.jsx - voo completo do foguete da V1, roda uma vez (9s):
+   0-3s decola (acende, sobe reto, inclina até 35deg e sai pelo canto de cima
+   à direita de bico), 3-5s fora da tela, 5-9s volta de ré pelo mesmo canto e
+   pousa. nvsl-rocket e nvsl-skew têm os MESMOS percentuais e easing: a
+   inclinação do foguete e o skew das letras andam juntos (skew =
+   -inclinação), assim N e S ficam em pé na tela durante todo o giro. Estilo
+   base = pousado, que é o começo, o fim e o que fica com
+   prefers-reduced-motion. */
+.nvsl-rocket,
+.nvsl-skew {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+.nvsl-rocket {
+  transform: translate(100px, 176px) rotate(0deg);
+  animation: nvsl-rocket 9s both;
+}
+.nvsl-scene .nvsl-skew {
+  transform: translate(50px, 0) skewY(0deg) translate(-50px, 0);
+  animation: nvsl-skew 9s both;
+}
+.nvsl-scene .nvs-logo-flame {
+  transform: scale(0);
+  animation: nvsl-flame 9s both;
+}
+.nvsl-scene .nvs-logo-core {
+  animation: nvs-thrust-core 0.1s ease-in-out infinite alternate;
+}
+
+.nvsl-glow {
+  opacity: 0;
+  filter: blur(4px);
+  animation: nvsl-glow 9s both;
+}
+
+.nvsl-dust {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: 9s ease-out both;
+}
+.nvsl-dust-left {
+  animation-name: nvsl-dust-left;
+}
+.nvsl-dust-right {
+  animation-name: nvsl-dust-right;
+}
+
+.nvsl-light {
+  animation: nvsl-blink 1.2s steps(1) infinite;
+}
+.nvsl-light-2 {
+  animation-delay: 0.6s;
+}
+
+@keyframes nvsl-rocket {
+  /* decolagem */
+  0%,
+  8.89% {
+    transform: translate(100px, 176px) rotate(0deg);
+    animation-timing-function: ease-in;
+  }
+  20% {
+    transform: translate(100px, 120px) rotate(0deg);
+    animation-timing-function: ease-in;
+  }
+  /* fora da tela até o pouso */
+  33.33%,
+  55.56% {
+    transform: translate(250px, -70px) rotate(35deg);
+    animation-timing-function: cubic-bezier(0.3, 0.1, 0.5, 1);
+  }
+  /* pouso de ré */
+  75.56% {
+    transform: translate(128px, 100px) rotate(20deg);
+    animation-timing-function: ease-in-out;
+  }
+  86.67% {
+    transform: translate(100px, 150px) rotate(0deg);
+    animation-timing-function: ease-in;
+  }
+  94.67% {
+    transform: translate(100px, 176px) rotate(0deg);
+    animation-timing-function: ease-out;
+  }
+  96.89% {
+    transform: translate(100px, 174.5px) rotate(0deg);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translate(100px, 176px) rotate(0deg);
+  }
+}
+
+@keyframes nvsl-skew {
+  0%,
+  20% {
+    transform: translate(50px, 0) skewY(0deg) translate(-50px, 0);
+    animation-timing-function: ease-in;
+  }
+  33.33%,
+  55.56% {
+    transform: translate(50px, 0) skewY(-35deg) translate(-50px, 0);
+    animation-timing-function: cubic-bezier(0.3, 0.1, 0.5, 1);
+  }
+  75.56% {
+    transform: translate(50px, 0) skewY(-20deg) translate(-50px, 0);
+    animation-timing-function: ease-in-out;
+  }
+  86.67%,
+  100% {
+    transform: translate(50px, 0) skewY(0deg) translate(-50px, 0);
+  }
+}
+
+@keyframes nvsl-flame {
+  0% {
+    transform: scale(0);
+  }
+  3% {
+    transform: scale(0.4, 0.5);
+  }
+  8.89% {
+    transform: scale(1, 1.3);
+  }
+  20% {
+    transform: scale(1.05, 1.8);
+  }
+  33.33% {
+    transform: scale(1, 1.6);
+  }
+  55.56% {
+    transform: scale(1, 1.5);
+  }
+  86.67% {
+    transform: scale(1.05, 1.7);
+  }
+  92.89% {
+    transform: scale(0.9, 1.1);
+  }
+  96%,
+  100% {
+    transform: scale(0);
+  }
+}
+
+@keyframes nvsl-glow {
+  0% {
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.9;
+  }
+  20% {
+    opacity: 0.5;
+  }
+  26%,
+  68.89% {
+    opacity: 0;
+  }
+  91.11% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* poeira duas vezes: na ignição (5.5-17%) e no toque (93.78-100%) */
+@keyframes nvsl-dust-left {
+  0%,
+  5.5% {
+    opacity: 0;
+    transform: translateX(0) scale(0.4);
+  }
+  8% {
+    opacity: 1;
+  }
+  17% {
+    opacity: 0;
+    transform: translateX(-34px) scale(1.4);
+  }
+  17.01%,
+  93.78% {
+    opacity: 0;
+    transform: translateX(0) scale(0.4);
+  }
+  95.56% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-34px) scale(1.4);
+  }
+}
+
+@keyframes nvsl-dust-right {
+  0%,
+  5.5% {
+    opacity: 0;
+    transform: translateX(0) scale(0.4);
+  }
+  8% {
+    opacity: 1;
+  }
+  17% {
+    opacity: 0;
+    transform: translateX(34px) scale(1.4);
+  }
+  17.01%,
+  93.78% {
+    opacity: 0;
+    transform: translateX(0) scale(0.4);
+  }
+  95.56% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(34px) scale(1.4);
+  }
+}
+
+@keyframes nvsl-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nvsl-rocket,
+  .nvsl-scene .nvsl-skew,
+  .nvsl-scene .nvs-logo-flame,
+  .nvsl-scene .nvs-logo-core,
+  .nvsl-glow,
+  .nvsl-dust,
+  .nvsl-light {
     animation: none;
   }
 }

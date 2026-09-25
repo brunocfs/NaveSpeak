@@ -2,6 +2,7 @@ import { listRoomsForUser } from '../db/rooms.repo.js';
 import { markOnline, markOffline, setPreference, setIdle } from './onlineStore.js';
 import { listPendingCallInvites } from './callsStore.js';
 import { broadcastUserStatus } from './presenceBroadcast.js';
+import { logError } from '../observability/errors.js';
 
 // Status ONLINE global (independente de canal/servidor - ver onlineStore.js),
 // junto com o STATUS de presença (online/busy/away/invisible - ver
@@ -22,6 +23,8 @@ export function registerOnlineHandlers(io, socket) {
   // (dm.handler.js) são todos entregues nela.
   socket.join(`user:${user.id}`);
 
+  // Fora de socket.on, então sem o try/catch de instrumentConnection - uma
+  // falha de banco/Redis aqui virava unhandledRejection e derrubava o processo.
   (async () => {
     await markOnline(user, socket.id);
     // Preferência gravada no banco (users.status) vira a preferência
@@ -45,7 +48,7 @@ export function registerOnlineHandlers(io, socket) {
     for (const invite of pendingCalls) {
       socket.emit('call:invite', invite);
     }
-  })();
+  })().catch((err) => logError('websocket_connection_setup_failed', err, { connection_id: socket.id }, 'Socket connection setup failed'));
 
   // Emitido pelo PresenceContext.jsx quando detecta 15min de inatividade
   // (DOM, ou powerMonitor.getSystemIdleTime no Electron) e de novo quando a

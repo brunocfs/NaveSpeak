@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Wifi, WifiOff } from "lucide-react";
-import { useMediaSession } from "../context/MediaSessionContext.jsx";
+import { useNetworkStats } from "../context/MediaSessionContext.jsx";
 
 const QUALITY_COLOR = {
   good: "text-green-600 dark:text-green-500",
@@ -23,11 +23,10 @@ const QUALITY_LABEL = {
   unknown: "Conectando",
 };
 
-// Ícone de estado da chamada de voz - cor segue media.networkStats.quality
+// Ícone de estado da chamada de voz - cor segue networkStats.quality
 // (MediaSessionContext, calculado via getStats() dos transports mediasoup).
 // Clicar abre um popover com o detalhe (ping/perda de pacote)
 export default function ConnectionStatusButton() {
-  const media = useMediaSession();
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -40,7 +39,7 @@ export default function ConnectionStatusButton() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
 
-  const { ping, packetLoss, quality } = media.networkStats;
+  const { ping, packetLoss, quality } = useNetworkStats();
   const Icon = quality === "poor" || quality === "unknown" ? WifiOff : Wifi;
 
   return (
@@ -60,7 +59,7 @@ export default function ConnectionStatusButton() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-52 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800">
+        <div className="absolute bottom-full left-0 z-20 mb-2 w-52 rounded-xl  border-slate-200 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-[#181a20]">
           <p className={`mb-2 text-xs font-semibold ${QUALITY_COLOR[quality]}`}>
             {QUALITY_LABEL[quality]}
           </p>

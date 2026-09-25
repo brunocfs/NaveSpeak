@@ -1,91 +1,55 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import {
-  Sparkles,
-  Bug,
-  ShieldCheck,
-  Plus,
-  Megaphone,
-  Volume2,
-  LogOut,
-} from "lucide-react";
-import { useAuth } from "../context/AuthContext.jsx";
-import { useNotifications } from "../context/NotificationContext.jsx";
-import { usePreferences } from "../context/PreferencesContext.jsx";
-import { useWhatsNew } from "../hooks/useWhatsNew.js";
-import { apiRequest } from "../api/http.js";
-import { getSocket } from "../api/socket.js";
 import DmSidebar from "../components/DmSidebar.jsx";
 import FriendsPanel from "../components/FriendsPanel.jsx";
 import DmPanel from "../components/DmPanel.jsx";
-import StatusSelector from "../components/StatusSelector.jsx";
-import PreferencesModal from "../components/PreferencesModal.jsx";
-import WelcomeModal from "../components/WelcomeModal.jsx";
-import CreateOrJoinServerModal from "../components/CreateOrJoinServerModal.jsx";
-import Avatar from "../components/Avatar.jsx";
+import BugReportPanel from "../components/BugReportPanel.jsx";
+import TurboPanel from "../components/TurboPanel.jsx";
+import CipherPanel from "../components/CipherPanel.jsx";
+import AdminPanel from "../components/AdminPanel.jsx";
+import { InvitesPanel } from "./AdminInvitesPage.jsx";
+import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
-import logo from "../assets/nvspk.svg";
-import logoDark from "../assets/nvspk-dark.svg";
+import Avatar from "../components/Avatar.jsx";
+import CreateOrJoinServerModal from "../components/CreateOrJoinServerModal.jsx";
+
+import { useAuth } from "../context/AuthContext.jsx";
+import { useNotifications } from "../context/NotificationContext.jsx";
+import { useWhatsNew } from "../hooks/useWhatsNew.js";
+import { apiRequest } from "../api/http.js";
+import { getSocket } from "../api/socket.js";
+import { Plus } from "lucide-react";
+import RoomPage from "./RoomPage.jsx";
 export default function RoomsPage() {
-  const { user, logout } = useAuth();
-  const { setActiveDmPeer } = useNotifications();
-  const { theme } = usePreferences();
-  const whatsNew = useWhatsNew();
-  const [expanded, setExpanded] = useState(false);
-  const [selectedFriend, setSelectedFriend] = useState(null);
-  // Modal do botão "+" do cabeçalho - criar servidor novo ou entrar com
-  // convite (ver CreateOrJoinServerModal.jsx).
-  const [addServerOpen, setAddServerOpen] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // Clique numa notificação desktop de DM chega aqui via navigate('/rooms',
-  // { state: { openDmWith } }) (ver NotificationContext.jsx) - abre a
-  // conversa direto. Roda uma única vez por navegação (limpa o state do
-  // history depois, senão voltar pra /rooms de outra forma reabriria a
-  // mesma conversa).
-  useEffect(() => {
-    const target = location.state?.openDmWith;
-    if (!target) return;
-    setSelectedFriend(target);
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state, location.pathname, navigate]);
-
-  // Mesmo raciocínio de RoomPage/setActiveChannel: reporta qual DM está
-  // aberta pro NotificationContext decidir se uma mensagem nova ali deve
-  // virar notificação ou ser suprimida.
-  useEffect(() => {
-    setActiveDmPeer(selectedFriend?.id ?? null);
-    return () => setActiveDmPeer(null);
-  }, [selectedFriend, setActiveDmPeer]);
-
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  const [newRoomName, setNewRoomName] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const scrollRef = useRef(null);
-
-  const handleWheel = (e) => {
-    const el = scrollRef.current;
-    if (!el || e.deltaY === 0) return;
-
-    const isAtStart = el.scrollLeft <= 0;
-    const isAtEnd = Math.ceil(el.scrollLeft + el.clientWidth) >= el.scrollWidth;
-
-    if ((isAtStart && e.deltaY < 0) || (isAtEnd && e.deltaY > 0)) {
-      return;
-    }
-
-    e.preventDefault();
-    e.preventDefault();
-    el.scrollBy({
-      left: e.deltaY,
-      behavior: "smooth",
-    });
-  };
+  const { user } = useAuth();
+  const [selectedFriend, setSelectedFriend] = useState(null);
+  // Painel fixo aberto ao lado do DmSidebar ("bugs" | "turbo" | "cipher" | "invites" |
+  // "admin") - null = Amigos ou conversa (selectedFriend).
+  const [panel, setPanel] = useState(null);
+  const { setActiveDmPeer } = useNotifications();
+  const [selectedRoomId, setSelectedRoomId] = useState(null);
+  const [roomPanel, setRoomPanel] = useState(false);
+  const [addServerOpen, setAddServerOpen] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Espelha selectedRoomId/roomPanel em ref pro listener de socket (efeito
+  // roda uma vez, closure senão ficaria presa nos valores da primeira
+  // renderização) saber, a cada mensagem, se o servidor já está aberto.
+  const openRoomRef = useRef({ id: null, open: false });
+  useEffect(() => {
+    openRoomRef.current = { id: selectedRoomId, open: roomPanel };
+  }, [selectedRoomId, roomPanel]);
+  function selectFriend(friend) {
+    setSelectedFriend(friend);
+    setPanel(null);
+  }
+  function selectPanel(next) {
+    setPanel(next);
+    setSelectedFriend(null);
+  }
   async function loadRooms() {
     setLoading(true);
     try {
@@ -98,47 +62,25 @@ export default function RoomsPage() {
       setLoading(false);
     }
   }
-
+  useEffect(() => {
+    const target = location.state?.openDmWith;
+    if (!target) return;
+    selectFriend(target);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.state, location.pathname, navigate]);
   useEffect(() => {
     loadRooms();
   }, []);
-
-  // Aviso de "você foi expulso/banido" - chega no state da navegação vinda
-  // de RoomPage.jsx (ver o listener 'server:removed' de lá). Mostrado uma
-  // vez e descartado do history, mesmo raciocínio de openDmWith acima.
-  const [removedNotice, setRemovedNotice] = useState(
-    location.state?.removedNotice ?? null,
-  );
-  useEffect(() => {
-    if (!location.state?.removedNotice) return;
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state, location.pathname, navigate]);
-
-  // Também escuta ao vivo (não só ao navegar de RoomPage.jsx) - cobre o caso
-  // de já estar nesta tela quando um admin expulsa/bane em outra aba/sessão.
-  useEffect(() => {
-    const socket = getSocket();
-    function handleRemoved(payload) {
-      setRooms((prev) => prev.filter((r) => r.id !== payload.roomId));
-      setRemovedNotice(
-        payload.reason === "ban"
-          ? "Você foi banido de um servidor."
-          : "Você foi removido de um servidor.",
-      );
-    }
-    socket.on("server:removed", handleRemoved);
-    return () => socket.off("server:removed", handleRemoved);
-  }, []);
-
-  // Badge de não lidas por servidor (soma de todos os canais de texto) -
-  // igual ao unreadCount de amigo em FriendsPanel.jsx, só que somado por
-  // servidor em vez de por remetente. O socket já está nas rooms de todo
-  // servidor em que o usuário é membro desde a conexão (ver
-  // online.handler.js), então chega aqui mesmo sem a sala estar aberta.
+  // Badge de não lidas por servidor no rail de ícones - soma mensagens de
+  // qualquer canal do servidor (mesmo raciocínio de unreadCount em
+  // DmSidebar.jsx), pulando o servidor que já está aberto no painel ao lado
+  // (RoomPage cuida de marcar como lido ali dentro).
   useEffect(() => {
     const socket = getSocket();
     function handleChatMessage(message) {
       if (message.user_id === user?.id) return;
+      const { id: openId, open } = openRoomRef.current;
+      if (open && message.serverId === openId) return;
       setRooms((prev) =>
         prev.map((r) =>
           r.id === message.serverId
@@ -150,499 +92,149 @@ export default function RoomsPage() {
     socket.on("chat:message", handleChatMessage);
     return () => socket.off("chat:message", handleChatMessage);
   }, [user?.id]);
+  useEffect(() => {
+    setActiveDmPeer(selectedFriend?.id ?? null);
+    return () => setActiveDmPeer(null);
+  }, [selectedFriend, setActiveDmPeer]);
 
-  // Sucesso do modal (criou OU entrou por convite, o resultado pro resto da
-  // página é o mesmo): recarrega a lista de servidores e já abre o novo.
+  function handleSelectServer(roomId) {
+    setSelectedRoomId(roomId);
+    setRoomPanel(true);
+    setRooms((prev) =>
+      prev.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r)),
+    );
+  }
+
   async function handleServerAdded(room) {
     await loadRooms();
     navigate(`/rooms/${room.id}`);
   }
-
-  async function handleLogout() {
-    await logout();
-    navigate("/login");
-  }
-
-  async function handleCreateRoom(e) {
-    e.preventDefault();
-    if (!newRoomName.trim()) return;
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const data = await apiRequest("/rooms", {
-        method: "POST",
-        body: JSON.stringify({ name: newRoomName.trim() }),
-      });
-
-      setNewRoomName("");
-      await loadRooms();
-      navigate(`/rooms/${data.room.id}`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleJoinRoom(e) {
-    e.preventDefault();
-    if (!inviteCode.trim()) return;
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      const data = await apiRequest("/rooms/join", {
-        method: "POST",
-        body: JSON.stringify({ inviteCode: inviteCode.trim() }),
-      });
-
-      setInviteCode("");
-      await loadRooms();
-      navigate(`/rooms/${data.room.id}`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      <div className="mx-auto w-full mt-4 px-8">
-        <header className="rounded-2xl  border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
-          <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="mr-5">
-              <h1 className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                <img
-                  src={theme === "dark" ? logoDark : logo}
-                  alt="Canal de voz"
-                  className="h-15 w-15"
-                />
-                <strong>Nave </strong>
-                Speak
-                {/* </div> */}
-              </h1>
-            </div>
-            {loading && (
-              <div className=" flex items-center gap-3">
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-              </div>
-            )}
-            <div className="flex justify-between w-full min-w-0 ">
-              <div className="flex   min-w-0 overflow-hidden items-center gap-3 ">
-                {!loading && rooms.length > 0 && (
-                  <div
-                    ref={scrollRef}
-                    onWheel={handleWheel}
-                    className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                  >
-                    {rooms.map((room) => (
-                      <div
-                        className="group relative flex items-center  "
-                        key={room.id}
-                      >
-                        <Link key={room.id} to={`/rooms/${room.id}`}>
-                          <span className="relative inline-flex">
-                            <Avatar
-                              avatarPath={room.icon_path}
-                              username={room.name}
-                              size="lg"
-                            />
-                            {room.unreadCount > 0 && (
-                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
-                                {room.unreadCount > 9
-                                  ? "99+"
-                                  : room.unreadCount}
-                              </span>
-                            )}
-                          </span>
-                        </Link>
-                        <span
-                          className=" z-50
-                            absolute left-1/2 -translate-y-1/2
-                            whitespace-nowrap rounded-md
-                            bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
-                            opacity-0 -translate-x-2 pointer-events-none
-                            transition-all duration-200
-                            group-hover:opacity-100
-                            group-hover:translate-x-0"
-                        >
-                          {room.name}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+    <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-[#0f1117] dark:text-slate-100 lg:overflow-hidden ">
+      {error && (
+        <div className="m-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
+      <div className="mx-auto w-full ">
+        <main className="flex max-w-10xl flex-1 lg:min-h-0 lg:overflow-hidden bg-slate-100 dark:bg-[#0f1117]">
+          <section className="">
+            <div className="flex flex-col p-2 gap-3 bg-slate-200 dark:bg-[#0b0c10] max-w-20 h-screen items-center">
+              <div className="rounded-xl bg-[#1c1831] mb-5 mt-3 ">
                 <button
-                  type="button"
-                  onClick={() => setAddServerOpen(true)}
-                  title="Criar ou entrar em um servidor"
-                  aria-label="Criar ou entrar em um servidor"
-                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 mr-2 dark:text-slate-200 min-w-14 h-14 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setRoomPanel(null);
+                  }}
+                  className="cursor-pointer"
                 >
-                  <Plus />
+                  {/* Fundo do botão é sempre escuro (#1c1831), então a logo
+                      fica clara nos dois temas. */}
+                  <NavespeakLogoV1
+                    title="Canal de voz"
+                    className="h-14.5 w-14.5 text-slate-100"
+                  />
                 </button>
               </div>
-              <div className="flex gap-3 items-center">
-                <DownloadAppLink />
-                {user?.isAdmin && (
-                  <Link
-                    to="/admin/invites"
-                    title="Convites"
-                    aria-label="Convites"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    <ShieldCheck className="h-5 w-5" />
-                  </Link>
-                )}
-                {user?.isAdmin && (
-                  <Link
-                    to="/admin/broadcasts"
-                    title="Comunicados oficiais"
-                    aria-label="Comunicados oficiais"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    <Megaphone className="h-5 w-5" />
-                  </Link>
-                )}
-                {user?.isAdmin && (
-                  <Link
-                    to="/admin/soundboard-settings"
-                    title="Configurações do soundboard"
-                    aria-label="Configurações do soundboard"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                  >
-                    <Volume2 className="h-5 w-5" />
-                  </Link>
-                )}
-
-                <Link
-                  to="/reports"
-                  title="Reportar bug ou sugestão"
-                  aria-label="Reportar bug ou sugestão"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <Bug className="h-5 w-5" />
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  title="Sair"
-                  aria-label="Sair"
-                  className="cursor-pointer inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <LogOut className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            {/* <button
-              onClick={handleLogout}
-              className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
-            >
-              Sair
-            </button> */}
-            {/* reativar */}
-            {/* <div className="flex items-center gap-3">
-              <DownloadAppLink />
-
-              <Link
-                to="/profile"
-                className="hidden items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 sm:flex dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <Avatar
-                  avatarPath={user?.avatarPath}
-                  username={user?.username}
-                  size="xs"
-                />
-                {user?.username}
-              </Link>
-
-              <StatusSelector />
-
-              <button
-                onClick={whatsNew.openManually}
-                title="Novidades"
-                aria-label="Novidades"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <Sparkles className="h-5 w-5" />
-              </button>
-
-              <Link
-                to="/reports"
-                title="Reportar bug ou sugestão"
-                aria-label="Reportar bug ou sugestão"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <Bug className="h-5 w-5" />
-              </Link>
-
-              {user?.isAdmin && (
-                <Link
-                  to="/admin/invites"
-                  title="Convites"
-                  aria-label="Convites"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <ShieldCheck className="h-5 w-5" />
-                </Link>
-              )}
-
-              <PreferencesModal />
-
-              <button
-                onClick={handleLogout}
-                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
-              >
-                Sair
-              </button>
-            </div> */}
-          </div>
-        </header>
-      </div>
-      <main className="grid max-w-10xl flex-1 gap-6 px-4 py-6 sm:px-6  lg:px-8 lg:min-h-0 lg:overflow-hidden">
-        {/* <section className="lg:flex lg:min-h-0 lg:flex-col">
-          {removedNotice && (
-            <div className="mb-4 flex items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-              {removedNotice}
-              <button
-                onClick={() => setRemovedNotice(null)}
-                className="shrink-0 font-semibold hover:underline"
-              >
-                Ok
-              </button>
-            </div>
-          )} */}
-        {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
-            {error}
-          </div>
-        )}
-        {/* <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 overflow-hidden transition-all duration-300 mb-5">
-            <button
-              type="button"
-              onClick={() => setExpanded((prev) => !prev)}
-              className="flex w-full items-center justify-between p-6 text-left"
-              aria-expanded={expanded}
-            >
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  {expanded
-                    ? "Criar / Entrar em um servidor"
-                    : "Criar / Entrar em um servidor"}
-                </h2>
-                {!expanded && (
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Clique para expandir
-                  </p>
-                )}
-              </div>
-
-              <svg
-                className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300 ${
-                  expanded ? "rotate-180" : ""
-                }`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </button>
-
-            <div
-              className={`grid transition-all duration-300 ease-in-out ${
-                expanded
-                  ? "grid-rows-[1fr] opacity-100"
-                  : "grid-rows-[0fr] opacity-0"
-              }`}
-            >
-              <div className="overflow-hidden">
-                <div className="px-6 pb-6 space-y-6">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                      Criar novo servidor
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                      Defina um nome para começar uma nova conversa.
-                    </p>
-
-                    <form
-                      onSubmit={handleCreateRoom}
-                      className="mt-4 space-y-3"
-                    >
-                      <input
-                        type="text"
-                        placeholder="Nome do servidor"
-                        maxLength={64}
-                        value={newRoomName}
-                        onChange={(e) => setNewRoomName(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-                      />
-
-                      <button
-                        type="submit"
-                        disabled={busy}
-                        className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
-                      >
-                        {busy ? "Processando..." : "Criar servidor"}
-                      </button>
-                    </form>
-                  </div>
-
-                  <div className="border-t border-slate-200 pt-6 dark:border-slate-800">
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                      Entrar por convite
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                      Use um código recebido para entrar em um servidor
-                      existente.
-                    </p>
-
-                    <form onSubmit={handleJoinRoom} className="mt-4 space-y-3">
-                      <input
-                        type="text"
-                        placeholder="Código de convite"
-                        maxLength={12}
-                        value={inviteCode}
-                        onChange={(e) => setInviteCode(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm uppercase tracking-wide text-slate-900 outline-none transition placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
-                      />
-
-                      <button
-                        type="submit"
-                        disabled={busy}
-                        className="inline-flex w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
-                      >
-                        {busy ? "Processando..." : "Entrar por convite"}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div> */}
-
-        {/* <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            <div className="mb-6 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  Seus servidores
-                </h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Acesse rapidamente as conversas das quais você participa.
-                </p>
-              </div>
-
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {rooms.length} sala{rooms.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               {loading && (
-                <div className="space-y-3">
-                  <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
-                  <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
-                  <div className="h-20 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
+                <div className=" flex flex-col  gap-3">
+                  <div className="h-14 w-14 animate-pulse rounded-full bg-slate-300 dark:bg-slate-800" />
+                  <div className="h-14 w-14 animate-pulse rounded-full bg-slate-300 dark:bg-slate-800" />
+                  <div className="h-14 w-14 animate-pulse rounded-full bg-slate-300 dark:bg-slate-800" />
                 </div>
               )}
-
-              {!loading && rooms.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-800/40">
-                  <p className="text-sm text-slate-600 dark:text-slate-300">
-                    Você ainda não está em nenhuma sala.
-                  </p>
-                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                    Crie uma nova sala ou use um código de convite para entrar.
-                  </p>
-                </div>
-              )}
-
               {!loading && rooms.length > 0 && (
-                <ul className="space-y-3">
-                  {rooms.map((room) => (
-                    <li key={room.id}>
-                      <Link
-                        to={`/rooms/${room.id}`}
-                        className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-blue-300 hover:bg-white hover:shadow-sm dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-500/40 dark:hover:bg-slate-800"
+                <div
+                  className="flex flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden 
+                      [-ms-overflow-style:'none'] 
+                      [scrollbar-width:none] gap-3 p-1"
+                >
+                  {rooms.map((room) => {
+                    const isActive = room.id === selectedRoomId;
+
+                    return (
+                      <button
+                        key={room.id}
+                        onClick={() => handleSelectServer(room.id)}
+                        className={`cursor-pointer 
+                        }`}
                       >
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className="relative inline-flex shrink-0">
-                            <Avatar
-                              avatarPath={room.icon_path}
-                              username={room.name}
-                              size="md"
-                            />
-                            {room.unreadCount > 0 && (
-                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-slate-50 dark:bg-blue-500 dark:ring-slate-800/60">
-                                {room.unreadCount > 99
-                                  ? "99+"
-                                  : room.unreadCount}
-                              </span>
-                            )}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
-                              {room.name}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                              Abrir sala
-                            </p>
-                          </div>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                        <span className="relative inline-flex">
+                          <Avatar
+                            avatarPath={room.icon_path}
+                            username={room.name}
+                            size={`lg`}
+                            className={`${isActive ? "ring-2 ring-purple-500" : ""}`}
+                          />
+                          {room.unreadCount > 0 && (
+                            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-slate-200 dark:bg-purple-500 dark:ring-[#0b0c10]">
+                              {room.unreadCount > 9 ? "99+" : room.unreadCount}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
+              <button
+                type="button"
+                onClick={() => setAddServerOpen(true)}
+                title="Criar ou entrar em um servidor"
+                aria-label="Criar ou entrar em um servidor"
+                className="cursor-pointer inline-flex items-center justify-center rounded-xl border-2 border-dashed border-purple-400 bg-white text-purple-600 transition hover:bg-purple-50 dark:border-purple-400 dark:bg-[#191a1e] dark:text-purple-200 min-w-10 min-h-10 dark:hover:bg-slate-800"
+              >
+                <Plus className="size-5" />
+              </button>{" "}
             </div>
-          </div> */}
-        {/* </section> */}
-        <section className="space-y-1 lg:flex lg:min-h-0 lg:flex-col">
-          <div className="grid gap-6 md:grid-cols-[300px_minmax(0,1fr)] rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:min-h-0 lg:flex-1">
-            <DmSidebar
-              selectedFriendId={selectedFriend?.id}
-              onSelectFriend={setSelectedFriend}
-            />
-            {/* <div className="min-h-[500px] overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:h-full lg:min-h-0"> */}
-            <div className=" overflow-hidden  border-l border-slate-200 rounded-r-2xl dark:border-slate-800 dark:bg-slate-900 dark:ring-slate-800 lg:h-full lg:min-h-0">
-              {selectedFriend ? (
-                <DmPanel friend={selectedFriend} />
-              ) : (
-                <FriendsPanel
+          </section>
+          {roomPanel ? (
+            <section className="w-full h-screen bg-white dark:bg-[#0f1117]">
+              <RoomPage roomId={selectedRoomId}></RoomPage>
+            </section>
+          ) : (
+            <section className="w-full h-screen bg-white dark:bg-[#0f1117]">
+              <div className="grid h-screen md:grid-cols-[300px_minmax(0,1fr)] shadow-sm ">
+                <DmSidebar
                   selectedFriendId={selectedFriend?.id}
-                  onSelectFriend={setSelectedFriend}
+                  panel={panel}
+                  onSelectFriend={selectFriend}
+                  onSelectPanel={selectPanel}
                 />
-                // <div className="flex h-full min-h-[500px] items-center justify-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                //   Selecione um amigo para abrir uma conversa privada.
-                // </div>
-              )}
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <WelcomeModal
-        open={whatsNew.open}
-        version={whatsNew.version}
-        onClose={whatsNew.close}
-      />
-
-      <CreateOrJoinServerModal
-        open={addServerOpen}
-        onClose={() => setAddServerOpen(false)}
-        onSuccess={handleServerAdded}
-      />
+                <div className="w-full h-full overflow-y-auto bg-white dark:bg-[#161820]">
+                  {selectedFriend ? (
+                    <DmPanel friend={selectedFriend} />
+                  ) : panel === "bugs" ? (
+                    <BugReportPanel />
+                  ) : panel === "turbo" ? (
+                    <TurboPanel />
+                  ) : panel === "cipher" ? (
+                    <CipherPanel />
+                  ) : panel === "invites" ? (
+                    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+                      <InvitesPanel />
+                    </div>
+                  ) : panel === "admin" ? (
+                    <AdminPanel />
+                  ) : (
+                    <FriendsPanel
+                      selectedFriendId={selectedFriend?.id}
+                      onSelectFriend={selectFriend}
+                    />
+                    // <div className="flex h-full min-h-[500px] items-center justify-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                    //   Selecione um amigo para abrir uma conversa privada.
+                    // </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+        </main>
+        <CreateOrJoinServerModal
+          open={addServerOpen}
+          onClose={() => setAddServerOpen(false)}
+          onSuccess={handleServerAdded}
+        />
+      </div>
     </div>
   );
 }

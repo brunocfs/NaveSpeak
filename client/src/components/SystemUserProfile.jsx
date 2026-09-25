@@ -6,61 +6,15 @@ import {
   uploadSystemAvatar,
   removeSystemAvatar,
 } from "../api/adminSystemUser.js";
-import StyledUsername from "./StyledUsername.jsx";
+import NameStyleEditor, {
+  DEFAULT_NAME_STYLE,
+  nameStyleFromServer,
+  nameStyleToPayload,
+} from "./NameStyleEditor.jsx";
 
 const BIO_MAX = 280;
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-
-const DEFAULT_STYLE = {
-  colorMode: "none", // "none" | "solid" | "gradient" - só de controle local, nunca vai pro servidor
-  color: "#7c3aed",
-  gradient: ["#7c3aed", "#22d3ee"],
-  bold: false,
-  italic: false,
-  underline: false,
-  font: "default",
-  effect: "none",
-};
-
-const FONT_OPTIONS = [
-  { value: "default", label: "Padrão" },
-  { value: "serif", label: "Serifada" },
-  { value: "mono", label: "Monoespaçada" },
-  { value: "display", label: "Destaque" },
-];
-
-const EFFECT_OPTIONS = [
-  { value: "none", label: "Nenhum" },
-  { value: "shine", label: "Brilho" },
-  { value: "pulse", label: "Pulsante" },
-];
-
-// name_style do servidor (color/gradient/bold/italic/underline/font/effect)
-// <-> estado local do formulário (mesmos campos + colorMode, que só existe
-// aqui pra decidir qual dos dois - color ou gradient - o formulário mostra).
-function styleFromServer(nameStyle) {
-  const s = nameStyle ?? {};
-  return {
-    ...DEFAULT_STYLE,
-    ...s,
-    colorMode: s.gradient ? "gradient" : s.color ? "solid" : "none",
-    color: s.color ?? DEFAULT_STYLE.color,
-    gradient: s.gradient ?? DEFAULT_STYLE.gradient,
-  };
-}
-
-function styleToPayload(styleForm) {
-  return {
-    color: styleForm.colorMode === "solid" ? styleForm.color : null,
-    gradient: styleForm.colorMode === "gradient" ? styleForm.gradient : null,
-    bold: styleForm.bold,
-    italic: styleForm.italic,
-    underline: styleForm.underline,
-    font: styleForm.font,
-    effect: styleForm.effect,
-  };
-}
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -100,7 +54,7 @@ export default function SystemUserProfile() {
   const fileInputRef = useRef(null);
 
   const [form, setForm] = useState({ username: "", bio: "" });
-  const [styleForm, setStyleForm] = useState(DEFAULT_STYLE);
+  const [styleForm, setStyleForm] = useState(DEFAULT_NAME_STYLE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -111,7 +65,7 @@ export default function SystemUserProfile() {
       .then((data) => {
         setProfile(data.user);
         setForm({ username: data.user.username, bio: data.user.bio ?? "" });
-        setStyleForm(styleFromServer(data.user.nameStyle));
+        setStyleForm(nameStyleFromServer(data.user.nameStyle));
         setLoadError(null);
       })
       .catch((err) => setLoadError(err.message))
@@ -174,7 +128,7 @@ export default function SystemUserProfile() {
 
     const username = form.username.trim();
     const bio = form.bio.trim();
-    const nameStylePayload = styleToPayload(styleForm);
+    const nameStylePayload = nameStyleToPayload(styleForm);
     const patch = {};
     if (username !== profile.username) patch.username = username;
     if (bio !== (profile.bio ?? "")) patch.bio = bio;
@@ -182,7 +136,7 @@ export default function SystemUserProfile() {
     // servidor) - só manda se algo de fato mudou em relação ao que veio do
     // servidor, pra "Nada para salvar" continuar correto quando só
     // abrir/fechar o formulário sem tocar em nada.
-    if (JSON.stringify(nameStylePayload) !== JSON.stringify(styleToPayload(styleFromServer(profile.nameStyle)))) {
+    if (JSON.stringify(nameStylePayload) !== JSON.stringify(nameStyleToPayload(nameStyleFromServer(profile.nameStyle)))) {
       patch.nameStyle = nameStylePayload;
     }
 
@@ -196,7 +150,7 @@ export default function SystemUserProfile() {
       const data = await updateSystemProfile(patch);
       setProfile(data.user);
       setForm({ username: data.user.username, bio: data.user.bio ?? "" });
-      setStyleForm(styleFromServer(data.user.nameStyle));
+      setStyleForm(nameStyleFromServer(data.user.nameStyle));
       setSuccess("Perfil do Zeno atualizado.");
     } catch (err) {
       setError(err.message);
@@ -302,136 +256,13 @@ export default function SystemUserProfile() {
             Como "{form.username || "Zeno"}" aparece nas mensagens, na lista de conversas e no cabeçalho da DM.
           </p>
 
-          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/60">
-            <StyledUsername
-              username={form.username || "Zeno"}
-              style={styleToPayload(styleForm)}
-              className="text-base font-semibold text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                Cor
-              </p>
-              <div className="mb-2 grid grid-cols-3 gap-2">
-                {[
-                  { value: "none", label: "Padrão" },
-                  { value: "solid", label: "Sólida" },
-                  { value: "gradient", label: "Gradiente" },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setStyleForm((f) => ({ ...f, colorMode: opt.value }))}
-                    aria-pressed={styleForm.colorMode === opt.value}
-                    disabled={busy}
-                    className={`rounded-xl border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                      styleForm.colorMode === opt.value
-                        ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300"
-                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {styleForm.colorMode === "solid" && (
-                <input
-                  type="color"
-                  value={styleForm.color}
-                  onChange={(e) => setStyleForm((f) => ({ ...f, color: e.target.value }))}
-                  disabled={busy}
-                  className="h-10 w-20 cursor-pointer rounded-lg border border-slate-300 bg-white p-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800"
-                />
-              )}
-              {styleForm.colorMode === "gradient" && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={styleForm.gradient[0]}
-                    onChange={(e) =>
-                      setStyleForm((f) => ({ ...f, gradient: [e.target.value, f.gradient[1]] }))
-                    }
-                    disabled={busy}
-                    className="h-10 w-20 cursor-pointer rounded-lg border border-slate-300 bg-white p-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800"
-                  />
-                  <span className="text-xs text-slate-400 dark:text-slate-500">até</span>
-                  <input
-                    type="color"
-                    value={styleForm.gradient[1]}
-                    onChange={(e) =>
-                      setStyleForm((f) => ({ ...f, gradient: [f.gradient[0], e.target.value] }))
-                    }
-                    disabled={busy}
-                    className="h-10 w-20 cursor-pointer rounded-lg border border-slate-300 bg-white p-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800"
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: "bold", label: "Negrito" },
-                { key: "italic", label: "Itálico" },
-                { key: "underline", label: "Sublinhado" },
-              ].map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setStyleForm((f) => ({ ...f, [opt.key]: !f[opt.key] }))}
-                  aria-pressed={styleForm[opt.key]}
-                  disabled={busy}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    styleForm[opt.key]
-                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-300"
-                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Fonte
-                </label>
-                <select
-                  value={styleForm.font}
-                  onChange={(e) => setStyleForm((f) => ({ ...f, font: e.target.value }))}
-                  disabled={busy}
-                  className={inputClass}
-                >
-                  {FONT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Efeito
-                </label>
-                <select
-                  value={styleForm.effect}
-                  onChange={(e) => setStyleForm((f) => ({ ...f, effect: e.target.value }))}
-                  disabled={busy}
-                  className={inputClass}
-                >
-                  {EFFECT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
+          <NameStyleEditor
+            value={styleForm}
+            onChange={setStyleForm}
+            disabled={busy}
+            previewName={form.username || "Zeno"}
+            idPrefix="zeno-name-style"
+          />
         </div>
 
         {error && <p className="error-text">{error}</p>}

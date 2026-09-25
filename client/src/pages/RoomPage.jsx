@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Settings,
@@ -23,6 +23,9 @@ import ChatPanel from "../components/ChatPanel.jsx";
 import StatusDot, { statusLabel } from "../components/StatusDot.jsx";
 import Avatar from "../components/Avatar.jsx";
 import VoiceRosterEntry from "../components/VoiceRosterEntry.jsx";
+import UserProfilePreview, {
+  previewPosFromEvent,
+} from "../components/UserProfilePreview.jsx";
 import VoiceControlBar from "../components/VoiceControlBar.jsx";
 import ServerSettingsModal from "../components/ServerSettingsModal.jsx";
 import CreateChannelModal from "../components/CreateChannelModal.jsx";
@@ -34,11 +37,11 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
+import StyledUsername from "../components/StyledUsername.jsx";
+import TurboBadge from "../components/TurboBadge.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
-import logo from "../assets/nvspk.svg";
-import logoDark from "../assets/nvspk-dark.svg";
-export default function RoomPage() {
-  const { roomId } = useParams();
+export default function RoomPage(serverId) {
+  const { roomId } = serverId;
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -56,6 +59,9 @@ export default function RoomPage() {
   } = usePreferences();
   const [room, setRoom] = useState(null);
   const [members, setMembers] = useState([]);
+  // Preview de perfil aberto a partir da lista de membros: { member, pos }.
+  const [memberPreview, setMemberPreview] = useState(null);
+  const closeMemberPreview = useCallback(() => setMemberPreview(null), []);
   const [channels, setChannels] = useState([]);
   const [roles, setRoles] = useState([]);
   const [settings, setSettings] = useState({ memberListMode: "grouped" });
@@ -114,6 +120,33 @@ export default function RoomPage() {
   const voicePanelAnchorRef = useRef(null);
   const serverMenuRef = useRef(null);
   const scrollRef = useRef(null);
+  const [dragOverChannelId, setDragOverChannelId] = useState(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("roomSidebarWidth"));
+    return saved >= 260 && saved <= 480 ? saved : 260;
+  });
+
+  function startSidebarResize(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    let w = startW;
+    const onMove = (ev) => {
+      w = Math.min(480, Math.max(260, startW + ev.clientX - startX));
+      setSidebarWidth(w);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("roomSidebarWidth", String(w));
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   const handleWheel = (e) => {
     const el = scrollRef.current;
@@ -648,145 +681,7 @@ export default function RoomPage() {
   })();
 
   return (
-    <div className="flex h-screen flex-col overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 lg:overflow-hidden">
-      <div className="mx-auto w-full mt-4 px-8">
-        <header className="rounded-2xl border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
-          <div className=" flex items-center gap-5 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="mr-10">
-              <Link
-                to="/rooms"
-                className="flex items-center text-2xl font-bold tracking-tight text-slate-900 dark:text-white"
-              >
-                <img
-                  src={theme === "dark" ? logoDark : logo}
-                  alt="Canal de voz"
-                  className="h-15 w-15"
-                />
-                <strong>Nave </strong>
-                Speak
-              </Link>
-            </div>
-            {roomsLoading && (
-              <div className=" flex items-center gap-3">
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-                <div className="h-14 w-14 animate-pulse rounded-full bg-slate-100 dark:bg-slate-800" />
-              </div>
-            )}
-            {/* Faixa de servidores - mesmo dado/estilo de avatar de
-              RoomsPage.jsx, com o servidor ABERTO agora marcado (anel azul)
-              e navegação livre entre eles. `min-w-0 flex-1` no wrapper +
-              `overflow-x-auto` só nesta faixa (nunca no cabeçalho inteiro) é
-              o que garante que ela role por dentro em vez de estourar a
-              largura do header; a barra de rolagem em si fica invisível nos
-              três motores (scrollbar-width/-ms-overflow-style/::-webkit-
-              scrollbar), sem tirar a rolagem por arrastar/roda do mouse. */}
-            {!roomsLoading && rooms.length > 0 && (
-              <div className="flex   min-w-0 overflow-hidden items-center gap-3">
-                <div
-                  ref={scrollRef}
-                  onWheel={handleWheel}
-                  className=" flex gap-3 px-7 rounded-2xl overflow-x-auto min-w-0  overflow-y-hidden [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                >
-                  {rooms.map((r) => {
-                    const isActive = r.id === roomId;
-                    return (
-                      <div
-                        key={r.id}
-                        className="group relative flex  items-center"
-                      >
-                        <Link
-                          to={`/rooms/${r.id}`}
-                          className={`relative inline-flex  rounded-2xl p-1 transition ${
-                            isActive
-                              ? " ring-2 ring-purple-500"
-                              : "ring-2 ring-transparent hover:bg-slate-100 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          {r.id === idServerVoiceActive && (
-                            <span className="z-49 absolute -left-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
-                              <Volume2 className="w-3 h-3" />
-                            </span>
-                          )}
-
-                          <span className="relative inline-flex">
-                            <Avatar
-                              avatarPath={r.icon_path}
-                              username={r.name}
-                              size="lg"
-                            />
-                            {r.unreadCount > 0 && (
-                              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white ring-2 ring-white dark:bg-purple-500 dark:ring-slate-900">
-                                {r.unreadCount > 99 ? "99+" : r.unreadCount}
-                              </span>
-                            )}
-                          </span>
-                        </Link>
-                        <span
-                          className=" z-50
-                            absolute left-1/2   -translate-y-1/2
-                            whitespace-nowrap rounded-md
-                            bg-slate-800 px-3 py-1 text-sm text-white shadow-lg
-                            opacity-0 -translate-x-2 pointer-events-none
-                            transition-all duration-200
-                            group-hover:opacity-100
-                            group-hover:translate-x-0"
-                        >
-                          {r.name}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAddServerOpen(true)}
-                  title="Criar ou entrar em um servidor"
-                  aria-label="Criar ou entrar em um servidor"
-                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 w-14 h-14 dark:hover:bg-slate-800"
-                >
-                  <Plus />
-                </button>
-              </div>
-            )}
-
-            <div className="flex shrink-0 items-center gap-2">
-              <DownloadAppLink />
-              {/* O código de convite único (room.invite_code) sumiu daqui de
-            propósito: mostrava o link pra QUALQUER membro, mesmo sem
-            CREATE_INVITE, furando a regra de permissão. Servidor agora
-            suporta múltiplos convites (server_invites) - ver "Convidar para
-            o servidor" no menu do servidor e a aba Convites de
-            ServerSettingsModal.jsx, ambos já checando a permissão. */}
-              {/* retirar */}
-              {/* <button
-              onClick={toggleMembersSidebar}
-              title={
-                membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
-              }
-              aria-label={
-                membersSidebarVisible ? "Ocultar membros" : "Mostrar membros"
-              }
-              aria-pressed={membersSidebarVisible}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              {membersSidebarVisible ? <PanelRightClose /> : <PanelRightOpen />}
-            </button> */}
-              {/* {canOpenSettings && (
-              <button
-                onClick={() => setSettingsOpen(true)}
-                title="Configurações do servidor"
-                aria-label="Configurações do servidor"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <Settings />
-              </button>
-            )} */}
-            </div>
-          </div>
-        </header>
-      </div>
-
+    <div className="flex w-full h-screen  overflow-y-auto bg-slate-100 text-slate-900 transition-colors dark:bg-[#0f1117] dark:text-slate-100 lg:overflow-hidden">
       {settingsOpen && (
         <ServerSettingsModal
           room={room}
@@ -831,36 +726,31 @@ export default function RoomPage() {
       {/* Colunas do grid: sem a barra de membros, a coluna de 320px some e o
           painel do meio (chat/voice, minmax(0,1fr)) toma o espaço todo. */}
       <main
-        className={`grid max-w-10xl flex-1 gap-6 px-4 py-6 sm:px-6 ${
+        style={{ "--sw": `${sidebarWidth}px` }}
+        className={`grid  flex-1  ${
           membersSidebarVisible
-            ? "lg:grid-cols-[260px_minmax(0,1fr)_320px]"
-            : "lg:grid-cols-[260px_minmax(0,1fr)]"
-        } lg:px-8 lg:min-h-0 lg:overflow-hidden`}
+            ? "lg:grid-cols-[var(--sw)_minmax(0,1fr)_320px]"
+            : "lg:grid-cols-[var(--sw)_minmax(0,1fr)]"
+        } lg:min-h-0 lg:overflow-hidden`}
       >
         {/* <aside className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"> */}
-        <section className="lg:flex lg:min-h-0 lg:flex-col">
-          <div className="relative flex items-center justify-between max-h-[40px] mb-2 flex-1 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            <span className="font-medium">{room.name}</span>
+        <section className="relative lg:flex lg:min-h-0 lg:flex-col">
+          <div className="relative flex items-center  max-h-10 bg-white p-4 0 dark:bg-[#0f1117] ">
             <button
               onClick={() => setServerMenuOpen((prev) => !prev)}
               title="Menu do servidor"
               aria-label="Menu do servidor"
               aria-haspopup="menu"
               aria-expanded={serverMenuOpen}
-              className="cursor-pointer rounded-full dark:hover:bg-slate-700 "
+              className="cursor-pointer rounded-xs dark:hover:bg-gray-600/30 p-1 w-full"
             >
-              <Settings className="h-5 w-5" />
+              <span className="font-medium">{room.name}</span>
             </button>
             {serverMenuOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                className="absolute left-0 top-full z-20 mt-2 w-100 border overflow-hidden rounded-xl  border-slate-200 bg-white shadow-lg dark:border-gray-700/40 dark:bg-[#181a20]"
               >
-                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
-                    {room.name}
-                  </p>
-                </div>
                 <div className="p-1">
                   {canOpenSettings ? (
                     <button
@@ -920,7 +810,7 @@ export default function RoomPage() {
               </div>
             )}
           </div>
-          <aside className="flex min-h-0 flex-1 flex-col rounded-t-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+          <aside className="flex min-h-0 flex-1 flex-col  bg-white p-4  dark:bg-[#0f1117] ">
             <div className="flex shrink-0 justify-between  ">
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Canais
@@ -930,7 +820,7 @@ export default function RoomPage() {
                   onClick={() => setCreateChannelOpen(true)}
                   title="Criar canal"
                   aria-label="Criar canal"
-                  className="cursor-pointer inline-flex h-5 w-5 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="cursor-pointer inline-flex h-5 w-5 items-center justify-center rounded-md  border-slate-300  text-slate-700 transition hover:bg-slate-50 dark:border-slate-700  dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   <Plus />
                 </button>
@@ -954,7 +844,7 @@ export default function RoomPage() {
                       >
                         <span className="truncate"># {c.name}</span>
                         {c.unreadCount > 0 && (
-                          <span className="ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-semibold text-white dark:bg-blue-500">
+                          <span className="ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 px-1.5 text-[11px] font-semibold text-white dark:bg-purple-500">
                             {c.unreadCount > 99 ? "99+" : c.unreadCount}
                           </span>
                         )}
@@ -975,8 +865,43 @@ export default function RoomPage() {
                 </p>
                 <ul className="space-y-1">
                   {voiceChannels.map((c) => (
-                    <div>
-                      <li key={c.id}>
+                    <div
+                      key={c.id}
+                      onDragOver={(e) => {
+                        if (!voicePerms.canMove) return;
+                        e.preventDefault();
+                        setDragOverChannelId(c.id);
+                      }}
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget))
+                          setDragOverChannelId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverChannelId(null);
+                        let data;
+                        try {
+                          data = JSON.parse(
+                            e.dataTransfer.getData(
+                              "application/x-voice-member",
+                            ),
+                          );
+                        } catch {
+                          return;
+                        }
+                        if (!data?.userId || data.fromChannelId === c.id)
+                          return;
+                        media
+                          .moderateMove(data.fromChannelId, data.userId, c.id)
+                          .catch(() => {});
+                      }}
+                      className={`rounded-xl ${
+                        dragOverChannelId === c.id
+                          ? "bg-purple-500/10 ring-1 ring-purple-500"
+                          : ""
+                      }`}
+                    >
+                      <li>
                         <button
                           onClick={() => openVoiceChannel(c.id)}
                           className={`w-full truncate rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
@@ -1062,6 +987,7 @@ export default function RoomPage() {
                               micMuted={micMuted}
                               deafened={deafened}
                               cameraOn={cameraOn}
+                              member={members.find((m) => m.id === p.userId)}
                               sharingScreen={sharingScreen}
                               volumeControl={
                                 isSelf
@@ -1119,6 +1045,14 @@ export default function RoomPage() {
                                           c.id,
                                           p.userId,
                                         ),
+                                      onDragStart: (e) =>
+                                        e.dataTransfer.setData(
+                                          "application/x-voice-member",
+                                          JSON.stringify({
+                                            userId: p.userId,
+                                            fromChannelId: c.id,
+                                          }),
+                                        ),
                                       onMove: (toChannelId) =>
                                         media.moderateMove(
                                           c.id,
@@ -1147,9 +1081,13 @@ export default function RoomPage() {
             toggleScreenShare={toggleScreenShare}
             switchScreenSource={switchScreenSource}
           />
+          <div
+            onPointerDown={startSidebarResize}
+            className="absolute right-0 top-0 z-30 hidden h-full w-1  cursor-col-resize touch-none transition-colors hover:bg-purple-500/60 active:bg-purple-500 lg:block"
+          />
         </section>
 
-        <section className="min-w-0 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col">
+        <section className="min-w-0  bg-white dark:bg-[#161820] dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col">
           {isVoice ? (
             // flex flex-col (sem overflow-y-auto aqui) - o painel de voz
             // precisa de uma ALTURA DE VERDADE pra medir (useElementSize em
@@ -1192,7 +1130,7 @@ export default function RoomPage() {
                       </p>
                       <button
                         onClick={() => media.closePopout()}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                        className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400"
                       >
                         Trazer de volta pra esta janela
                       </button>
@@ -1202,7 +1140,7 @@ export default function RoomPage() {
               ) : (
                 <button
                   onClick={() => openVoiceChannel(activeChannel.id)}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-purple-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:bg-purple-500 dark:hover:bg-purple-400 dark:focus:ring-purple-400 dark:focus:ring-offset-slate-900"
                 >
                   Entrar na voz
                 </button>
@@ -1251,7 +1189,7 @@ export default function RoomPage() {
 
         {membersSidebarVisible && (
           <aside className="lg:flex lg:min-h-0 lg:flex-col">
-            <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+            <div className="flex min-h-0 flex-1 flex-col  bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-[#0f1117] dark:ring-slate-800">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">
                   Membros
@@ -1287,7 +1225,13 @@ export default function RoomPage() {
                             return (
                               <li
                                 key={m.id}
-                                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-800/60"
+                                onClick={(e) =>
+                                  setMemberPreview({
+                                    member: m,
+                                    pos: previewPosFromEvent(e),
+                                  })
+                                }
+                                className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/60 dark:hover:bg-slate-800"
                               >
                                 <div className="flex min-w-0 items-center gap-3">
                                   <span className="relative inline-flex shrink-0">
@@ -1301,6 +1245,8 @@ export default function RoomPage() {
                                       className="absolute -right-0.5 -bottom-0.5 ring-2 ring-slate-50 dark:ring-slate-800/60"
                                     />
                                   </span>
+                                  {/* Cor da role no span externo; estilo TURBO
+                                      (se tiver cor própria) sobrescreve no interno. */}
                                   <span
                                     className="truncate text-sm font-medium text-slate-800 dark:text-slate-100"
                                     style={
@@ -1309,8 +1255,12 @@ export default function RoomPage() {
                                         : undefined
                                     }
                                   >
-                                    {m.username}
+                                    <StyledUsername
+                                      username={m.username}
+                                      style={m.nameStyle}
+                                    />
                                   </span>
+                                  {m.isTurbo && <TurboBadge />}
                                 </div>
 
                                 {/* <span
@@ -1333,6 +1283,17 @@ export default function RoomPage() {
               </div>
             </div>
           </aside>
+        )}
+        {memberPreview && (
+          <UserProfilePreview
+            pos={memberPreview.pos}
+            onClose={closeMemberPreview}
+            isSelf={memberPreview.member.id === user?.id}
+            userId={memberPreview.member.id}
+            username={memberPreview.member.username}
+            avatarPath={memberPreview.member.avatarPath}
+            member={memberPreview.member}
+          />
         )}
       </main>
       {/* A barra "Na voz" (mic/câmera/tela/sair) agora é global - ver

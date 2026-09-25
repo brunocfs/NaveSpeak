@@ -10,6 +10,23 @@ import { randomUUID } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { randomDiscriminator } from '../utils/discriminator.js';
 
+// TURBO ativo pra linha `a` de users (alias da tabela na query).
+export const turboActiveSql = (a) => `COALESCE(${a}.turbo_until > NOW(), FALSE)`;
+
+// Benefício TURBO efetivo: override do usuário (turbo_benefits) > catálogo
+// global (app_settings) > ligado. A subquery do catálogo não depende da
+// linha, então o Postgres roda uma vez por query (InitPlan), não por usuário.
+// `key` é sempre constante do código (nunca entrada do usuário).
+export const turboBenefitSql = (a, key) =>
+  `(${turboActiveSql(a)} AND COALESCE((${a}.turbo_benefits->>'${key}')::boolean, (SELECT (turbo_benefits->>'${key}')::boolean FROM app_settings WHERE id = 1), TRUE))`;
+
+// name_style que pode ir pra OUTROS usuários: só com o benefício ativo (ou
+// conta do sistema, Zeno). Expirado continua salvo no banco e volta sozinho
+// ao renovar. Toda query que expõe nome estilizado deve usar isto, nunca a
+// coluna crua.
+export const publicNameStyleSql = (a) =>
+  `CASE WHEN ${a}.is_system OR ${turboBenefitSql(a, 'nameStyle')} THEN ${a}.name_style ELSE '{}'::jsonb END`;
+
 const USER_COLUMNS = `
   id,
   public_id AS "publicId",
@@ -23,6 +40,14 @@ const USER_COLUMNS = `
   is_admin AS "isAdmin",
   is_system AS "isSystem",
   name_style AS "nameStyle",
+  (banned_until IS NOT NULL AND banned_until > NOW()) AS "isBanned",
+  NULLIF(banned_until, 'infinity') AS "bannedUntil",
+  ban_reason AS "banReason",
+  ${turboActiveSql('users')} AS "isTurbo",
+  NULLIF(turbo_until, 'infinity') AS "turboUntil",
+  turbo_benefits AS "turboBenefits",
+  ${turboBenefitSql('users', 'nameStyle')} AS "canStyleName",
+  show_common_servers AS "showCommonServers",
   failed_login_attempts,
   locked_until,
   created_at,
@@ -136,7 +161,7 @@ export async function clearFailedLogins(userId) {
 // só username, só bio, ou qualquer combinação, sem sobrescrever o resto com
 // null. A checagem de username/email já em uso é responsabilidade de quem
 // chama (users.routes.js), igual ao padrão de auth.routes.js no cadastro.
-export async function updateProfile(userId, { username, email, bio, nameStyle } = {}) {
+export async function updateProfile(userId, { username, email, bio, nameStyle, showCommonServers } = {}) {
   const sets = [];
   const values = [];
   let i = 1;
@@ -159,6 +184,10 @@ export async function updateProfile(userId, { username, email, bio, nameStyle } 
   if (nameStyle !== undefined) {
     sets.push(`name_style = $${i++}::jsonb`);
     values.push(JSON.stringify(nameStyle));
+  }
+  if (showCommonServers !== undefined) {
+    sets.push(`show_common_servers = $${i++}`);
+    values.push(showCommonServers);
   }
   sets.push('updated_at = NOW()');
 
@@ -183,6 +212,95 @@ export async function updatePasswordHash(userId, passwordHash) {
     'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
     [passwordHash, userId]
   );
+}
+
+// Admins da APLICAÇÃO (users.is_admin) - painel admin (adminAdmins.routes.js).
+export async function listAdmins() {
+  const { rows } = await pool.query(
+    `SELECT ${USER_COLUMNS} FROM users WHERE is_admin = TRUE ORDER BY LOWER(username)`
+  );
+  return rows;
+}
+
+export async function setAdmin(userId, isAdmin) {
+  const { rows } = await pool.query(
+    `UPDATE users SET is_admin = $1 WHERE id = $2 RETURNING ${USER_COLUMNS}`,
+    [isAdmin, userId]
+  );
+  return rows[0] ?? null;
+}
+
+// Ban/bloqueio da plataforma: until = Date (bloqueio temporário),
+// 'infinity' (ban permanente) ou null (libera a conta).
+export async function setBan(userId, { until, reason = null }) {
+  const { rows } = await pool.query(
+    `UPDATE users SET banned_until = $1, ban_reason = $2 WHERE id = $3 RETURNING ${USER_COLUMNS}`,
+    [until, until ? reason : null, userId]
+  );
+  return rows[0] ?? null;
+}
+
+// Mensagem mostrada ao usuário banido/bloqueado (login, refresh, requests).
+export function banMessage(user) {
+  const base = user.bannedUntil
+    ? `Conta suspensa até ${new Date(user.bannedUntil).toLocaleString('pt-BR')}`
+    : 'Conta banida';
+  return user.banReason ? `${base}. Motivo: ${user.banReason}` : `${base}.`;
+}
+
+// TURBO em massa (painel admin). days = null -> sem expiração. Quem já tem
+// TURBO ativo soma ao tempo restante (GREATEST ignora NULL; 'infinity' +
+// intervalo continua 'infinity'). Conta do sistema nunca recebe.
+// Devolve os publicIds de fato atualizados.
+export async function grantTurbo(publicIds, days) {
+  const { rows } = await pool.query(
+    `UPDATE users SET turbo_until = CASE
+       WHEN $2::int IS NULL THEN 'infinity'::timestamp
+       ELSE GREATEST(turbo_until, NOW()::timestamp) + make_interval(days => $2::int)
+     END
+     WHERE public_id = ANY($1::uuid[]) AND is_system = FALSE
+     RETURNING public_id AS "publicId"`,
+    [publicIds, days]
+  );
+  return rows.map((r) => r.publicId);
+}
+
+// Remove o TURBO na hora. name_style/turbo_benefits ficam guardados.
+export async function revokeTurbo(publicIds) {
+  const { rows } = await pool.query(
+    `UPDATE users SET turbo_until = NULL
+     WHERE public_id = ANY($1::uuid[]) AND is_system = FALSE
+     RETURNING public_id AS "publicId"`,
+    [publicIds]
+  );
+  return rows.map((r) => r.publicId);
+}
+
+// Override de benefícios de UM usuário - objeto inteiro (ver turboBenefitsSchema).
+export async function setTurboBenefits(publicId, benefits) {
+  const { rows } = await pool.query(
+    `UPDATE users SET turbo_benefits = $1::jsonb
+     WHERE public_id = $2 AND is_system = FALSE
+     RETURNING public_id AS "publicId"`,
+    [JSON.stringify(benefits), publicId]
+  );
+  return rows[0] ?? null;
+}
+
+// Lista paginada pro painel admin - busca só por username (nunca email).
+// publicIds (opcional) restringe a um conjunto, ex.: quem está online.
+export async function listUsersPage({ q = '', publicIds = null, limit = 50, offset = 0 }) {
+  const { rows } = await pool.query(
+    `SELECT ${USER_COLUMNS}, COUNT(*) OVER() AS total
+     FROM users
+     WHERE is_system = FALSE
+       AND ($1 = '' OR username ILIKE '%' || $1 || '%')
+       AND ($2::uuid[] IS NULL OR public_id = ANY($2::uuid[]))
+     ORDER BY LOWER(username), discriminator
+     LIMIT $3 OFFSET $4`,
+    [q, publicIds, limit, offset]
+  );
+  return { users: rows, total: Number(rows[0]?.total ?? 0) };
 }
 
 // Preferência de status (online/busy/away/invisible) - validada antes de

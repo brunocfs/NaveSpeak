@@ -19,6 +19,8 @@ import {
   Maximize,
   Minimize,
   Volume2,
+  Shrink,
+  Fullscreen,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
@@ -749,14 +751,14 @@ export default function VoicePanel() {
               fixo, só CSS, sem resize) ou "Livre" (VideoLayoutManager -
               grid automático + resize manual por tile). Preferência
               persistida (PreferencesContext), vale pra qualquer chamada. */}
-          <div className="flex rounded-lg bg-slate-700 p-0.5 text-sm">
+          <div className="flex rounded-lg p-0.5 text-sm">
             <button
               onClick={() => setVideoLayoutMode("grid")}
               title="Grade fixa, sem resize manual"
               className={` cursor-pointer rounded-md px-2.5 py-1 transition ${
                 videoLayoutMode === "grid"
-                  ? "bg-slate-500 text-white"
-                  : "text-slate-300 hover:text-white"
+                  ? "bg-slate-200 text-slate-900 dark:bg-gray-600/40 dark:text-white"
+                  : "text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
               }`}
             >
               <Grid2x2 />
@@ -766,8 +768,8 @@ export default function VoicePanel() {
               title="Grid automático + resize manual por tile"
               className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
                 videoLayoutMode === "free"
-                  ? "bg-slate-500 text-white"
-                  : "text-slate-300 hover:text-white"
+                  ? "bg-slate-200 text-slate-900 dark:bg-gray-600/40 dark:text-white"
+                  : "text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
               }`}
             >
               <LayoutFreeform />
@@ -781,10 +783,10 @@ export default function VoicePanel() {
                 : "Esconder quem está sem câmera/tela (só avatar)"
             }
             aria-pressed={hideParticipantsWithoutMedia}
-            className={`rounded-lg p-2 text-white transition ${
+            className={`cursor-pointer rounded-lg p-2 transition ${
               hideParticipantsWithoutMedia
-                ? "bg-blue-600 hover:bg-blue-500"
-                : "bg-slate-700 hover:bg-slate-600"
+                ? "bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-white"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             }`}
           >
             {hideParticipantsWithoutMedia ? (
@@ -881,10 +883,10 @@ export default function VoicePanel() {
           <button
             onClick={togglePopout}
             title={popout ? "Encaixar de volta" : "Abrir em uma nova janela"}
-            className={`rounded-lg p-2 text-white transition ${
+            className={`cursor-pointer rounded-lg p-2 transition ${
               popout
-                ? "bg-blue-600 hover:bg-blue-500"
-                : "bg-slate-700 hover:bg-slate-600"
+                ? "bg-purple-600 text-white hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             }`}
           >
             <ExternalLink className="size-4" />
@@ -893,16 +895,16 @@ export default function VoicePanel() {
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
-            className={`rounded-lg p-2 text-white transition ${
+            className={`cursor-pointer rounded-lg p-2 transition ${
               isFullscreen
-                ? "bg-blue-600 hover:bg-blue-500"
-                : "bg-slate-700 hover:bg-slate-600"
+                ? "bg-purple-600 text-white hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-400"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             }`}
           >
             {isFullscreen ? (
-              <Minimize className="size-4" />
+              <Shrink className="size-4" />
             ) : (
-              <Maximize className="size-4" />
+              <Fullscreen className="size-4" />
             )}
           </button>
 
@@ -914,16 +916,12 @@ export default function VoicePanel() {
                 : "Mostrar painel de participantes"
             }
             aria-pressed={membersSidebarVisible}
-            className={`rounded-lg p-2 text-white transition ${
-              membersSidebarVisible
-                ? "bg-slate-700 hover:bg-slate-600"
-                : "bg-blue-600 hover:bg-blue-500"
-            }`}
+            className="cursor-pointer rounded-lg p-2 transition text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             {membersSidebarVisible ? (
-              <PanelRightClose className="size-4" />
+              <PanelRightClose className="size-5" />
             ) : (
-              <PanelRightOpen className="size-4" />
+              <PanelRightOpen className="size-5" />
             )}
           </button>
 
@@ -931,7 +929,7 @@ export default function VoicePanel() {
             <button
               onClick={() => setMinimized(true)}
               title="Minimizar"
-              className="rounded-lg bg-slate-700 p-2 text-white transition hover:bg-slate-600"
+              className="cursor-pointer rounded-lg bg-slate-700 p-2 text-white transition hover:bg-slate-600"
             >
               <ChevronDown className="size-4" />
             </button>
@@ -1033,7 +1031,7 @@ export default function VoicePanel() {
             {minimized && (
               <button
                 onClick={() => setMinimized(false)}
-                className="fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
+                className="cursor-pointer fixed bottom-24 right-4 z-20 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
               >
                 🔊 Mostrar chamada ({allTiles.length})
               </button>
@@ -1055,7 +1053,7 @@ export default function VoicePanel() {
                     }
                   : undefined
               }
-              className={`fixed z-20 w-64 max-w-[calc(100vw-2rem)] cursor-grab touch-none select-none overflow-hidden rounded-2xl shadow-2xl ring-1 ring-slate-200 active:cursor-grabbing dark:ring-slate-800 ${
+              className={`cursor-pointer fixed z-20 w-64 max-w-[calc(100vw-2rem)] cursor-grab touch-none select-none overflow-hidden rounded-2xl shadow-2xl ring-1 ring-slate-200 active:cursor-grabbing dark:ring-slate-800 ${
                 pipPos ? "" : "bottom-24 right-4"
               } ${minimized ? "hidden" : ""}`}
             >
@@ -1070,7 +1068,7 @@ export default function VoicePanel() {
               <button
                 onClick={() => setMinimized(true)}
                 title="Minimizar"
-                className="absolute left-1.5 top-1.5 rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
+                className="cursor-pointer absolute left-1.5 top-1.5 rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
               >
                 <ChevronDown className="size-4" />
               </button>

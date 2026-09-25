@@ -20,6 +20,7 @@ import {
   registerFailedLogin,
   clearFailedLogins,
   updatePasswordHash,
+  banMessage,
 } from '../db/users.repo.js';
 import { consumeInvite, recordInviteRedemption } from '../db/invites.repo.js';
 import {
@@ -31,7 +32,8 @@ import {
 import {
   createPasswordReset,
   findValidPasswordReset,
-  registerFailedAttempt,
+  consumeResetAttempt,
+  countRecentPasswordResets,
   markPasswordResetUsed,
 } from '../db/passwordResets.repo.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
@@ -236,6 +238,11 @@ router.post('/login', authRateLimiter, validateBody(loginSchema), async (req, re
     }
 
     await clearFailedLogins(user.id);
+    // Depois da senha de propósito: não revela que a conta existe.
+    if (user.isBanned) {
+      loginFailed('account_banned', { user_id: user.publicId });
+      return res.status(403).json({ error: banMessage(user) });
+    }
     setContext({ user_id: user.publicId });
     const accessToken = await issueSession(res, user);
     audit('login_succeeded', { user_id: user.publicId, auth_method: 'password' });
@@ -277,6 +284,10 @@ router.post('/refresh', async (req, res, next) => {
       audit('token_refresh_failed', { outcome: 'failure', reason_code: 'user_not_found' });
       res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
       return res.status(401).json({ error: 'Usuário não encontrado.' });
+    }
+    if (user.isBanned) {
+      res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
+      return res.status(403).json({ error: banMessage(user) });
     }
 
     setContext({ user_id: user.publicId });
@@ -324,6 +335,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
 
 const RESET_CODE_TTL_MS = 15 * 60 * 1000;
 const RESET_MAX_ATTEMPTS = 5;
+const RESET_MAX_CODES_PER_HOUR = 3;
 const FORGOT_PASSWORD_GENERIC_RESPONSE = {
   message: 'Se o usuário existir, enviamos um código de redefinição para o email cadastrado.',
 };
@@ -337,6 +349,12 @@ router.post('/forgot-password', authRateLimiter, validateBody(forgotPasswordSche
     // um oráculo de enumeração de contas (ver mesmo princípio no login).
     if (!user) {
       audit('password_reset_requested', { outcome: 'denied', reason_code: 'unknown_account' });
+      return res.json(FORGOT_PASSWORD_GENERIC_RESPONSE);
+    }
+
+    // Mesma resposta genérica também aqui - não revela que a conta existe.
+    if ((await countRecentPasswordResets(user.id)) >= RESET_MAX_CODES_PER_HOUR) {
+      audit('password_reset_requested', { outcome: 'denied', user_id: user.publicId, reason_code: 'too_many_codes' });
       return res.json(FORGOT_PASSWORD_GENERIC_RESPONSE);
     }
 
@@ -371,13 +389,12 @@ router.post('/reset-password', authRateLimiter, validateBody(resetPasswordSchema
     }
 
     const reset = await findValidPasswordReset(user.id);
-    if (!reset || reset.attempts >= RESET_MAX_ATTEMPTS) {
+    if (!reset || !(await consumeResetAttempt(reset.id, RESET_MAX_ATTEMPTS))) {
       audit('password_reset_failed', { outcome: 'failure', user_id: user.publicId, reason_code: reset ? 'too_many_attempts' : 'no_pending_reset' });
       return genericError();
     }
 
     if (hashRefreshToken(code) !== reset.code_hash) {
-      await registerFailedAttempt(reset.id);
       audit('password_reset_failed', { outcome: 'failure', user_id: user.publicId, reason_code: 'invalid_code' });
       return genericError();
     }

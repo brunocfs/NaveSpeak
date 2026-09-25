@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { BadgeCheck } from "lucide-react";
 import { listBroadcasts, sendBroadcast } from "../api/adminBroadcasts.js";
-import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import MessageInput from "../components/MessageInput.jsx";
 import MessageContent from "../components/MessageContent.jsx";
 import SystemUserProfile from "../components/SystemUserProfile.jsx";
@@ -19,13 +16,13 @@ function formatDate(value) {
 }
 
 const inputClass =
-  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20";
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500";
 
 // Painel do "Zeno, o Astronauta" - único lugar que consegue mandar mensagem
 // como a conta oficial do sistema (ver server/src/routes/adminBroadcasts.routes.js).
 // Mesmo esqueleto visual de AdminInvitesPage.jsx (form em cima, histórico
-// embaixo).
-export default function AdminBroadcastsPage() {
+// embaixo). Aba do painel admin (AdminPanel.jsx).
+export function BroadcastsPanel() {
   const [broadcasts, setBroadcasts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -77,26 +74,7 @@ export default function AdminBroadcastsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <Link
-              to="/rooms"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              &larr;
-            </Link>
-            <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-white">
-              Comunicados
-              <BadgeCheck className="size-5 text-sky-500" title="Conta oficial do NaveSpeak" />
-            </h1>
-          </div>
-          <DownloadAppLink />
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="space-y-6">
         <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
           <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
             Perfil do Zeno
@@ -123,10 +101,10 @@ export default function AdminBroadcastsPage() {
                   type="button"
                   onClick={() => setTarget("all")}
                   aria-pressed={target === "all"}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                  className={`cursor-pointer rounded-xl border px-4 py-3 text-left transition ${
                     target === "all"
-                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10"
-                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-950/40"
+                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0f1117] dark:hover:bg-slate-800"
                   }`}
                 >
                   <span className="block text-sm font-semibold text-slate-900 dark:text-white">
@@ -140,10 +118,10 @@ export default function AdminBroadcastsPage() {
                   type="button"
                   onClick={() => setTarget("user")}
                   aria-pressed={target === "user"}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                  className={`cursor-pointer rounded-xl border px-4 py-3 text-left transition ${
                     target === "user"
-                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10"
-                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-950/40"
+                      : "border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0f1117] dark:hover:bg-slate-800"
                   }`}
                 >
                   <span className="block text-sm font-semibold text-slate-900 dark:text-white">
@@ -158,7 +136,7 @@ export default function AdminBroadcastsPage() {
 
             {target === "user" && (
               <div>
-                <label htmlFor="broadcast-tag" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label htmlFor="broadcast-tag" className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Identificador do usuário
                 </label>
                 <input
@@ -216,7 +194,7 @@ export default function AdminBroadcastsPage() {
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
                       b.target === "all"
-                        ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
+                        ? "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
                         : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                     }`}
                   >
@@ -233,7 +211,6 @@ export default function AdminBroadcastsPage() {
             ))}
           </ul>
         </section>
-      </main>
-    </div>
+      </div>
   );
 }

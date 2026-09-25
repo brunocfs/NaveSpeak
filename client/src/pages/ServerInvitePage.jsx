@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Avatar from "../components/Avatar.jsx";
 import { getInvitePreview, joinRoomByInvite } from "../api/rooms.js";
-import logo from "../assets/nvspk.svg";
+import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 
 // Página de convite de servidor (/join/:code) - o link que ServerUserInvite.jsx
 // gera e compartilha. Diferente de /invite/:code (InviteRedirectPage.jsx,
@@ -51,7 +51,7 @@ export default function ServerInvitePage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-        <img src={logo} alt="" className="mx-auto mb-4 h-10 w-10 dark:hidden" />
+        <NavespeakLogoV1 className="mx-auto mb-4 h-10 w-10" />
 
         {state.loading && (
           <p className="py-6 text-sm text-slate-500 dark:text-slate-400">Carregando convite...</p>

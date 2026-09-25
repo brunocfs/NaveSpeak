@@ -9,6 +9,7 @@ import {
   uploadAvatar,
   removeAvatar,
 } from "../api/profile.js";
+import TurboProfileSection from "./TurboProfileSection.jsx";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -196,7 +197,11 @@ export default function AccountProfileSettings() {
     try {
       const data = await updateProfile(patch);
       setProfile(data.user);
-      setForm({ username: data.user.username, email: data.user.email, bio: data.user.bio ?? "" });
+      setForm({
+        username: data.user.username,
+        email: data.user.email,
+        bio: data.user.bio ?? "",
+      });
       if (patch.username) updateUser({ username: data.user.username });
       setProfileSuccess("Perfil atualizado.");
     } catch (err) {
@@ -218,7 +223,10 @@ export default function AccountProfileSettings() {
     }
     if (passwordForm.newPassword.length < 10) {
       errors.newPassword = "Mínimo de 10 caracteres.";
-    } else if (!/[A-Za-z]/.test(passwordForm.newPassword) || !/[0-9]/.test(passwordForm.newPassword)) {
+    } else if (
+      !/[A-Za-z]/.test(passwordForm.newPassword) ||
+      !/[0-9]/.test(passwordForm.newPassword)
+    ) {
       errors.newPassword = "Precisa de ao menos uma letra e um número.";
     } else if (passwordForm.newPassword === passwordForm.currentPassword) {
       errors.newPassword = "A nova senha deve ser diferente da atual.";
@@ -240,10 +248,19 @@ export default function AccountProfileSettings() {
 
     setPasswordBusy(true);
     try {
-      const data = await changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      const data = await changePassword(
+        passwordForm.currentPassword,
+        passwordForm.newPassword,
+      );
       setAccessToken(data.accessToken);
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      setPasswordSuccess("Senha atualizada. Outras sessões abertas foram desconectadas.");
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      setPasswordSuccess(
+        "Senha atualizada. Outras sessões abertas foram desconectadas.",
+      );
     } catch (err) {
       setPasswordError(err.message);
       if (err.details) {
@@ -258,7 +275,8 @@ export default function AccountProfileSettings() {
 
   const inputClass =
     "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20";
-  const labelClass = "mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200";
+  const labelClass =
+    "mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200";
   const fieldErrorClass = "mt-1 text-xs text-red-600 dark:text-red-400";
 
   if (loading) {
@@ -289,7 +307,11 @@ export default function AccountProfileSettings() {
         <div className="flex items-center gap-5">
           <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-2xl font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             {displayedAvatar ? (
-              <img src={displayedAvatar} alt="Sua foto de perfil" className="h-full w-full object-cover" />
+              <img
+                src={displayedAvatar}
+                alt="Sua foto de perfil"
+                className="h-full w-full object-cover"
+              />
             ) : (
               profile.username?.[0]?.toUpperCase()
             )}
@@ -301,7 +323,7 @@ export default function AccountProfileSettings() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={avatarBusy}
-                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400"
+                className="cursor-pointer inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400"
               >
                 {avatarBusy ? "Enviando..." : "Alterar foto"}
               </button>
@@ -310,7 +332,7 @@ export default function AccountProfileSettings() {
                   type="button"
                   onClick={handleRemoveAvatar}
                   disabled={avatarBusy}
-                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="cursor-pointer inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   Remover foto
                 </button>
@@ -343,11 +365,15 @@ export default function AccountProfileSettings() {
               type="text"
               maxLength={32}
               value={form.username}
-              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, username: e.target.value }))
+              }
               disabled={profileBusy}
               className={inputClass}
             />
-            {profileErrors.username && <p className={fieldErrorClass}>{profileErrors.username}</p>}
+            {profileErrors.username && (
+              <p className={fieldErrorClass}>{profileErrors.username}</p>
+            )}
           </div>
 
           {/* Identificador público único - username sozinho pode se
@@ -355,13 +381,22 @@ export default function AccountProfileSettings() {
               adicionar (FriendsPanel.jsx). Só leitura: o discriminador não
               muda ao trocar de username (server/src/routes/users.routes.js). */}
           <div>
-            <label className={labelClass}>Identificador (para amigos te adicionarem)</label>
+            <label className={labelClass}>
+              Identificador (para amigos te adicionarem)
+            </label>
             <div className="flex items-center gap-2">
-              <input type="text" readOnly value={profile.tag} className={inputClass + " font-mono"} />
+              <input
+                type="text"
+                readOnly
+                value={profile.tag}
+                className={inputClass + " font-mono"}
+              />
               <button
                 type="button"
-                onClick={() => navigator.clipboard?.writeText(profile.tag).catch(() => {})}
-                className="shrink-0 rounded-xl border border-slate-300 px-3 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                onClick={() =>
+                  navigator.clipboard?.writeText(profile.tag).catch(() => {})
+                }
+                className="cursor-pointer shrink-0 rounded-xl border border-slate-300 px-3 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 Copiar
               </button>
@@ -374,16 +409,22 @@ export default function AccountProfileSettings() {
               type="email"
               maxLength={255}
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, email: e.target.value }))
+              }
               disabled={profileBusy}
               className={inputClass}
             />
-            {profileErrors.email && <p className={fieldErrorClass}>{profileErrors.email}</p>}
+            {profileErrors.email && (
+              <p className={fieldErrorClass}>{profileErrors.email}</p>
+            )}
           </div>
 
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Bio</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Bio
+              </label>
               <span className="text-xs text-slate-400 dark:text-slate-500">
                 {form.bio.length}/{BIO_MAX}
               </span>
@@ -397,7 +438,9 @@ export default function AccountProfileSettings() {
               disabled={profileBusy}
               className={inputClass + " resize-none"}
             />
-            {profileErrors.bio && <p className={fieldErrorClass}>{profileErrors.bio}</p>}
+            {profileErrors.bio && (
+              <p className={fieldErrorClass}>{profileErrors.bio}</p>
+            )}
           </div>
 
           {profileError && <p className="error-text">{profileError}</p>}
@@ -410,15 +453,17 @@ export default function AccountProfileSettings() {
           <button
             type="submit"
             disabled={profileBusy}
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400"
+            className="cursor-pointer inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400"
           >
             {profileBusy ? "Salvando..." : "Salvar alterações"}
           </button>
         </form>
       </section>
 
+      <TurboProfileSection profile={profile} onSaved={setProfile} />
+
       {/* Alterar senha */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:ring-slate-800">
+      {/* <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:ring-slate-800">
         <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
           Alterar senha
         </h2>
@@ -481,7 +526,7 @@ export default function AccountProfileSettings() {
             {passwordBusy ? "Atualizando..." : "Atualizar senha"}
           </button>
         </form>
-      </section>
+      </section> */}
     </div>
   );
 }

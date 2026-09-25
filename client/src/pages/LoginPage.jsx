@@ -2,16 +2,16 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getAuthConfig } from "../api/auth.js";
-import logo from "../assets/nvspk.svg";
-import logoDark from "../assets/nvspk-dark.svg";
+import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, logoutNotice } = useAuth();
   const navigate = useNavigate();
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
+  // Aviso de ban/desconexão feita por admin (ver AuthContext.jsx).
+  const [error, setError] = useState(logoutNotice);
   const [submitting, setSubmitting] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains("dark");
@@ -67,7 +67,7 @@ export default function LoginPage() {
           o usuário escolher pro formulário ao lado. Some em telas pequenas
           (lg:flex) - o cabeçalho compacto abaixo assume a apresentação ali. */}
       <aside className="login-panel relative hidden w-full shrink-0 flex-col justify-between overflow-hidden bg-[#070b12] px-12 py-14 text-slate-100 lg:flex lg:w-[46%] xl:w-[42%] xl:px-16">
-        <img src={logoDark} alt="" className="relative h-14 w-14" />
+        <NavespeakLogoV1 className="relative h-14 w-14" />
 
         <div className="relative max-w-md">
           <div className="mb-6 flex items-center gap-2.5 font-signal text-[11px] font-medium uppercase tracking-[0.2em] text-teal-300/90">
@@ -119,11 +119,7 @@ export default function LoginPage() {
               onde o painel de apresentação acima está escondido. */}
           <div className="mb-6 lg:hidden">
             <div className="flex items-center gap-3">
-              <img
-                src={darkMode ? logoDark : logo}
-                alt=""
-                className="h-11 w-11 shrink-0"
-              />
+              <NavespeakLogoV1 className="h-11 w-11 shrink-0" />
               <div>
                 <p className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
                   NaveSpeak

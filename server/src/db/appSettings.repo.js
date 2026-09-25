@@ -4,19 +4,23 @@ import { pool } from '../config/db.js';
 const DEFAULTS = {
   soundboardMaxSounds: 20,
   soundboardMaxDurationMs: 10000,
+  soundboardMaxBytes: 2 * 1024 * 1024,
   userBackgroundsServerEnabled: false,
   userBackgroundsMaxCount: 10,
+  turboBenefits: {},
 };
 const COLUMNS =
-  'soundboard_max_sounds, soundboard_max_duration_ms, user_backgrounds_server_enabled, user_backgrounds_max_count';
+  'soundboard_max_sounds, soundboard_max_duration_ms, soundboard_max_bytes, user_backgrounds_server_enabled, user_backgrounds_max_count, turbo_benefits';
 
 function toClient(row) {
   if (!row) return { ...DEFAULTS };
   return {
     soundboardMaxSounds: row.soundboard_max_sounds,
     soundboardMaxDurationMs: row.soundboard_max_duration_ms,
+    soundboardMaxBytes: row.soundboard_max_bytes,
     userBackgroundsServerEnabled: row.user_backgrounds_server_enabled,
     userBackgroundsMaxCount: row.user_backgrounds_max_count,
+    turboBenefits: row.turbo_benefits,
   };
 }
 
@@ -40,8 +44,10 @@ export async function getAppSettings() {
 export async function updateAppSettings({
   soundboardMaxSounds,
   soundboardMaxDurationMs,
+  soundboardMaxBytes,
   userBackgroundsServerEnabled,
   userBackgroundsMaxCount,
+  turboBenefits,
 } = {}) {
   await getAppSettings(); // garante que a linha existe antes do UPDATE
   const fields = [];
@@ -49,8 +55,11 @@ export async function updateAppSettings({
   let i = 1;
   if (soundboardMaxSounds !== undefined) { fields.push(`soundboard_max_sounds = $${i++}`); values.push(soundboardMaxSounds); }
   if (soundboardMaxDurationMs !== undefined) { fields.push(`soundboard_max_duration_ms = $${i++}`); values.push(soundboardMaxDurationMs); }
+  if (soundboardMaxBytes !== undefined) { fields.push(`soundboard_max_bytes = $${i++}`); values.push(soundboardMaxBytes); }
   if (userBackgroundsServerEnabled !== undefined) { fields.push(`user_backgrounds_server_enabled = $${i++}`); values.push(userBackgroundsServerEnabled); }
   if (userBackgroundsMaxCount !== undefined) { fields.push(`user_backgrounds_max_count = $${i++}`); values.push(userBackgroundsMaxCount); }
+  // Catálogo TURBO: objeto inteiro (ver turboBenefitsSchema), sem merge.
+  if (turboBenefits !== undefined) { fields.push(`turbo_benefits = $${i++}::jsonb`); values.push(JSON.stringify(turboBenefits)); }
   if (fields.length === 0) return getAppSettings();
 
   const { rows } = await pool.query(

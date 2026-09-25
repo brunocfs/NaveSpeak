@@ -381,7 +381,7 @@ const MessageInput = forwardRef(function MessageInput(
   return (
     <form
       onSubmit={handleFormSubmit}
-      className="space-y-2 m-2 rounded-xl border border-slate-300 bg-white caret-slate-900 transition dark:border-slate-700 dark:bg-slate-800 "
+      className="space-y-2 m-2 rounded-xl  border-slate-300 bg-white caret-slate-900 transition dark:border-slate-700 dark:bg-[#0f1117] "
     >
       {files.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -460,7 +460,7 @@ const MessageInput = forwardRef(function MessageInput(
             disabled={disabled}
             title="Anexar arquivo"
             aria-label="Anexar arquivo"
-            className="ml-2 cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl  bg-white px-3 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60  dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            className="ml-2 cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl  bg-white px-3 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60  dark:bg-[#0f1117] dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
           >
             <Paperclip className="size-4" />
           </button>
@@ -475,14 +475,14 @@ const MessageInput = forwardRef(function MessageInput(
             className={`cursor-pointer inline-flex shrink-0 items-center justify-center rounded-xl  px-3 py-3 transition disabled:cursor-not-allowed disabled:opacity-60 ${
               toolbarPinned
                 ? " bg-blue-50 text-blue-600  dark:bg-blue-500/10 dark:text-blue-300"
-                : " bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                : " bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-[#0f1117] dark:text-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             }`}
           >
             <Type className="size-4" />
           </button>
 
           <div
-            className={`relative flex w-full items-center rounded-xl bg-white transition  dark:bg-slate-800   ${
+            className={`relative flex w-full items-center rounded-xl bg-white transition  dark:bg-[#0f1117]   ${
               disabled ? "opacity-60" : ""
             }`}
           >

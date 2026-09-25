@@ -9,6 +9,7 @@ import {
   removeSocketFromAllRooms,
   listPresence,
 } from "./presenceStore.js";
+import { canUserAccessChannel } from "./chat.handler.js";
 
 export function registerPresenceHandlers(io, socket) {
   const user = socket.data.user;
@@ -59,6 +60,11 @@ export function registerPresenceHandlers(io, socket) {
     // de o cliente ter pedido para entrar nesse canal específico.
     const member = await isRoomMember(channel.server_id, user.internalId);
     if (!member) return ack({ error: "Você não é membro desse servidor." });
+    // Sem isso, entrar na room do canal entregava as mensagens (chat:message)
+    // de um canal restrito a quem não tem a role de visualização.
+    if (!(await canUserAccessChannel(channel, user, "view"))) {
+      return ack({ error: "Você não tem acesso a este canal." });
+    }
 
     socket.join(channel.id);
     await addPresence(channel.id, user, socket.id);

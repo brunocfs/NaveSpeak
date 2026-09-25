@@ -1,6 +1,7 @@
 import { pool } from "../config/db.js";
 import { redis } from "../config/redis.js";
 import { metrics } from "../observability/metrics.js";
+import { publicNameStyleSql } from "./users.repo.js";
 
 const MESSAGE_CACHE_TTL_SECONDS = 30;
 
@@ -55,6 +56,7 @@ export async function createMessage({ channelId, userId, content, attachments = 
   const { rows } = await pool.query(
     `SELECT m.id, m.channel_id, m.content, m.created_at,
             u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath",
+            ${publicNameStyleSql("u")} AS "nameStyle",
             ${ATTACHMENTS_AGG}
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.id = $1`,
@@ -93,6 +95,7 @@ export async function listMessagesForChannel(
   const { rows } = await pool.query(
     `SELECT m.id, m.channel_id, m.content, m.created_at,
             u.public_id AS user_id, u.username, u.avatar_path AS "avatarPath",
+            ${publicNameStyleSql("u")} AS "nameStyle",
             ${ATTACHMENTS_AGG}
      FROM messages m INNER JOIN users u ON u.id = m.user_id
      WHERE m.channel_id = $1 ${cursorClause}

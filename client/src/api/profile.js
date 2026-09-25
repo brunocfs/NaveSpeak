@@ -23,3 +23,7 @@ export const removeAvatar = () => apiRequest('/users/me/avatar', { method: 'DELE
 // StatusSelector.jsx e PresenceContext.jsx.
 export const updateStatus = (status) =>
   apiRequest('/users/me/status', { method: 'PATCH', body: JSON.stringify({ status }) });
+
+// Cartão público de outro usuário (preview de perfil) - nome estilizado e
+// TURBO já filtrados pelo servidor.
+export const getUserCard = (userId) => apiRequest(`/users/${userId}/profile`);
