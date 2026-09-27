@@ -411,6 +411,12 @@ CREATE TABLE IF NOT EXISTS reports (
   CONSTRAINT ck_reports_status CHECK (status IN ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO', 'REPROVADO'))
 );
 CREATE INDEX IF NOT EXISTS ix_reports_created ON reports (created_at DESC);
+-- Bancos criados antes de status/admin_response existirem: o CREATE TABLE
+-- acima nao roda de novo, entao os ALTER abaixo cobrem esse caso.
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ABERTO';
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS admin_response VARCHAR(4000) NULL;
+ALTER TABLE reports DROP CONSTRAINT IF EXISTS ck_reports_status;
+ALTER TABLE reports ADD CONSTRAINT ck_reports_status CHECK (status IN ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO', 'REPROVADO'));
 
 -- Imagem do servidor (permissao "Alterar nome/imagem do servidor") - mesmo
 -- padrao de users.avatar_path: guarda so o caminho RELATIVO servido em
