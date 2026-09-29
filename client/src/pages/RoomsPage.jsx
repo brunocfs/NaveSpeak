@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import DmSidebar from "../components/DmSidebar.jsx";
 import FriendsPanel from "../components/FriendsPanel.jsx";
 import DmPanel from "../components/DmPanel.jsx";
@@ -70,9 +70,18 @@ export default function RoomsPage() {
   useEffect(() => {
     const target = location.state?.openDmWith;
     if (!target) return;
+    setRoomPanel(false);
     selectFriend(target);
     navigate(location.pathname, { replace: true, state: {} });
   }, [location.state, location.pathname, navigate]);
+  // /rooms/:roomId (notificação, duplo clique no PiP, convite, servidor
+  // criado) abre o servidor aqui dentro. location.key em vez de só roomId:
+  // navegar de novo pra mesma URL (ex.: usuário trocou de servidor pela
+  // faixa, que não mexe na URL) também precisa reabrir.
+  const { roomId: routeRoomId } = useParams();
+  useEffect(() => {
+    if (routeRoomId) handleSelectServer(routeRoomId);
+  }, [routeRoomId, location.key]);
   useEffect(() => {
     loadRooms();
   }, []);

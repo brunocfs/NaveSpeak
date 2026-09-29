@@ -17,7 +17,6 @@ import RegisterPage from "./pages/RegisterPage.jsx";
 import ForgotPassPage from "./pages/ForgotPassPage.jsx";
 import DownloadPage from "./pages/DownloadPage.jsx";
 import RoomsPage from "./pages/RoomsPage.jsx";
-import RoomPage from "./pages/RoomPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
 import ReportsPage from "./pages/ReportsPage.jsx";
 import InviteRedirectPage from "./pages/InviteRedirectPage.jsx";
@@ -107,7 +106,7 @@ export default function App() {
                     path="/rooms/:roomId"
                     element={
                       <ProtectedRoute>
-                        <RoomPage />
+                        <RoomsPage />
                       </ProtectedRoute>
                     }
                   />

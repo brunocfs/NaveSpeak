@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 import {
   Link,
+  useLocation,
   useNavigate,
-  useParams,
   useSearchParams,
 } from "react-router-dom";
 import { apiRequest } from "../api/http.js";
@@ -47,6 +47,7 @@ export default function RoomPage(serverId) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { setActiveChannel } = useNotifications();
   const {
     theme,
@@ -361,6 +362,19 @@ export default function RoomPage(serverId) {
       cancelled = true;
     };
   }, [roomId]);
+
+  // Mesmo servidor já aberto: ?channel=<id> novo (notificação, duplo clique
+  // no PiP) não passa pelo efeito acima (só roda quando roomId muda) - troca
+  // de canal aqui. Canais ainda não carregados = efeito acima já cuida.
+  useEffect(() => {
+    const channel = channels.find((c) => c.id === searchParams.get("channel"));
+    if (!channel) return;
+    if (channel.type === "text") selectTextChannel(channel.id);
+    else {
+      setActiveChannelId(channel.id);
+      setMobileContentOpen(true);
+    }
+  }, [location.key]);
 
   // Lista de servidores do cabeçalho (ServerRail inline abaixo) - carregada
   // uma vez, independente de `roomId` (trocar de servidor pela própria
