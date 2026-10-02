@@ -19,7 +19,7 @@ import Avatar from "./Avatar.jsx";
 // câmera ligada ou avatar com iniciais) OU uma tela compartilhada - nunca os
 // dois juntos no mesmo tile (uma tela compartilhada é sempre um tile à parte,
 // rotulado com o nome de quem está compartilhando). kind='person' desenha o
-// anel roxo de "está falando" a partir de `micStream` - a REPRODUÇÃO do áudio
+// anel verde de "está falando" a partir de `micStream` - a REPRODUÇÃO do áudio
 // em si não mora aqui (ver RemoteAudioPlayers.jsx): este tile pode desmontar
 // (ex.: "esconder quem está sem câmera/tela" em VoicePanel.jsx) sem cortar o
 // som de ninguém.
@@ -29,6 +29,9 @@ export default function ParticipantTile({
   videoStream = null,
   micStream = null,
   micMuted = false,
+  // Tocando efeito de soundboard agora (anel roxo, ver soundboardSpeakers
+  // em MediaSessionContext.jsx).
+  soundboardActive = false,
   isLocal = false,
   // Estado de deafen de QUEM ESTÁ VENDO este painel (sempre o usuário
   // LOCAL, o mesmo valor em todo tile) - controla só `playbackMuted`
@@ -87,7 +90,11 @@ export default function ParticipantTile({
   style,
 }) {
   const videoRef = useRef(null);
-  const speaking = useSpeaking(kind === "person" ? micStream : null);
+  // Ensurdecido não vê o anel de "falando" dos outros (sem stream o
+  // useSpeaking também não roda um AnalyserNode à toa).
+  const speaking = useSpeaking(
+    kind === "person" && !(deafened && !isLocal) ? micStream : null,
+  );
 
   useEffect(() => {
     const el = videoRef.current;
@@ -130,16 +137,18 @@ export default function ParticipantTile({
   // `participantDeafened`/`micMuted`, que já chegam resolvidos por
   // participante desde VoicePanel.jsx). Prioridade: deafened (vermelho
   // sólido, o mais severo - nem ouve nem fala) > mic mudo (vermelho claro)
-  // > falando (verde) > neutro. Só faz sentido pra kind='person' - tela
-  // compartilhada não tem mic/deafen próprio.
+  // > tocando soundboard (roxo) > falando (verde) > neutro. Só faz sentido
+  // pra kind='person' - tela compartilhada não tem mic/deafen próprio.
   const ringClass =
     kind === "person" && participantDeafened
       ? "ring-red-500"
       : kind === "person" && micMuted
         ? "ring-red-300"
-        : speaking
-          ? "ring-green-400"
-          : "ring-transparent";
+        : kind === "person" && soundboardActive
+          ? "ring-purple-500"
+          : speaking
+            ? "ring-green-400"
+            : "ring-transparent";
 
   return (
     <div

@@ -1,0 +1,247 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "systemDefault": "System default",
+    "back": "Back",
+    "loading": "Loading...",
+    "lightTheme": "Light theme",
+    "darkTheme": "Dark theme",
+    "signIn": "Sign in",
+    "signingIn": "Signing in..."
+  },
+  "noiseSuppression": {
+    "off": "Off",
+    "native": "Native",
+    "rnnoise": "RNNoise",
+    "gtcrn": "GTCRN",
+    "deepfilternet": "DeepFilterNet3"
+  },
+  "preferences": {
+    "title": "Preferences",
+    "tabs": {
+      "account": "Account & Profile",
+      "general": "General",
+      "notifications": "Notifications",
+      "audioVideo": "Audio & Video",
+      "privacy": "Privacy"
+    },
+    "theme": {
+      "label": "Theme",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": "Language",
+    "autoLaunch": {
+      "label": "Launch on startup",
+      "hint": "Opens NaveSpeak automatically when you turn on your computer"
+    },
+    "desktopNotifications": {
+      "label": "Desktop notifications",
+      "hint": "Alerts for new messages when the app is not in focus"
+    },
+    "notificationVolume": {
+      "label": "Notification volume",
+      "hint": "Sounds for joining/leaving a channel, muting, new messages, etc. - does not affect the volume of call participants."
+    },
+    "soundboardVolume": {
+      "label": "Server sound effects volume",
+      "hint": "Volume of soundboard sounds played by server members in a voice channel - separate from the notification volume above."
+    },
+    "notificationOutput": {
+      "label": "Play notifications on a different audio output",
+      "hint": "Plays the sound effects above on another speaker/headset - call participants' audio keeps using the normal output",
+      "selectLabel": "Notification audio output"
+    },
+    "devices": {
+      "title": "Devices",
+      "requesting": "Requesting...",
+      "allowAccess": "Allow access",
+      "mic": "Microphone",
+      "camera": "Webcam",
+      "output": "Output",
+      "speaker": "Audio output (speaker/headset)",
+      "missing": "Saved device not found",
+      "numbered": "{{kind}} {{number}}",
+      "numberedLocked": "{{kind}} {{number}} (allow access to see its name)",
+      "outputUnsupported": "Choosing an audio output is not supported in this browser (only Chrome/Edge for now) - the app uses the system's default speaker/headset.",
+      "hint": "If the chosen device is no longer available when a call starts, the system default is used automatically. Switching microphone/webcam during a call applies immediately; otherwise, it takes effect the next time you join voice/turn on the camera. The audio output always changes immediately.",
+      "listError": "Could not list devices."
+    },
+    "cameraAsk": {
+      "label": "Ask when turning on the camera",
+      "hint": "Opens a preview to choose the webcam and background"
+    },
+    "autoplay": {
+      "title": "Media autoplay",
+      "description": "Decides whether OTHER participants' webcam/screen plays on its own when they turn it on, or waits for you to click \"Watch\". Never affects audio (mic) and never YOUR own media - only what you watch from others.",
+      "camera": "Webcam",
+      "cameraDefault": "Default: automatic",
+      "screen": "Screen sharing",
+      "screenDefault": "Default: manual (click to watch)",
+      "hint": "Hiding someone's media specifically, or muting their audio just for you, is in the ⋮ menu of the participant list or directly on their tile during the call."
+    },
+    "noiseSuppression": {
+      "title": "Noise suppression",
+      "level": "Level",
+      "hint": "Only reduces noise on YOUR microphone - does not affect what you hear from others. Changing the mode takes effect the next time you join a voice channel.",
+      "rnnoiseHint": "RNNoise (open source, xiph/rnnoise) runs in your browser via WASM - handles background noise (keyboard, chatter, fan) better than the native suppressor; a low level keeps more of the original audio, a high level prioritizes cutting noise.",
+      "gtcrnHint": "GTCRN (open source) also runs via WASM, with a newer network than RNNoise - better suppression quality on standard benchmarks, still light enough for real time; a low level keeps more of the original audio, a high level prioritizes cutting noise.",
+      "deepfilternetHint": "DeepFilterNet3 (open source, Rikorose/DeepFilterNet) is the strongest and heaviest model on the list - it cuts ~20dB of background noise while barely touching speech in our tests, but downloads ~24MB of assets (self-hosted) the first time you join voice with this mode, and uses more CPU than the others. Here the level is the model's attenuation limit: 0% leaves the audio untouched, 100% allows the maximum cut."
+    },
+    "micGate": {
+      "label": "Microphone sensitivity",
+      "hint": "Cuts anything below the threshold - silence/background noise is no longer sent",
+      "threshold": "Threshold: {{db}} dB",
+      "thresholdMarker": "Threshold",
+      "startTest": "Test microphone",
+      "stopTest": "Stop test",
+      "micError": "Could not access the microphone.",
+      "help": "Click \"Test microphone\" to see your level live (red line = chosen threshold) and calibrate before enabling. It runs AFTER the noise suppression above, on the same outgoing track - it changes what leaves your microphone, not what you hear. Changing the threshold (or turning it on/off) only takes effect the next time you join a voice channel."
+    },
+    "pushToTalk": {
+      "label": "Push-to-talk",
+      "hint": "Mic only transmits while the key below is held down",
+      "key": "Key:",
+      "pressKey": "Press a key...",
+      "noKey": "none",
+      "escToCancel": "Esc to cancel",
+      "assignKey": "Assign key",
+      "noKeyWarning": "With no key assigned, the mic stays muted in voice channels - assign one before leaving.",
+      "help": "While enabled, the mic starts muted in any voice channel and only transmits while the key is held. Manual mute still works on top, even while holding the key.",
+      "globalHint": "In the desktop app the key works even when the window is unfocused/minimized."
+    }
+  },
+  "auth": {
+    "signalActive": "Signal active",
+    "heroTitleLine1": "Your crew,",
+    "heroTitleLine2": "on the same channel.",
+    "heroText": "NaveSpeak brings voice, video, text and presence together in one place. Create rooms, organize channels and call your crew without leaving the browser.",
+    "closedBeta": "Closed beta",
+    "closedBetaText": "Access is still invite-only from those already on board. No invite yet? Ask a crew member for one.",
+    "closedBetaBadge": "Closed beta - invite only",
+    "statusInviteOnly": "Status: invited guests only",
+    "statusOpen": "Status: sign-ups open",
+    "tagline": "Voice, text and presence for your crew.",
+    "identifier": "Username#tag or email",
+    "identifierPlaceholder": "user#12345 or email",
+    "password": "Password",
+    "passwordMinPlaceholder": "At least 10 characters",
+    "passwordHint": "At least 10 characters, with at least one letter and one number.",
+    "login": {
+      "subtitle": "Sign in to your account to continue.",
+      "passwordPlaceholder": "Enter your password",
+      "forgot": "Forgot my password",
+      "noAccount": "Don't have an account?",
+      "inviteRequired": "(invite required)"
+    },
+    "register": {
+      "title": "Create account",
+      "submitting": "Creating...",
+      "inviteCode": "Invite code",
+      "invitePlaceholder": "Paste the invite code or link",
+      "inviteChecking": "Checking invite...",
+      "inviteValid": "Valid invite.",
+      "inviteInvalid": "Invalid or expired invite, or no uses left.",
+      "inviteRequired": "Signing up on this server requires an invite.",
+      "username": "Username",
+      "usernamePlaceholder": "What should we call you",
+      "usernameHint": "It can repeat across accounts - a unique identifier (user#12345) is generated for you.",
+      "email": "Email",
+      "emailPlaceholder": "you@example.com",
+      "haveAccount": "Already have an account?"
+    },
+    "forgot": {
+      "title": "Forgot my password",
+      "codeHint": "We'll send a 6-digit code to your registered email.",
+      "code": "Code received by email",
+      "newPassword": "New password",
+      "wrongIdentifier": "Wrong email/username, go back",
+      "sending": "Sending...",
+      "sendCode": "Send code",
+      "reset": "Reset password",
+      "backToLogin": "Back to sign in"
+    }
+  },
+  "serverInvite": {
+    "loading": "Loading invite...",
+    "revoked": "Invite revoked",
+    "expired": "Invite expired",
+    "noLongerValid": "This invite link is no longer valid. Ask a server member for a new link.",
+    "cannotJoin": "You can't join",
+    "banned": "You have been banned from this server.",
+    "alreadyMember": "You are already a member of this server.",
+    "goToServer": "Go to server",
+    "confirm": "Do you want to join this server?",
+    "decline": "Decline",
+    "join": "Join",
+    "joining": "Joining...",
+    "joinError": "Could not join the server."
+  },
+  "download": {
+    "readyToInstall": "Ready to install",
+    "heroTitleLine1": "Take the ship",
+    "heroTitleLine2": "with you.",
+    "heroText": "NaveSpeak is a voice and video communication platform built for communities, teams and groups of friends who want more than the basics. With a modern interface and low latency, it is your new base of operations for calls, voice rooms and real-time conversations.",
+    "status": "Status: RECRUITING NEW CREW",
+    "tagline": "Download the desktop app.",
+    "alreadyHere": "You're already here 🎉",
+    "alreadyHereText": "This window already IS the NaveSpeak desktop app.",
+    "title": "Download NaveSpeak",
+    "subtitle": "Choose your system. Always the latest version.",
+    "recommended": "Recommended",
+    "link": "Download app",
+    "linkTitle": "Download the NaveSpeak desktop app"
+  },
+  "shell": {
+    "logoTitle": "Voice channel",
+    "titleBar": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "closeHint": "Close (minimizes to tray)"
+    },
+    "errorBoundary": {
+      "message": "Something went wrong displaying this screen.",
+      "reload": "Reload"
+    },
+    "update": {
+      "available": "A new version of NaveSpeak is available.",
+      "now": "Update now"
+    },
+    "connection": {
+      "stats": "Connection statistics",
+      "connecting": "Connecting",
+      "ping": "Ping",
+      "packetLoss": "Packet loss"
+    }
+  },
+  "status": {
+    "online": "Online",
+    "busy": "Busy",
+    "away": "Away",
+    "offline": "Offline",
+    "invisible": "Invisible"
+  },
+  "whatsNew": {
+    "ariaLabel": "What's new in version {{version}}",
+    "title": "What's new",
+    "version": "Version {{version}}",
+    "dontShowAgain": "Don't show again",
+    "gotIt": "Got it"
+  },
+  "serverModal": {
+    "ariaLabel": "Create or join a server",
+    "title": "Create / Join a server",
+    "createTab": "Create server",
+    "joinTab": "Join with invite",
+    "createHint": "Choose a name to start a new server.",
+    "namePlaceholder": "Server name",
+    "creating": "Creating...",
+    "joinHint": "Paste an invite code or the full link (e.g. .../join/ABC123DEF456).",
+    "invitePlaceholder": "Invite code or link",
+    "joining": "Joining...",
+    "joinSubmit": "Join server"
+  }
+}

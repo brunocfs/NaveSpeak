@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePresence } from "../context/PresenceContext.jsx";
 import { STATUS_META } from "./StatusDot.jsx";
+import { useTranslation } from "react-i18next";
 
 // Ordem fixa de exibição no menu - não é a mesma ordem de STATUS_META
 // (que também guarda 'offline', irrelevante aqui: ninguém "escolhe" ficar
@@ -14,6 +15,7 @@ const OPTIONS = ["online", "busy", "away", "invisible"];
 // servidores e amigos do usuário (ver online.handler.js/presenceBroadcast.js).
 export default function StatusSelector({ onDot = false }) {
   const { status, setStatus } = usePresence();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
@@ -54,7 +56,7 @@ export default function StatusSelector({ onDot = false }) {
           <span
             className={`h-2.5 w-2.5 shrink-0 rounded-full ${current.dot}`}
           />
-          {current.label}
+          {t(current.labelKey)}
           <svg
             className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
               open ? "rotate-180" : ""
@@ -95,7 +97,7 @@ export default function StatusSelector({ onDot = false }) {
                   <span
                     className={`h-2.5 w-2.5 shrink-0 rounded-full ${meta.dot}`}
                   />
-                  {meta.label}
+                  {t(meta.labelKey)}
                 </button>
               </li>
             );

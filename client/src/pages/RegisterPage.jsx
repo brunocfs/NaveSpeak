@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getAuthConfig } from "../api/auth.js";
 import { checkInvite } from "../api/invites.js";
 
 export default function RegisterPage() {
   const { register } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -94,7 +96,7 @@ export default function RegisterPage() {
             onClick={() => setDarkMode((prev) => !prev)}
             className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
           >
-            {darkMode ? "☀️ Tema claro" : "🌙 Tema escuro"}
+            {darkMode ? `☀️ ${t("common.lightTheme")}` : `🌙 ${t("common.darkTheme")}`}
           </button>
         </div>
 
@@ -104,7 +106,7 @@ export default function RegisterPage() {
         >
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">NaveSpeak</h1>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Criar conta</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{t("auth.register.title")}</p>
           </div>
 
           <div className="space-y-5">
@@ -114,7 +116,7 @@ export default function RegisterPage() {
             {inviteOnly && (
               <div>
                 <label htmlFor="inviteCode" className={labelClass}>
-                  Código de convite
+                  {t("auth.register.inviteCode")}
                 </label>
                 <input
                   id="inviteCode"
@@ -122,23 +124,23 @@ export default function RegisterPage() {
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value)}
                   required
-                  placeholder="Cole o código ou o link de convite"
+                  placeholder={t("auth.register.invitePlaceholder")}
                   className={inputClass}
                 />
                 {inviteStatus === "checking" && (
-                  <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">Verificando convite...</p>
+                  <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">{t("auth.register.inviteChecking")}</p>
                 )}
                 {inviteStatus === "valid" && (
-                  <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">Convite válido.</p>
+                  <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">{t("auth.register.inviteValid")}</p>
                 )}
                 {inviteStatus === "invalid" && (
                   <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">
-                    Convite inválido, expirado ou sem usos restantes.
+                    {t("auth.register.inviteInvalid")}
                   </p>
                 )}
                 {!inviteStatus && (
                   <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                    Cadastro neste servidor exige um convite.
+                    {t("auth.register.inviteRequired")}
                   </p>
                 )}
               </div>
@@ -146,7 +148,7 @@ export default function RegisterPage() {
 
             <div>
               <label htmlFor="username" className={labelClass}>
-                Username
+                {t("auth.register.username")}
               </label>
               <input
                 id="username"
@@ -157,17 +159,17 @@ export default function RegisterPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                placeholder="Como você quer ser chamado"
+                placeholder={t("auth.register.usernamePlaceholder")}
                 className={inputClass}
               />
               <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                Pode se repetir entre contas - um identificador único (usuario#12345) é gerado pra você.
+                {t("auth.register.usernameHint")}
               </p>
             </div>
 
             <div>
               <label htmlFor="email" className={labelClass}>
-                Email
+                {t("auth.register.email")}
               </label>
               <input
                 id="email"
@@ -176,14 +178,14 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="voce@exemplo.com"
+                placeholder={t("auth.register.emailPlaceholder")}
                 className={inputClass}
               />
             </div>
 
             <div>
               <label htmlFor="password" className={labelClass}>
-                Senha
+                {t("auth.password")}
               </label>
               <input
                 id="password"
@@ -193,11 +195,11 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="Mínimo 10 caracteres"
+                placeholder={t("auth.passwordMinPlaceholder")}
                 className={inputClass}
               />
               <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                Mínimo 10 caracteres, com ao menos uma letra e um número.
+                {t("auth.passwordHint")}
               </p>
             </div>
 
@@ -212,17 +214,17 @@ export default function RegisterPage() {
               disabled={submitting || !canSubmit}
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
-              {submitting ? "Criando..." : "Criar conta"}
+              {submitting ? t("auth.register.submitting") : t("auth.register.title")}
             </button>
           </div>
 
           <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-            Já tem conta?{" "}
+            {t("auth.register.haveAccount")}{" "}
             <Link
               to="/login"
               className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
             >
-              Entrar
+              {t("common.signIn")}
             </Link>
           </p>
         </form>

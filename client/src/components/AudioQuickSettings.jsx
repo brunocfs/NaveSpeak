@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Square, Mic } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   NOISE_SUPPRESSION_OPTIONS,
   usePreferences,
@@ -65,6 +66,7 @@ function VolumeSlider({ id, label, value, onCommit, onLive }) {
 }
 
 function MicSettings() {
+  const { t } = useTranslation();
   const media = useMediaSession();
   const {
     micDeviceId,
@@ -185,7 +187,7 @@ function MicSettings() {
         >
           {NOISE_SUPPRESSION_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
-              {opt.label}
+              {t(opt.labelKey)}
             </option>
           ))}
         </select>

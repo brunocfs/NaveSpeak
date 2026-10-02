@@ -127,6 +127,20 @@ export const friendRequestIdParamSchema = z.coerce
 
 export const userIdParamSchema = z.string().uuid('ID de usuário inválido.');
 
+// Apelido por servidor (rooms.routes.js). Texto livre (diferente do
+// username), mas sem caracteres de controle/formatação (\p{Cc}/\p{Cf}):
+// isso barra override bidi (U+202E) e zero-width usados pra se passar por
+// outro membro. Vazio/null limpa o apelido (volta a exibir o username).
+export const memberNicknameSchema = z.object({
+  nickname: z
+    .string()
+    .trim()
+    .max(32, 'Máximo de 32 caracteres.')
+    .regex(/^[^\p{Cc}\p{Cf}]*$/u, 'Apelido contém caracteres inválidos.')
+    .nullable()
+    .transform((v) => v || null),
+});
+
 export const messageContentSchema = z
   .string()
   .transform((v) => v.trim())
@@ -241,7 +255,9 @@ export const nameStyleSchema = z
     italic: z.boolean().optional(),
     underline: z.boolean().optional(),
     font: z.enum(['default', 'serif', 'mono', 'display']).optional(),
-    effect: z.enum(['none', 'shine', 'pulse']).optional(),
+    effect: z.enum(['none', 'shine', 'pulse', 'cipher']).optional(),
+    // Exibir o estilo também no roster do canal de voz (ausente = sim).
+    showInVoice: z.boolean().optional(),
   })
   .strict();
 

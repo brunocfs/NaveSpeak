@@ -108,3 +108,17 @@ export const clientErrorsRateLimiter = rateLimit({
   store: new RedisRateLimitStore(10 * 60 * 1000),
   keyGenerator: (req) => `client-errors:${req.user?.internalId ?? req.ip}`,
 });
+
+// Troca de apelido (rooms.routes.js) por usuário - cada troca é broadcast pra
+// todo o servidor, sem limite viraria spam de eventos.
+export const nicknameRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Você está alterando apelidos rápido demais. Aguarde um pouco." },
+  handler: onLimitReached("nickname"),
+  passOnStoreError: true,
+  store: new RedisRateLimitStore(10 * 60 * 1000),
+  keyGenerator: (req) => `nickname:${req.user?.internalId ?? req.ip}`,
+});

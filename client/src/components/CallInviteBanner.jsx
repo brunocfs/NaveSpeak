@@ -1,5 +1,7 @@
 import { PhoneOff, Phone } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useCall } from "../context/CallContext.jsx";
+import { useToast } from "../context/ToastContext.jsx";
 
 // Montado globalmente (App.jsx, junto de VoiceStatusBar/VoicePanel) - uma
 // chamada recebida precisa aparecer não importa em qual tela o usuário
@@ -7,6 +9,19 @@ import { useCall } from "../context/CallContext.jsx";
 // levou a barra de voz a ser global.
 export default function CallInviteBanner() {
   const { incomingCalls, acceptCall, declineCall } = useCall();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
+  // Atendeu: abre a DM de quem ligou, onde fica o painel da chamada
+  // (DmPanel.jsx) - mesmo state openDmWith das notificações de DM.
+  async function handleAccept(invite) {
+    const res = await acceptCall(invite);
+    if (res?.error) {
+      showToast(res.error, { type: "error" });
+      return;
+    }
+    navigate("/rooms", { state: { openDmWith: invite.from } });
+  }
 
   if (incomingCalls.length === 0) return null;
 
@@ -19,7 +34,7 @@ export default function CallInviteBanner() {
         >
           <span className="text-sm font-medium">Chamada de {invite.from.username}</span>
           <button
-            onClick={() => acceptCall(invite)}
+            onClick={() => handleAccept(invite)}
             title="Aceitar"
             className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
           >

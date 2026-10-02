@@ -25,11 +25,13 @@ import {
 import { useAuth } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
+import { useDisplayName } from "../context/NicknamesContext.jsx";
 import VideoLayoutManager from "./VideoLayoutManager.jsx";
 import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
 import ParticipantTile from "./ParticipantTile.jsx";
 import RemoteAudioPlayers from "./RemoteAudioPlayers.jsx";
 import AddCallParticipant from "./AddCallParticipant.jsx";
+import PrivateCallPanel from "./PrivateCallPanel.jsx";
 import SoundboardPanel from "./SoundboardPanel.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import { useSpeaking } from "../hooks/useSpeaking.js";
@@ -71,7 +73,10 @@ function SpeakingProbe({ speakerKey, stream, onChange }) {
 export default function VoicePanel() {
   const { user } = useAuth();
   const media = useMediaSession();
-  const { isCall, activeRoster } = useCall();
+  const { isCall, activeRoster, callPeer } = useCall();
+  // Apelidos do servidor da chamada atual (voiceRoomId nulo em chamada
+  // privada = sempre username).
+  const displayName = useDisplayName(media.voiceRoomId);
   const {
     videoLayoutMode,
     setVideoLayoutMode,
@@ -109,6 +114,7 @@ export default function VoicePanel() {
     localScreenStream,
     screenAudioEnabled,
     screenViewers,
+    soundboardSpeakers,
     setWatchingScreen,
     localMicStream,
     micTransmitting,
@@ -325,7 +331,7 @@ export default function VoicePanel() {
       tiles.push({
         key: "user:self",
         kind: "person",
-        username: `${user.username} (você)`,
+        username: `${displayName(user.id, user.username)} (você)`,
         avatarPath: user.avatarPath,
         isLocal: true,
         // Ícone de deafen deste tile = o PRÓPRIO estado (mesmo valor do
@@ -354,6 +360,7 @@ export default function VoicePanel() {
         // participante mutado, cujo consumer pausado já vem sem áudio
         // (useSpeaking nunca acende sozinho).
         micStream: micTransmitting ? localMicStream : null,
+        soundboardActive: soundboardSpeakers.has(user.id),
       });
     }
     for (const p of participants) {
@@ -379,7 +386,7 @@ export default function VoicePanel() {
         key,
         kind: "person",
         userId: p.userId,
-        username: p.username,
+        username: displayName(p.userId, p.username),
         avatarPath: p.avatarPath,
         isLocal: false,
         // Ícone de deafen deste participante = o dele mesmo (`p.deafened`
@@ -390,6 +397,7 @@ export default function VoicePanel() {
         micMuted: micEntry?.paused ?? false,
         videoStream: cameraEntry?.stream ?? null,
         micStream: micEntry?.stream ?? null,
+        soundboardActive: soundboardSpeakers.has(p.userId),
         hiddenMedia,
         onToggleHiddenMedia: () => toggleMediaHidden(p.userId, "camera"),
         needsManualStart,
@@ -408,24 +416,28 @@ export default function VoicePanel() {
     localCameraStream,
     localMicStream,
     deafened,
+    soundboardSpeakers,
     autoplayCamera,
     manuallyStartedKeys,
     isMediaHidden,
     toggleMediaHidden,
     isLocallyMuted,
     toggleLocalMute,
+    displayName,
   ]);
 
   // Um tile por TELA compartilhada, sempre à parte do tile da pessoa (no
   // Discord, quem compartilha tela aparece com dois quadradinhos: o dela e o
   // da tela).
   const screenTiles = useMemo(() => {
+    const viewersWithNames = (viewers) =>
+      viewers.map((v) => ({ ...v, username: displayName(v.userId, v.username) }));
     const tiles = [];
     if (sharingScreen) {
       tiles.push({
         key: "screen:self",
         kind: "screen",
-        username: `${user?.username} (sua tela)`,
+        username: `${displayName(user?.id, user?.username)} (sua tela)`,
         isLocal: true,
         // `screenPreviewPaused` some com o STREAM de verdade (não é só CSS
         // escondendo, ver comentário na declaração dele acima) - é isso que
@@ -444,7 +456,7 @@ export default function VoicePanel() {
         // Quem está assistindo ESTA tela agora, agregado pelo servidor -
         // nunca inclui o próprio compartilhador (ver setWatchingScreen: só
         // tiles REMOTOS reportam assistir, ver efeito abaixo).
-        viewers: screenViewers[user?.id] ?? [],
+        viewers: viewersWithNames(screenViewers[user?.id] ?? []),
       });
     }
     for (const s of remoteStreams) {
@@ -466,7 +478,7 @@ export default function VoicePanel() {
         key,
         kind: "screen",
         userId: s.userId,
-        username: `${s.username} (tela)`,
+        username: `${displayName(s.userId, s.username)} (tela)`,
         isLocal: false,
         videoStream: s.stream,
         hasAudio,
@@ -478,7 +490,7 @@ export default function VoicePanel() {
         onToggleHiddenMedia: () => toggleMediaHidden(s.userId, "screen"),
         needsManualStart,
         onStartWatching: () => startWatching(key),
-        viewers: screenViewers[s.userId] ?? [],
+        viewers: viewersWithNames(screenViewers[s.userId] ?? []),
       });
     }
     return tiles;
@@ -496,6 +508,7 @@ export default function VoicePanel() {
     manuallyStartedKeys,
     isMediaHidden,
     toggleMediaHidden,
+    displayName,
   ]);
 
   // Reporta ao servidor quais telas REMOTAS este cliente está de fato
@@ -710,16 +723,21 @@ export default function VoicePanel() {
 
   function togglePopout() {
     if (popout) closePopout();
-    else openPopout({ width: 480, height: 680, title: "Voz - NaveSpeak" });
+    else openPopout({ width: 480, height: 680, title: isCall ? "Chamada - NaveSpeak" : "Voz - NaveSpeak" });
   }
 
   // Duplo clique no PiP flutuante leva direto pro servidor+canal de voz
   // conectado (?channel=<id> já é o formato que RoomPage usa pra abrir
-  // direto num canal - ver o próprio RoomPage.jsx). Chamada privada (DM,
-  // `voiceRoomId` nulo) não tem essa rota - ignora o clique.
+  // direto num canal - ver o próprio RoomPage.jsx). Chamada privada volta
+  // pra DM do amigo (mesmo state openDmWith das notificações de DM, ver
+  // RoomsPage.jsx), onde o painel da chamada fica embutido.
   const lastPipDragMovedRef = useRef(false);
   function handlePipDoubleClick() {
     if (lastPipDragMovedRef.current) return;
+    if (isCall && callPeer) {
+      navigate("/rooms", { state: { openDmWith: callPeer } });
+      return;
+    }
     if (!voiceRoomId) return;
     navigate(`/rooms/${voiceRoomId}?channel=${voiceChannelId}`);
   }
@@ -1042,7 +1060,11 @@ export default function VoicePanel() {
               onPointerMove={handlePipPointerMove}
               onPointerUp={handlePipPointerUp}
               onDoubleClick={handlePipDoubleClick}
-              title="Arraste para reposicionar · duplo clique para abrir o canal"
+              title={
+                isCall
+                  ? "Arraste para reposicionar · duplo clique para voltar à conversa"
+                  : "Arraste para reposicionar · duplo clique para abrir o canal"
+              }
               style={
                 pipPos
                   ? {
@@ -1086,9 +1108,42 @@ export default function VoicePanel() {
       </>
     );
   }
+  // Chamada privada: mesmo motor (tiles, <audio>, popouts, fullscreen),
+  // apresentação própria - ver PrivateCallPanel.jsx. `allTiles` (não
+  // visibleTiles): o filtro "esconder sem câmera/tela" não tem botão no
+  // painel da chamada, então não pode esvaziar o palco sem o usuário saber.
+  const panel = isCall ? (
+    <>
+      <RemoteAudioPlayers
+        tiles={personTiles}
+        screenAudioTiles={screenAudioTiles}
+        deafened={deafened}
+        getUserVolume={getUserVolume}
+        getScreenAudioVolume={getScreenAudioVolume}
+        isLocallyMuted={isLocallyMuted}
+        outputDeviceId={outputDeviceId}
+      />
+      <PrivateCallPanel
+        contentRef={contentRef}
+        tiles={allTiles}
+        pinnedKeys={pinnedKeys}
+        onTogglePin={togglePin}
+        poppedOutKeys={poppedOutKeys}
+        onTogglePopoutTile={handleTogglePopoutTile}
+        popout={popout}
+        onTogglePopout={togglePopout}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        error={error}
+      />
+    </>
+  ) : (
+    content
+  );
+
   return (
     <>
-      {createPortal(content, target)}
+      {createPortal(panel, target)}
       {tilePopoutPortals}
       {soundboardOpen && media.voiceRoomId && (
         <SoundboardPanel

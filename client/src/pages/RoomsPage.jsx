@@ -19,12 +19,14 @@ import { useWhatsNew } from "../hooks/useWhatsNew.js";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
 import { ArrowLeft, Plus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import RoomPage from "./RoomPage.jsx";
 export default function RoomsPage() {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [selectedFriend, setSelectedFriend] = useState(null);
   // Painel fixo aberto ao lado do DmSidebar ("bugs" | "turbo" | "cipher" | "invites" |
   // "admin") - null = Amigos ou conversa (selectedFriend).
@@ -144,7 +146,7 @@ export default function RoomsPage() {
                   {/* Fundo do botão é sempre escuro (#1c1831), então a logo
                       fica clara nos dois temas. */}
                   <NavespeakLogoV1
-                    title="Canal de voz"
+                    title={t("shell.logoTitle")}
                     className="h-14.5 w-14.5 text-slate-100"
                   />
                 </button>
@@ -193,8 +195,8 @@ export default function RoomsPage() {
               <button
                 type="button"
                 onClick={() => setAddServerOpen(true)}
-                title="Criar ou entrar em um servidor"
-                aria-label="Criar ou entrar em um servidor"
+                title={t("serverModal.ariaLabel")}
+                aria-label={t("serverModal.ariaLabel")}
                 className="cursor-pointer inline-flex items-center justify-center rounded-xl border-2 border-dashed border-purple-400 bg-white text-purple-600 transition hover:bg-purple-50 dark:border-purple-400 dark:bg-[#191a1e] dark:text-purple-200 min-w-10 min-h-10 dark:hover:bg-slate-800"
               >
                 <Plus className="size-5" />
@@ -217,7 +219,7 @@ export default function RoomsPage() {
                 <div
                   className={`w-full h-full overflow-y-auto bg-white dark:bg-[#161820] ${
                     mobileContentOpen
-                      ? "max-md:fixed max-md:inset-0 max-md:z-40 max-md:flex max-md:flex-col"
+                      ? "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-(--titlebar-h) max-md:z-40 max-md:flex max-md:flex-col"
                       : "max-md:hidden"
                   }`}
                 >
@@ -227,7 +229,7 @@ export default function RoomsPage() {
                       onClick={() => setMobileContentOpen(false)}
                       className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
-                      <ArrowLeft className="size-5" /> Voltar
+                      <ArrowLeft className="size-5" /> {t("common.back")}
                     </button>
                   </div>
                   <div className="h-full max-md:h-auto max-md:min-h-0 max-md:flex-1">

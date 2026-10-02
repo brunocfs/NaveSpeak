@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { requestPasswordReset, resetPassword } from "../api/auth.js";
 
 export default function ForgotPassPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   // 'request' = pedir o código por email; 'reset' = digitar código + nova senha.
   const [step, setStep] = useState("request");
@@ -61,7 +63,7 @@ export default function ForgotPassPage() {
             onClick={() => setDarkMode((prev) => !prev)}
             className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
           >
-            {darkMode ? "☀️ Tema claro" : "🌙 Tema escuro"}
+            {darkMode ? `☀️ ${t("common.lightTheme")}` : `🌙 ${t("common.darkTheme")}`}
           </button>
         </div>
 
@@ -71,14 +73,14 @@ export default function ForgotPassPage() {
         >
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">NaveSpeak</h1>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Esqueci minha senha</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{t("auth.forgot.title")}</p>
           </div>
 
           <div className="space-y-5">
             {step === "request" ? (
               <div>
                 <label htmlFor="identifier" className={labelClass}>
-                  Usuário#tag ou email
+                  {t("auth.identifier")}
                 </label>
                 <input
                   id="identifier"
@@ -87,11 +89,11 @@ export default function ForgotPassPage() {
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
-                  placeholder="usuario#12345 ou email"
+                  placeholder={t("auth.identifierPlaceholder")}
                   className={inputClass}
                 />
                 <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                  Vamos enviar um código de 6 dígitos para o email cadastrado.
+                  {t("auth.forgot.codeHint")}
                 </p>
               </div>
             ) : (
@@ -103,7 +105,7 @@ export default function ForgotPassPage() {
                 )}
                 <div>
                   <label htmlFor="code" className={labelClass}>
-                    Código recebido por email
+                    {t("auth.forgot.code")}
                   </label>
                   <input
                     id="code"
@@ -122,7 +124,7 @@ export default function ForgotPassPage() {
 
                 <div>
                   <label htmlFor="newPassword" className={labelClass}>
-                    Nova senha
+                    {t("auth.forgot.newPassword")}
                   </label>
                   <input
                     id="newPassword"
@@ -132,11 +134,11 @@ export default function ForgotPassPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    placeholder="Mínimo 10 caracteres"
+                    placeholder={t("auth.passwordMinPlaceholder")}
                     className={inputClass}
                   />
                   <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                    Mínimo 10 caracteres, com ao menos uma letra e um número.
+                    {t("auth.passwordHint")}
                   </p>
                 </div>
 
@@ -149,7 +151,7 @@ export default function ForgotPassPage() {
                   }}
                   className="text-sm font-medium text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
                 >
-                  Errei o email/usuário, voltar
+                  {t("auth.forgot.wrongIdentifier")}
                 </button>
               </>
             )}
@@ -166,10 +168,10 @@ export default function ForgotPassPage() {
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
               {submitting
-                ? "Enviando..."
+                ? t("auth.forgot.sending")
                 : step === "request"
-                  ? "Enviar código"
-                  : "Redefinir senha"}
+                  ? t("auth.forgot.sendCode")
+                  : t("auth.forgot.reset")}
             </button>
           </div>
 
@@ -178,7 +180,7 @@ export default function ForgotPassPage() {
               to="/login"
               className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
             >
-              Voltar para o login
+              {t("auth.forgot.backToLogin")}
             </Link>
           </p>
         </form>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isElectron } from "../api/media.js";
+import { useTranslation } from "react-i18next";
 
 // Barra de título custom - só existe dentro do app Electron (frame:false em
 // electron/main.js tira a barra nativa do SO de propósito, ver comentário
@@ -12,6 +13,7 @@ import { isElectron } from "../api/media.js";
 // arraste em vez de ação.
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!isElectron()) return;
@@ -34,8 +36,8 @@ export default function TitleBar() {
       >
         <button
           type="button"
-          aria-label="Minimizar"
-          title="Minimizar"
+          aria-label={t("shell.titleBar.minimize")}
+          title={t("shell.titleBar.minimize")}
           onClick={() => window.naveSpeak.window.minimize()}
           className="inline-flex w-11 items-center justify-center transition hover:bg-slate-200 dark:hover:bg-slate-800"
         >
@@ -45,8 +47,8 @@ export default function TitleBar() {
         </button>
         <button
           type="button"
-          aria-label={isMaximized ? "Restaurar" : "Maximizar"}
-          title={isMaximized ? "Restaurar" : "Maximizar"}
+          aria-label={t(isMaximized ? "shell.titleBar.restore" : "shell.titleBar.maximize")}
+          title={t(isMaximized ? "shell.titleBar.restore" : "shell.titleBar.maximize")}
           onClick={() => window.naveSpeak.window.maximizeToggle()}
           className="inline-flex w-11 items-center justify-center transition hover:bg-slate-200 dark:hover:bg-slate-800"
         >
@@ -63,8 +65,8 @@ export default function TitleBar() {
         </button>
         <button
           type="button"
-          aria-label="Fechar"
-          title="Fechar (minimiza para a bandeja)"
+          aria-label={t("common.close")}
+          title={t("shell.titleBar.closeHint")}
           onClick={() => window.naveSpeak.window.close()}
           className="inline-flex w-11 items-center justify-center transition hover:bg-red-500 hover:text-white"
         >

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   LANGUAGES,
   NOISE_SUPPRESSION_OPTIONS,
@@ -41,6 +42,7 @@ function clampGateMeterPercent(db) {
 // ESTE componente (a barra) re-renderiza rápido; o resto do modal, slider
 // incluso, fica parado.
 function MicLevelMeter({ previewStream, thresholdDb }) {
+  const { t } = useTranslation();
   const levelDb = useMicLevel(previewStream);
   return (
     <div className="relative h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
@@ -55,7 +57,7 @@ function MicLevelMeter({ previewStream, thresholdDb }) {
       <div
         className="absolute inset-y-0 w-0.5 bg-red-500"
         style={{ left: `${clampGateMeterPercent(thresholdDb)}%` }}
-        title="Limiar"
+        title={t("preferences.micGate.thresholdMarker")}
       />
     </div>
   );
@@ -83,13 +85,7 @@ const hasAutoLaunch =
 // convenção de "modal com abas" no app. "Geral" = preferências sem relação
 // com chamada de voz; "Áudio e Vídeo" = tudo que mexe em captura/mic/webcam
 // (dispositivos, supressor de ruído, sensibilidade do microfone).
-const TABS = [
-  { id: "account", label: "Conta e Perfil" },
-  { id: "general", label: "Geral" },
-  { id: "notifications", label: "Notificações" },
-  { id: "audioVideo", label: "Áudio e Vídeo" },
-  { id: "privacy", label: "Privacidade" },
-];
+const TABS = ["account", "general", "notifications", "audioVideo", "privacy"];
 
 // Botão de engrenagem + modal de preferências, no cabeçalho de RoomsPage.jsx
 // ao lado do "Sair" (pedido do escopo). Modal usa o mesmo padrão visual
@@ -110,7 +106,8 @@ const TABS = [
 export default function PreferencesModal() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(null);
-  const [tab, setTab] = useState(TABS[0].id);
+  const [tab, setTab] = useState(TABS[0]);
+  const { t } = useTranslation();
   const preferences = usePreferences();
   const {
     theme,
@@ -200,7 +197,7 @@ export default function PreferencesModal() {
       });
       setPreviewStream(stream);
     } catch (err) {
-      setPreviewError(err.message ?? "Não foi possível acessar o microfone.");
+      setPreviewError(err.message ?? t("preferences.micGate.micError"));
     }
   }
 
@@ -238,9 +235,7 @@ export default function PreferencesModal() {
           list.speakers.some((d) => d.label),
       );
     } catch (err) {
-      setDevicesError(
-        err.message ?? "Não foi possível listar os dispositivos.",
-      );
+      setDevicesError(err.message ?? t("preferences.devices.listError"));
     } finally {
       setDevicesLoading(false);
     }
@@ -291,7 +286,7 @@ export default function PreferencesModal() {
       notificationOutputDeviceId,
       soundboardVolume,
     });
-    setTab(TABS[0].id);
+    setTab(TABS[0]);
     setOpen(true);
     refreshDevices();
     if (hasAutoLaunch) {
@@ -343,10 +338,16 @@ export default function PreferencesModal() {
     return [...list, { deviceId: savedId, label: "", missing: true }];
   }
 
+  // `kind` = chave em preferences.devices (mic/camera/output).
   function deviceLabel(device, index, kind) {
-    if (device.missing) return "Dispositivo salvo não encontrado";
+    if (device.missing) return t("preferences.devices.missing");
     if (device.label) return device.label;
-    return `${kind} ${index + 1}${labelsUnlocked ? "" : " (permita o acesso para ver o nome)"}`;
+    return t(
+      labelsUnlocked
+        ? "preferences.devices.numbered"
+        : "preferences.devices.numberedLocked",
+      { kind: t(`preferences.devices.${kind}`), number: index + 1 },
+    );
   }
 
   return (
@@ -354,8 +355,8 @@ export default function PreferencesModal() {
       <button
         type="button"
         onClick={handleOpen}
-        aria-label="Preferências"
-        title="Preferências"
+        aria-label={t("preferences.title")}
+        title={t("preferences.title")}
         className="inline-flex cursor-pointer h-10 w-10 items-center justify-center rounded-xl border-slate-300  text-slate-700 transition hover:bg-slate-50 dark:border-slate-700  dark:text-slate-200 dark:hover:bg-slate-800"
       >
         <svg
@@ -385,7 +386,7 @@ export default function PreferencesModal() {
             className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-8 max-md:p-2"
             role="dialog"
             aria-modal="true"
-            aria-label="Preferências"
+            aria-label={t("preferences.title")}
             onClick={handleClose}
           >
             {/* Sem flex items-center aqui de propósito: centralizar com flex
@@ -400,12 +401,12 @@ export default function PreferencesModal() {
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-6 pb-4 max-md:p-4 dark:border-slate-800">
                   <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                    Preferências
+                    {t("preferences.title")}
                   </h2>
                   <button
                     type="button"
                     onClick={handleClose}
-                    aria-label="Fechar"
+                    aria-label={t("common.close")}
                     className="cursor-pointer rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                   >
                     <svg
@@ -431,18 +432,18 @@ export default function PreferencesModal() {
                   deixaria o footer Cancelar/Salvar visível. */}
                 <div className="flex min-h-0 flex-1 max-md:flex-col">
                   <nav className="w-40 shrink-0 space-y-1 border-r border-slate-200 p-3 dark:border-slate-800 max-md:flex max-md:w-full max-md:gap-1 max-md:space-y-0 max-md:overflow-x-auto max-md:border-r-0 max-md:border-b">
-                    {TABS.map((t) => (
+                    {TABS.map((tabId) => (
                       <button
-                        key={t.id}
+                        key={tabId}
                         type="button"
-                        onClick={() => setTab(t.id)}
+                        onClick={() => setTab(tabId)}
                         className={`cursor-pointer w-full max-md:w-auto max-md:shrink-0 max-md:whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                          tab === t.id
+                          tab === tabId
                             ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                             : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                         }`}
                       >
-                        {t.label}
+                        {t(`preferences.tabs.${tabId}`)}
                       </button>
                     ))}
                   </nav>
@@ -454,7 +455,7 @@ export default function PreferencesModal() {
                           {/* Tema */}
                           <div>
                             <p className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Tema
+                              {t("preferences.theme.label")}
                             </p>
                             <div className="grid grid-cols-2 gap-2">
                               <button
@@ -472,7 +473,7 @@ export default function PreferencesModal() {
                                     : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                 }`}
                               >
-                                ☀️ Claro
+                                ☀️ {t("preferences.theme.light")}
                               </button>
                               <button
                                 type="button"
@@ -489,19 +490,19 @@ export default function PreferencesModal() {
                                     : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                 }`}
                               >
-                                🌙 Escuro
+                                🌙 {t("preferences.theme.dark")}
                               </button>
                             </div>
                           </div>
 
-                          {/* Idioma - lista fechada por enquanto, sem i18n de verdade
-                    ainda (ver LANGUAGES em PreferencesContext.jsx) */}
+                          {/* Idioma - aplicado ao Salvar (ver setAppLanguage em
+                    i18n/index.js, chamado por PreferencesContext.jsx) */}
                           <div>
                             <label
                               htmlFor="preferences-language"
                               className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300"
                             >
-                              Idioma
+                              {t("preferences.language")}
                             </label>
                             <select
                               id="preferences-language"
@@ -520,21 +521,16 @@ export default function PreferencesModal() {
                                 </option>
                               ))}
                             </select>
-                            <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                              A tradução da interface ainda não está disponível
-                              - a preferência já fica salva para quando estiver.
-                            </p>
                           </div>
 
                           {hasAutoLaunch && (
                             <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Iniciar com o sistema
+                                  {t("preferences.autoLaunch.label")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Abre o NaveSpeak automaticamente assim que
-                                  você liga o computador
+                                  {t("preferences.autoLaunch.hint")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -559,11 +555,10 @@ export default function PreferencesModal() {
                           <label className="flex cursor-pointer items-center justify-between gap-3">
                             <span>
                               <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Notificações desktop
+                                {t("preferences.desktopNotifications.label")}
                               </span>
                               <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                Avisos de mensagens novas quando o app não está
-                                em foco
+                                {t("preferences.desktopNotifications.hint")}
                               </span>
                             </span>
                             <span className="relative inline-flex shrink-0">
@@ -584,7 +579,7 @@ export default function PreferencesModal() {
                           </label>
                           <label className="block">
                             <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Volume das notificações
+                              {t("preferences.notificationVolume.label")}
                               <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                                 {draft.notificationVolume}%
                               </span>
@@ -604,14 +599,12 @@ export default function PreferencesModal() {
                               className="mt-1.5 w-full accent-blue-600"
                             />
                             <span className="block text-xs text-slate-400 dark:text-slate-500">
-                              Sons de entrar/sair de canal, silenciar, mensagem
-                              nova etc. - não afeta o volume dos participantes
-                              de uma chamada.
+                              {t("preferences.notificationVolume.hint")}
                             </span>
                           </label>
                           <label className="block">
                             <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Volume dos efeitos sonoros do servidor
+                              {t("preferences.soundboardVolume.label")}
                               <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                                 {draft.soundboardVolume}%
                               </span>
@@ -631,9 +624,7 @@ export default function PreferencesModal() {
                               className="mt-1.5 w-full accent-blue-600"
                             />
                             <span className="block text-xs text-slate-400 dark:text-slate-500">
-                              Volume dos sons do soundboard tocados por membros
-                              do servidor num canal de voz - separado do volume
-                              de notificações acima.
+                              {t("preferences.soundboardVolume.hint")}
                             </span>
                           </label>
 
@@ -642,14 +633,10 @@ export default function PreferencesModal() {
                               <label className="flex cursor-pointer items-center justify-between gap-3">
                                 <span>
                                   <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Reproduzir notificações em uma saída de
-                                    áudio diferente
+                                    {t("preferences.notificationOutput.label")}
                                   </span>
                                   <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                    Toca os efeitos sonoros acima em outro
-                                    alto-falante/fone - o áudio dos
-                                    participantes de uma chamada continua saindo
-                                    pela saída normal
+                                    {t("preferences.notificationOutput.hint")}
                                   </span>
                                 </span>
                                 <span className="relative inline-flex shrink-0">
@@ -672,7 +659,9 @@ export default function PreferencesModal() {
 
                               {draft.notificationOutputEnabled && (
                                 <select
-                                  aria-label="Saída de áudio das notificações"
+                                  aria-label={t(
+                                    "preferences.notificationOutput.selectLabel",
+                                  )}
                                   value={
                                     draft.notificationOutputDeviceId ??
                                     SYSTEM_DEFAULT
@@ -688,7 +677,7 @@ export default function PreferencesModal() {
                                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                                 >
                                   <option value={SYSTEM_DEFAULT}>
-                                    Padrão do sistema
+                                    {t("common.systemDefault")}
                                   </option>
                                   {withSavedFallback(
                                     devices.speakers,
@@ -699,7 +688,7 @@ export default function PreferencesModal() {
                                       value={device.deviceId}
                                       disabled={device.missing}
                                     >
-                                      {deviceLabel(device, index, "Saída")}
+                                      {deviceLabel(device, index, "output")}
                                     </option>
                                   ))}
                                 </select>
@@ -720,7 +709,7 @@ export default function PreferencesModal() {
                           <div className="space-y-3">
                             <div className="flex items-center justify-between">
                               <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Dispositivos
+                                {t("preferences.devices.title")}
                               </p>
                               {!labelsUnlocked && (
                                 <button
@@ -730,8 +719,8 @@ export default function PreferencesModal() {
                                   className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                 >
                                   {unlocking
-                                    ? "Solicitando..."
-                                    : "Permitir acesso"}
+                                    ? t("preferences.devices.requesting")
+                                    : t("preferences.devices.allowAccess")}
                                 </button>
                               )}
                             </div>
@@ -747,7 +736,7 @@ export default function PreferencesModal() {
                                 htmlFor="preferences-mic"
                                 className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400"
                               >
-                                Microfone
+                                {t("preferences.devices.mic")}
                               </label>
                               <select
                                 id="preferences-mic"
@@ -762,7 +751,7 @@ export default function PreferencesModal() {
                                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                               >
                                 <option value={SYSTEM_DEFAULT}>
-                                  Padrão do sistema
+                                  {t("common.systemDefault")}
                                 </option>
                                 {withSavedFallback(
                                   devices.mics,
@@ -773,7 +762,7 @@ export default function PreferencesModal() {
                                     value={device.deviceId}
                                     disabled={device.missing}
                                   >
-                                    {deviceLabel(device, index, "Microfone")}
+                                    {deviceLabel(device, index, "mic")}
                                   </option>
                                 ))}
                               </select>
@@ -784,7 +773,7 @@ export default function PreferencesModal() {
                                 htmlFor="preferences-camera"
                                 className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400"
                               >
-                                Webcam
+                                {t("preferences.devices.camera")}
                               </label>
                               <select
                                 id="preferences-camera"
@@ -799,7 +788,7 @@ export default function PreferencesModal() {
                                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                               >
                                 <option value={SYSTEM_DEFAULT}>
-                                  Padrão do sistema
+                                  {t("common.systemDefault")}
                                 </option>
                                 {withSavedFallback(
                                   devices.cameras,
@@ -810,7 +799,7 @@ export default function PreferencesModal() {
                                     value={device.deviceId}
                                     disabled={device.missing}
                                   >
-                                    {deviceLabel(device, index, "Webcam")}
+                                    {deviceLabel(device, index, "camera")}
                                   </option>
                                 ))}
                               </select>
@@ -819,11 +808,10 @@ export default function PreferencesModal() {
                             <label className="flex cursor-pointer items-center justify-between gap-3">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Perguntar ao ligar a câmera
+                                  {t("preferences.cameraAsk.label")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Abre a prévia com escolha de webcam e plano de
-                                  fundo
+                                  {t("preferences.cameraAsk.hint")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -849,7 +837,7 @@ export default function PreferencesModal() {
                                   htmlFor="preferences-speaker"
                                   className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-400"
                                 >
-                                  Saída de áudio (alto-falante/fone)
+                                  {t("preferences.devices.speaker")}
                                 </label>
                                 <select
                                   id="preferences-speaker"
@@ -864,7 +852,7 @@ export default function PreferencesModal() {
                                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                                 >
                                   <option value={SYSTEM_DEFAULT}>
-                                    Padrão do sistema
+                                    {t("common.systemDefault")}
                                   </option>
                                   {withSavedFallback(
                                     devices.speakers,
@@ -875,28 +863,19 @@ export default function PreferencesModal() {
                                       value={device.deviceId}
                                       disabled={device.missing}
                                     >
-                                      {deviceLabel(device, index, "Saída")}
+                                      {deviceLabel(device, index, "output")}
                                     </option>
                                   ))}
                                 </select>
                               </div>
                             ) : (
                               <p className="text-xs text-slate-400 dark:text-slate-500">
-                                Escolher saída de áudio não é suportado neste
-                                navegador (só Chrome/Edge por enquanto) - o app
-                                usa o alto-falante/fone padrão do sistema.
+                                {t("preferences.devices.outputUnsupported")}
                               </p>
                             )}
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Se o dispositivo escolhido não estiver mais
-                              disponível na hora da chamada, o padrão do sistema
-                              é usado automaticamente. Microfone e webcam valem
-                              da próxima vez que entrar na voz/ligar a câmera;
-                              trocar de mic/webcam ENQUANTO já está em uma
-                              chamada também aplica na hora (ver
-                              MediaSessionContext.jsx) - só a saída de áudio não
-                              depende disso, já era sempre imediata.
+                              {t("preferences.devices.hint")}
                             </p>
                           </div>
 
@@ -909,23 +888,19 @@ export default function PreferencesModal() {
                     antes desta preferência existir. */}
                           <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Reprodução automática de mídia
+                              {t("preferences.autoplay.title")}
                             </p>
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Decide se a webcam/tela dos OUTROS participantes
-                              já toca sozinha quando eles ligam, ou se fica
-                              esperando você clicar em "Assistir". Nunca afeta o
-                              áudio (mic) e nunca a SUA própria mídia - só o que
-                              você assiste dos demais.
+                              {t("preferences.autoplay.description")}
                             </p>
 
                             <label className="flex cursor-pointer items-center justify-between gap-3">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Webcam
+                                  {t("preferences.autoplay.camera")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Padrão: automático
+                                  {t("preferences.autoplay.cameraDefault")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -948,10 +923,10 @@ export default function PreferencesModal() {
                             <label className="flex cursor-pointer items-center justify-between gap-3">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Compartilhamento de tela
+                                  {t("preferences.autoplay.screen")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Padrão: manual (clique para assistir)
+                                  {t("preferences.autoplay.screenDefault")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -972,10 +947,7 @@ export default function PreferencesModal() {
                             </label>
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Ocultar a mídia de alguém especificamente, ou
-                              mutar o áudio dele só pra você, fica no menu ⋮ da
-                              lista de participantes ou direto no quadradinho
-                              dele durante a chamada.
+                              {t("preferences.autoplay.hint")}
                             </p>
                           </div>
 
@@ -986,7 +958,7 @@ export default function PreferencesModal() {
                     audio/rnnoise.js, audio/gtcrn.js e audio/deepfilternet.js. */}
                           <div className="space-y-3 border-t border-slate-200 pt-5 dark:border-slate-800">
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Supressor de ruído
+                              {t("preferences.noiseSuppression.title")}
                             </p>
 
                             {/* 'deepfilternet' fica por último de propósito: é o
@@ -1023,7 +995,7 @@ export default function PreferencesModal() {
                                       : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                   }`}
                                 >
-                                  {opt.label}
+                                  {t(opt.labelKey)}
                                 </button>
                               ))}
                             </div>
@@ -1034,7 +1006,7 @@ export default function PreferencesModal() {
                                 "deepfilternet") && (
                               <label className="block">
                                 <span className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-400">
-                                  Nível
+                                  {t("preferences.noiseSuppression.level")}
                                   <span>{draft.noiseSuppressionLevel}%</span>
                                 </span>
                                 <input
@@ -1057,15 +1029,11 @@ export default function PreferencesModal() {
                             )}
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Só reduz ruído no SEU microfone - não afeta o que
-                              você ouve dos outros. Trocar de modo vale a partir
-                              da próxima vez que você entrar num canal de voz.
-                              {draft.noiseSuppressionMode === "rnnoise" &&
-                                " RNNoise (open source, xiph/rnnoise) roda no seu navegador via WASM - segura melhor ruído de fundo (teclado, conversa, ventilador) do que o supressor nativo; nível baixo mantém mais do áudio original, alto prioriza o corte de ruído."}
-                              {draft.noiseSuppressionMode === "gtcrn" &&
-                                " GTCRN (open source) também roda via WASM, com uma rede mais nova que a do RNNoise - qualidade de supressão melhor nos benchmarks padrão, ainda leve o bastante pra tempo real; nível baixo mantém mais do áudio original, alto prioriza o corte de ruído."}
-                              {draft.noiseSuppressionMode === "deepfilternet" &&
-                                " DeepFilterNet3 (open source, Rikorose/DeepFilterNet) é o modelo mais forte e mais pesado da lista - corta ~20dB do ruído de fundo praticamente sem tocar na fala nos nossos testes, mas baixa ~24MB de assets (hospedados por nós mesmos) na primeira vez que você entrar em voz com esse modo, e usa mais CPU que os outros. Aqui o nível é o limite de atenuação do modelo: 0% deixa o áudio intocado, 100% libera o corte máximo."}
+                              {t("preferences.noiseSuppression.hint")}
+                              {["rnnoise", "gtcrn", "deepfilternet"].includes(
+                                draft.noiseSuppressionMode,
+                              ) &&
+                                ` ${t(`preferences.noiseSuppression.${draft.noiseSuppressionMode}Hint`)}`}
                             </p>
                           </div>
 
@@ -1078,11 +1046,10 @@ export default function PreferencesModal() {
                             <label className="flex cursor-pointer items-center justify-between gap-3">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Sensibilidade do microfone
+                                  {t("preferences.micGate.label")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Corta o que sair abaixo do limiar -
-                                  silêncio/ruído de fundo não é mais enviado
+                                  {t("preferences.micGate.hint")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -1104,7 +1071,9 @@ export default function PreferencesModal() {
 
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                                Limiar: {draft.micGateThresholdDb} dB
+                                {t("preferences.micGate.threshold", {
+                                  db: draft.micGateThresholdDb,
+                                })}
                               </span>
                               <button
                                 type="button"
@@ -1113,11 +1082,13 @@ export default function PreferencesModal() {
                               >
                                 {previewStream ? (
                                   <>
-                                    <Square className="size-3" /> Parar teste
+                                    <Square className="size-3" />{" "}
+                                    {t("preferences.micGate.stopTest")}
                                   </>
                                 ) : (
                                   <>
-                                    <Mic className="size-3" /> Testar microfone
+                                    <Mic className="size-3" />{" "}
+                                    {t("preferences.micGate.startTest")}
                                   </>
                                 )}
                               </button>
@@ -1155,14 +1126,7 @@ export default function PreferencesModal() {
                             />
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                              Clique em "Testar microfone" pra ver seu nível ao
-                              vivo (linha vermelha = limiar escolhido) e
-                              calibrar antes de ativar. Roda DEPOIS do supressor
-                              de ruído acima, na mesma track enviada - muda o
-                              que sai do seu microfone, não o que você ouve.
-                              Trocar o limiar (ou ligar/desligar) só vale a
-                              partir da próxima vez que você entrar num canal de
-                              voz.
+                              {t("preferences.micGate.help")}
                             </p>
                           </div>
 
@@ -1175,11 +1139,10 @@ export default function PreferencesModal() {
                             <label className="flex cursor-pointer items-center justify-between gap-3">
                               <span>
                                 <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                  Push-to-talk
+                                  {t("preferences.pushToTalk.label")}
                                 </span>
                                 <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  Mic só transmite enquanto a tecla abaixo
-                                  estiver pressionada
+                                  {t("preferences.pushToTalk.hint")}
                                 </span>
                               </span>
                               <span className="relative inline-flex shrink-0">
@@ -1202,12 +1165,12 @@ export default function PreferencesModal() {
                             {draft.pushToTalkEnabled && (
                               <div className="flex items-center justify-between gap-3">
                                 <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                                  Tecla:{" "}
+                                  {t("preferences.pushToTalk.key")}{" "}
                                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                                     {capturingKey
-                                      ? "Pressione uma tecla..."
+                                      ? t("preferences.pushToTalk.pressKey")
                                       : (formatKeyLabel(draft.pushToTalkKey) ??
-                                        "nenhuma")}
+                                        t("preferences.pushToTalk.noKey"))}
                                   </span>
                                 </span>
                                 <button
@@ -1216,18 +1179,18 @@ export default function PreferencesModal() {
                                   className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                 >
                                   {capturingKey
-                                    ? "Esc para cancelar"
-                                    : "Atribuir tecla"}
+                                    ? t("preferences.pushToTalk.escToCancel")
+                                    : t("preferences.pushToTalk.assignKey")}
                                 </button>
                               </div>
                             )}
 
                             <p className="text-xs text-slate-400 dark:text-slate-500">
                               {draft.pushToTalkEnabled && !draft.pushToTalkKey
-                                ? "Sem tecla atribuída, o mic fica sempre mudo em canais de voz - atribua uma antes de sair daqui."
-                                : "Enquanto ligado, o mic começa mudo em qualquer canal de voz e só transmite com a tecla segurada. Mutar manualmente continua funcionando por cima, mesmo segurando a tecla."}
+                                ? t("preferences.pushToTalk.noKeyWarning")
+                                : t("preferences.pushToTalk.help")}
                               {hasGlobalPushToTalk &&
-                                " No app desktop a tecla funciona mesmo com a janela sem foco/minimizada."}
+                                ` ${t("preferences.pushToTalk.globalHint")}`}
                             </p>
                           </div>
 
@@ -1237,7 +1200,7 @@ export default function PreferencesModal() {
                     ver utils/sounds.js. */}
                           <label className="block">
                             <span className="flex items-center justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Volume das notificações
+                              {t("preferences.notificationVolume.label")}
                               <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                                 {draft.notificationVolume}%
                               </span>
@@ -1257,9 +1220,7 @@ export default function PreferencesModal() {
                               className="mt-1.5 w-full accent-blue-600"
                             />
                             <span className="block text-xs text-slate-400 dark:text-slate-500">
-                              Sons de entrar/sair de canal, silenciar, mensagem
-                              nova etc. - não afeta o volume dos participantes
-                              de uma chamada.
+                              {t("preferences.notificationVolume.hint")}
                             </span>
                           </label>
 
@@ -1268,14 +1229,10 @@ export default function PreferencesModal() {
                               <label className="flex cursor-pointer items-center justify-between gap-3">
                                 <span>
                                   <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Reproduzir notificações em uma saída de
-                                    áudio diferente
+                                    {t("preferences.notificationOutput.label")}
                                   </span>
                                   <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                    Toca os efeitos sonoros acima em outro
-                                    alto-falante/fone - o áudio dos
-                                    participantes de uma chamada continua saindo
-                                    pela saída normal
+                                    {t("preferences.notificationOutput.hint")}
                                   </span>
                                 </span>
                                 <span className="relative inline-flex shrink-0">
@@ -1298,7 +1255,9 @@ export default function PreferencesModal() {
 
                               {draft.notificationOutputEnabled && (
                                 <select
-                                  aria-label="Saída de áudio das notificações"
+                                  aria-label={t(
+                                    "preferences.notificationOutput.selectLabel",
+                                  )}
                                   value={
                                     draft.notificationOutputDeviceId ??
                                     SYSTEM_DEFAULT
@@ -1314,7 +1273,7 @@ export default function PreferencesModal() {
                                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
                                 >
                                   <option value={SYSTEM_DEFAULT}>
-                                    Padrão do sistema
+                                    {t("common.systemDefault")}
                                   </option>
                                   {withSavedFallback(
                                     devices.speakers,
@@ -1325,7 +1284,7 @@ export default function PreferencesModal() {
                                       value={device.deviceId}
                                       disabled={device.missing}
                                     >
-                                      {deviceLabel(device, index, "Saída")}
+                                      {deviceLabel(device, index, "output")}
                                     </option>
                                   ))}
                                 </select>
@@ -1347,14 +1306,14 @@ export default function PreferencesModal() {
                     onClick={handleClose}
                     className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    Cancelar
+                    {t("common.cancel")}
                   </button>
                   <button
                     type="button"
                     onClick={handleSave}
                     className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
                   >
-                    Salvar
+                    {t("common.save")}
                   </button>
                 </div>
               </div>

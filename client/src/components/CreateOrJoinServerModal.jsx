@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { apiRequest } from "../api/http.js";
 
 // Extrai o CÓDIGO de convite de qualquer coisa colada no campo único de
@@ -36,6 +37,7 @@ const TABS = { CREATE: "create", JOIN: "join" };
 // antes só existiam no painel expansível da própria página.
 export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
   const [tab, setTab] = useState(TABS.CREATE);
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [inviteInput, setInviteInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -109,7 +111,7 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Criar ou entrar em um servidor"
+      aria-label={t("serverModal.ariaLabel")}
       onClick={handleClose}
     >
       <div
@@ -118,12 +120,12 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Criar / Entrar em um servidor
+            {t("serverModal.title")}
           </h2>
           <button
             type="button"
             onClick={handleClose}
-            aria-label="Fechar"
+            aria-label={t("common.close")}
             className="cursor-pointer rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           >
             <X className="h-5 w-5" />
@@ -140,7 +142,7 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
                 : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
           >
-            Criar servidor
+            {t("serverModal.createTab")}
           </button>
           <button
             type="button"
@@ -151,19 +153,19 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
                 : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
           >
-            Entrar com convite
+            {t("serverModal.joinTab")}
           </button>
         </div>
 
         {tab === TABS.CREATE ? (
           <form onSubmit={handleCreate} className="space-y-3">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Defina um nome para começar um novo servidor.
+              {t("serverModal.createHint")}
             </p>
             <input
               type="text"
               autoFocus
-              placeholder="Nome do servidor"
+              placeholder={t("serverModal.namePlaceholder")}
               maxLength={64}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -174,19 +176,18 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
               disabled={busy || !name.trim()}
               className="cursor-pointer inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-purple-800 dark:hover:bg-purple-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
-              {busy ? "Criando..." : "Criar servidor"}
+              {busy ? t("serverModal.creating") : t("serverModal.createTab")}
             </button>
           </form>
         ) : (
           <form onSubmit={handleJoin} className="space-y-3">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Cole um código de convite ou o link inteiro (ex.:
-              .../join/ABC123DEF456).
+              {t("serverModal.joinHint")}
             </p>
             <input
               type="text"
               autoFocus
-              placeholder="Código ou link de convite"
+              placeholder={t("serverModal.invitePlaceholder")}
               value={inviteInput}
               onChange={(e) => setInviteInput(e.target.value)}
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-slate-500 dark:focus:border-blue-400 dark:focus:ring-blue-400/20"
@@ -196,7 +197,7 @@ export default function CreateOrJoinServerModal({ open, onClose, onSuccess }) {
               disabled={busy || !inviteInput.trim()}
               className="cursor-pointer inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-purple-800 dark:hover:bg-purple-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
             >
-              {busy ? "Entrando..." : "Entrar no servidor"}
+              {busy ? t("serverModal.joining") : t("serverModal.joinSubmit")}
             </button>
           </form>
         )}

@@ -145,4 +145,6 @@ Referência: `AdminUsersPanel.jsx`.
 - Animações novas em CSS respeitam `@media (prefers-reduced-motion: reduce)`.
 - Electron: a `TitleBar` ocupa 36px e `h-screen`/`min-h-screen` já descontam essa
   altura (`html.electron-app`). Usar essas classes para altura de tela cheia,
-  nunca `100vh` fixo no JSX.
+  nunca `100vh` fixo no JSX. Painel `fixed` de tela cheia usa
+  `inset-x-0 bottom-0 top-(--titlebar-h)` em vez de `inset-0`, senão cobre a
+  TitleBar.

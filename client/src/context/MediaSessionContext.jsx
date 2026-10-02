@@ -17,7 +17,7 @@ import { createGtcrnStream } from '../audio/gtcrn.js';
 import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
 import { createMicGainStream } from '../audio/micGain.js';
-import { playSound, playSoundboardSound } from '../utils/sounds.js';
+import { playSound, playSoundboardSound, stopSoundboardSounds } from '../utils/sounds.js';
 import { soundboardSrc } from '../api/soundboard.js';
 import CameraSetupModal from '../components/CameraSetupModal.jsx';
 
@@ -270,6 +270,19 @@ export function MediaSessionProvider({ children }) {
   // não é algo que dá pra derivar só do consumer local: o consumer de tela
   // fica ativo independente da UI estar mostrando o vídeo ou não.
   const [screenViewers, setScreenViewers] = useState({});
+  // userIds tocando efeito de soundboard AGORA (anel roxo em ParticipantTile/
+  // VoiceRosterEntry) - dura o tempo do som. Contagem por usuário porque o
+  // mesmo usuário pode sobrepor sons (limitado pelo rate limit do servidor).
+  const [soundboardSpeakers, setSoundboardSpeakers] = useState(() => new Set());
+  const soundboardCountsRef = useRef(new Map());
+  const soundboardTimersRef = useRef(new Set());
+  const clearSoundboardActivity = useCallback(() => {
+    stopSoundboardSounds();
+    for (const t of soundboardTimersRef.current) clearTimeout(t);
+    soundboardTimersRef.current.clear();
+    soundboardCountsRef.current.clear();
+    setSoundboardSpeakers((prev) => (prev.size ? new Set() : prev));
+  }, []);
   // Espelham `muted`/`deafened` sempre atualizados, pra handleReconnect (mais
   // abaixo) ler o valor ATUAL sem precisar re-registrar os listeners de
   // socket a cada toggle (ele vive num useEffect com deps fixas, então uma
@@ -282,7 +295,10 @@ export function MediaSessionProvider({ children }) {
   }, [muted]);
   useEffect(() => {
     deafenedRef.current = deafened;
-  }, [deafened]);
+    // Ensurdecido não ouve nem vê efeito de soundboard - corta o que estiver
+    // tocando/carregando agora.
+    if (deafened) clearSoundboardActivity();
+  }, [deafened, clearSoundboardActivity]);
   useEffect(() => {
     cameraOnRef.current = cameraOn;
   }, [cameraOn]);
@@ -511,10 +527,25 @@ export function MediaSessionProvider({ children }) {
     // quem tocou - reprodução é 100% client-local (ver playSoundboardSound
     // em utils/sounds.js), nunca um producer mediasoup. Filtra pelo canal
     // ativo igual handleVoiceUpdate acima (o servidor não filtra, só emite
-    // pra room do canal).
-    function handleSoundboardPlayed(update) {
-      if (update.channelId !== channelIdRef.current) return;
-      playSoundboardSound(soundboardSrc(update.filePath));
+    // pra room do canal). Ensurdecido ignora por completo (sem som e sem
+    // anel roxo).
+    async function handleSoundboardPlayed(update) {
+      if (update.channelId !== channelIdRef.current || deafenedRef.current) return;
+      const duration = await playSoundboardSound(soundboardSrc(update.filePath));
+      const userId = update.playedBy?.id;
+      if (!duration || !userId) return;
+
+      const counts = soundboardCountsRef.current;
+      counts.set(userId, (counts.get(userId) ?? 0) + 1);
+      setSoundboardSpeakers(new Set(counts.keys()));
+      const timer = setTimeout(() => {
+        soundboardTimersRef.current.delete(timer);
+        const left = (counts.get(userId) ?? 1) - 1;
+        if (left > 0) counts.set(userId, left);
+        else counts.delete(userId);
+        setSoundboardSpeakers(new Set(counts.keys()));
+      }, duration * 1000);
+      soundboardTimersRef.current.add(timer);
     }
 
     // Reconexão do socket (queda de rede, ou o servidor reiniciou): o
@@ -712,6 +743,7 @@ export function MediaSessionProvider({ children }) {
       setDeafened(false);
       wasMutedBeforeDeafenRef.current = false;
       setScreenViewers({});
+      clearSoundboardActivity();
       setAudioLocked(false);
       setMediaLocked(false);
       setLocalScreenStream((stream) => {
@@ -729,7 +761,7 @@ export function MediaSessionProvider({ children }) {
         setVoiceMeta({ roomName: null, channelName: null });
       }
     },
-    [socket, closePopout]
+    [socket, closePopout, clearSoundboardActivity]
   );
 
   useEffect(() => {
@@ -1801,6 +1833,7 @@ export function MediaSessionProvider({ children }) {
       switchScreenSource,
       screenAudioEnabled,
       screenViewers,
+      soundboardSpeakers,
       setWatchingScreen,
       triggerSoundboardSound,
       cameraOn,
@@ -1846,6 +1879,7 @@ export function MediaSessionProvider({ children }) {
       switchScreenSource,
       screenAudioEnabled,
       screenViewers,
+      soundboardSpeakers,
       setWatchingScreen,
       triggerSoundboardSound,
       cameraOn,

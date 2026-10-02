@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useSpeaking } from "../hooks/useSpeaking.js";
-import UserProfilePreview, { previewPosFromEvent } from "./UserProfilePreview.jsx";
+import UserProfilePreview, {
+  previewPosFromEvent,
+} from "./UserProfilePreview.jsx";
 import Avatar from "./Avatar.jsx";
+import StyledUsername from "./StyledUsername.jsx";
 import {
   sendFriendRequest,
   isMyFriend,
@@ -22,6 +25,7 @@ import {
   VolumeX,
   Eye,
   EyeOff,
+  Pencil,
 } from "lucide-react";
 // Uma linha da lista de participantes de um canal de voz na sidebar de
 // RoomPage.jsx. Extraída num componente à parte porque useSpeaking() é um
@@ -57,25 +61,36 @@ import {
 // dentro da chamada (ParticipantTile.jsx/VoicePanel.jsx), disponíveis aqui
 // pra quem prefere a sidebar (ex.: participante sem câmera/tela ligada
 // ainda não tem tile de mídia pra clicar).
+//
+// `displayName` é o apelido neste servidor (ou o username) - só pra
+// exibição; `username`/`discriminator` continuam sendo a identidade (tag de
+// amizade, DM). `onEditNickname` (opcional) liga "Alterar apelido" no menu -
+// RoomPage só passa pra si mesmo ou com MANAGE_NICKNAMES.
 export default function VoiceRosterEntry({
   userId,
   isSelf,
   username,
+  displayName = username,
   discriminator,
   avatarPath,
   micStream,
   micMuted,
   deafened,
+  // Tocando efeito de soundboard agora - anel roxo, vence o verde.
+  soundboardActive = false,
   cameraOn,
   sharingScreen,
   moderation,
   volumeControl,
   localControls,
   member,
+  onEditNickname,
 }) {
   const navigate = useNavigate();
   const speaking = useSpeaking(micStream);
-  const hasMenu = Boolean(moderation || volumeControl || localControls);
+  const hasMenu = Boolean(
+    moderation || volumeControl || localControls || onEditNickname,
+  );
   const [menuPos, setMenuPos] = useState(null);
   const [profilePreviewPos, setProfilePreviewPos] = useState(null);
   // "none" | "pending" | "accepted" - ver GET /friends/isMyFriend/:tag.
@@ -193,15 +208,23 @@ export default function VoiceRosterEntry({
       onClick={handleUserProfilePreview}
       className=" cursor-pointer flex justify-between rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
     >
-      <div className="flex min-w-0 items-center">
+      <div className="flex min-w-0 items-center gap-1">
         <Avatar
           avatarPath={avatarPath}
-          username={username}
+          username={displayName}
           size="xs"
-          className={`ring-2 transition ${speaking ? "ring-emerald-500" : "ring-transparent"}`}
+          className={`ring-2 transition ${soundboardActive ? "ring-purple-500" : speaking ? "ring-emerald-500" : "ring-transparent"}`}
         />
 
-        <span className="ml-1 truncate">{username}</span>
+        {/* nameStyle vem do member (já filtrado pelo benefício TURBO no
+            servidor); o dono escolhe se aparece aqui via showInVoice. */}
+        <StyledUsername
+          username={displayName}
+          style={
+            member?.nameStyle?.showInVoice === false ? null : member?.nameStyle
+          }
+          className="ml-1 truncate"
+        />
       </div>
 
       <div className="flex shrink-0 gap-1 items-center">
@@ -308,6 +331,18 @@ export default function VoiceRosterEntry({
             <button className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700">
               Perfil
             </button>
+            {onEditNickname && (
+              <button
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={() => {
+                  setMenuPos(null);
+                  onEditNickname();
+                }}
+              >
+                <Pencil className="size-3.5 shrink-0" />
+                Alterar apelido
+              </button>
+            )}
             {!isSelf && (
               <button
                 className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { apiRequest } from "../api/http.js";
 import { getSocket } from "../api/socket.js";
 import { markChannelRead } from "../api/messages.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useDisplayName } from "../context/NicknamesContext.jsx";
 import { useTypingEmitter } from "../hooks/useTypingEmitter.js";
 import { useChatScroll } from "../hooks/useChatScroll.js";
 import MessageInput from "./MessageInput.jsx";
@@ -54,6 +55,16 @@ export default function ChatPanel({
   roles = [],
 }) {
   const { user } = useAuth();
+  // Apelido deste servidor no lugar do username (autor e "digitando").
+  // Menção (@username) continua pelo username - é o identificador.
+  const displayName = useDisplayName(room?.id);
+  // Estilo TURBO vem do membro (atualizado ao vivo via member:nameStyle em
+  // RoomPage), não da mensagem - senão mensagens antigas mantêm o estilo da
+  // hora do envio. Quem saiu do servidor cai no estilo gravado na mensagem.
+  const nameStyleById = useMemo(
+    () => new Map(members.map((m) => [m.id, m.nameStyle])),
+    [members],
+  );
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -224,15 +235,17 @@ export default function ChatPanel({
             <div key={message.id} className="flex items-start gap-3">
               <Avatar
                 avatarPath={message.avatarPath}
-                username={message.username}
+                username={displayName(message.user_id, message.username)}
                 size="sm"
                 className="mt-0.5"
               />
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
                   <StyledUsername
-                    username={message.username}
-                    style={message.nameStyle}
+                    username={displayName(message.user_id, message.username)}
+                    style={
+                      nameStyleById.get(message.user_id) ?? message.nameStyle
+                    }
                     className={`text-sm font-semibold ${
                       message.user_id === user?.id
                         ? "text-emerald-600 dark:text-emerald-400"
@@ -270,7 +283,9 @@ export default function ChatPanel({
           </button>
         )}
       </div>
-      <TypingIndicator usernames={typingUsers.map((u) => u.username)} />
+      <TypingIndicator
+        usernames={typingUsers.map((u) => displayName(u.userId, u.username))}
+      />
       <MessageInput
         ref={messageInputRef}
         onSend={handleSend}

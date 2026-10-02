@@ -3,6 +3,7 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import { PreferencesProvider } from "./context/PreferencesContext.jsx";
 import { PresenceProvider } from "./context/PresenceContext.jsx";
+import { NicknamesProvider } from "./context/NicknamesContext.jsx";
 import { MediaSessionProvider } from "./context/MediaSessionContext.jsx";
 import { CallProvider } from "./context/CallContext.jsx";
 import { NotificationProvider } from "./context/NotificationContext.jsx";
@@ -47,6 +48,9 @@ export default function App() {
           montada, não só quando o seletor de status (RoomsPage.jsx) está
           visível - ver PresenceContext.jsx. */}
         <PresenceProvider>
+        {/* Apelidos por servidor - acima do VoicePanel/notificações, que
+          exibem nomes fora da página do servidor (ver NicknamesContext.jsx). */}
+        <NicknamesProvider>
           {/* MediaSessionProvider fica ACIMA de <Routes> de propósito: a sessão
           de voz/vídeo não pode depender de qual tela está montada no
           momento, senão navegar de volta para a tela inicial desconecta o
@@ -135,6 +139,7 @@ export default function App() {
               </NotificationProvider>
             </CallProvider>
           </MediaSessionProvider>
+        </NicknamesProvider>
         </PresenceProvider>
       </AuthProvider>
     </PreferencesProvider>

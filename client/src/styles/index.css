@@ -99,11 +99,21 @@ body {
    conteúdo. Classe `electron-app` só existe dentro do Electron (ver
    main.jsx); fora dele estas regras nunca casam e h-screen/min-h-screen
    continuam 100vh normalmente. */
+html.electron-app {
+  --titlebar-h: 36px;
+}
 html.electron-app .h-screen {
-  height: calc(100vh - 36px);
+  height: calc(100vh - var(--titlebar-h));
 }
 html.electron-app .min-h-screen {
-  min-height: calc(100vh - 36px);
+  min-height: calc(100vh - var(--titlebar-h));
+}
+/* Painel `fixed` de tela cheia (layout estreito) usa `top-(--titlebar-h)` em
+   vez de `inset-0`: com inset-0 ele cobria a TitleBar - a barra sumia, e a
+   região de arrastar dela continuava ativa por baixo, engolindo os cliques
+   no topo do painel. Fora do Electron a variável fica 0. */
+:root {
+  --titlebar-h: 0px;
 }
 
 /* Celular/tablet (toque): 100vh inclui a área atrás da barra de endereço do
@@ -709,9 +719,19 @@ html.electron-app .min-h-screen {
   }
 }
 
+/* Glitch do efeito "cipher" - mesma aberração cromática/flicker do
+   .cipher-text do botão "Transmissão criptografada". */
+.styled-name-cipher {
+  text-shadow:
+    1px 0 rgba(217, 70, 239, 0.6),
+    -1px 0 rgba(96, 165, 250, 0.6);
+  animation: cipher-flicker 2.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .styled-name-shine,
-  .styled-name-pulse {
+  .styled-name-pulse,
+  .styled-name-cipher {
     animation: none;
   }
 }
@@ -1031,18 +1051,21 @@ html.electron-app .min-h-screen {
   transform-origin: 50% 0;
 }
 
-.nvs-logo:hover .nvs-logo-rocket {
+.nvs-logo:hover .nvs-logo-rocket,
+.nvs-logo-launching .nvs-logo-rocket {
   animation:
     nvs-spin 0.9s cubic-bezier(0.6, 0, 0.2, 1),
     nvs-rumble 0.12s linear 0.9s infinite;
 }
 
-.nvs-logo:hover .nvs-logo-flame {
+.nvs-logo:hover .nvs-logo-flame,
+.nvs-logo-launching .nvs-logo-flame {
   filter: drop-shadow(0 0 3px #a855f7) drop-shadow(0 0 8px rgba(217, 70, 239, 0.6));
   animation: nvs-thrust 0.14s ease-in-out infinite alternate;
 }
 
-.nvs-logo:hover .nvs-logo-core {
+.nvs-logo:hover .nvs-logo-core,
+.nvs-logo-launching .nvs-logo-core {
   animation: nvs-thrust-core 0.1s ease-in-out infinite alternate;
 }
 
@@ -1089,7 +1112,10 @@ html.electron-app .min-h-screen {
 @media (prefers-reduced-motion: reduce) {
   .nvs-logo:hover .nvs-logo-rocket,
   .nvs-logo:hover .nvs-logo-flame,
-  .nvs-logo:hover .nvs-logo-core {
+  .nvs-logo:hover .nvs-logo-core,
+  .nvs-logo-launching .nvs-logo-rocket,
+  .nvs-logo-launching .nvs-logo-flame,
+  .nvs-logo-launching .nvs-logo-core {
     animation: none;
   }
 }

@@ -1,6 +1,6 @@
 // Bitmask de permissoes de servidor - compartilhado entre rotas HTTP
 // (middleware/permissions.js) e sockets (mediasoup.handler.js, chat.handler.js).
-// Cabe folgado num INTEGER do Postgres (32 bits), so usamos 9 flags.
+// Cabe folgado num INTEGER do Postgres (32 bits), so usamos 11 flags.
 export const PERMISSIONS = {
   ADMINISTRATOR: 1 << 0, // Administração total - implica todas as outras
   MOVE_MEMBERS: 1 << 1, // Mover usuários entre canais de voz
@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   CREATE_INVITE: 1 << 7, // Criar/regenerar convite do servidor
   MANAGE_SERVER: 1 << 8, // Alterar nome/imagem do servidor e configurações gerais
   USE_SOUNDBOARD: 1 << 9, // Tocar efeitos sonoros do servidor num canal de voz
+  MANAGE_NICKNAMES: 1 << 10, // Alterar o apelido de outros membros (o próprio é sempre livre)
 };
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((acc, bit) => acc | bit, 0);

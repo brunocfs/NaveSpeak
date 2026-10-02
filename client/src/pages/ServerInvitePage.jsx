@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import Avatar from "../components/Avatar.jsx";
 import { getInvitePreview, joinRoomByInvite } from "../api/rooms.js";
 import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
@@ -14,6 +15,7 @@ import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 export default function ServerInvitePage() {
   const { code } = useParams();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState(null);
@@ -39,7 +41,7 @@ export default function ServerInvitePage() {
       const { room } = await joinRoomByInvite(code);
       navigate(`/rooms/${room.id}`, { replace: true });
     } catch (err) {
-      setJoinError(err.message ?? "Não foi possível entrar no servidor.");
+      setJoinError(err.message ?? t("serverInvite.joinError"));
       setJoining(false);
     }
   }
@@ -54,7 +56,7 @@ export default function ServerInvitePage() {
         <NavespeakLogoV1 className="mx-auto mb-4 h-10 w-10" />
 
         {state.loading && (
-          <p className="py-6 text-sm text-slate-500 dark:text-slate-400">Carregando convite...</p>
+          <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("serverInvite.loading")}</p>
         )}
 
         {!state.loading && state.error && (
@@ -64,7 +66,7 @@ export default function ServerInvitePage() {
               to="/rooms"
               className="inline-block rounded-xl bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              Voltar
+              {t("common.back")}
             </Link>
           </>
         )}
@@ -72,16 +74,16 @@ export default function ServerInvitePage() {
         {!state.loading && !state.error && (state.data?.expired || state.data?.revoked) && (
           <>
             <h1 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
-              {state.data.revoked ? "Convite revogado" : "Convite expirado"}
+              {state.data.revoked ? t("serverInvite.revoked") : t("serverInvite.expired")}
             </h1>
             <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-              Esse link de convite não é mais válido. Peça um novo link a algum membro do servidor.
+              {t("serverInvite.noLongerValid")}
             </p>
             <Link
               to="/rooms"
               className="inline-block rounded-xl bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              Voltar
+              {t("common.back")}
             </Link>
           </>
         )}
@@ -89,16 +91,16 @@ export default function ServerInvitePage() {
         {!state.loading && !state.error && !state.data?.expired && !state.data?.revoked && state.data?.banned && (
           <>
             <h1 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
-              Você não pode entrar
+              {t("serverInvite.cannotJoin")}
             </h1>
             <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-              Você foi banido deste servidor.
+              {t("serverInvite.banned")}
             </p>
             <Link
               to="/rooms"
               className="inline-block rounded-xl bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              Voltar
+              {t("common.back")}
             </Link>
           </>
         )}
@@ -123,19 +125,19 @@ export default function ServerInvitePage() {
             {state.data.alreadyMember ? (
               <>
                 <p className="mb-6 mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  Você já é membro deste servidor.
+                  {t("serverInvite.alreadyMember")}
                 </p>
                 <button
                   onClick={() => navigate(`/rooms`, { replace: true })}
                   className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
                 >
-                  Ir para o servidor
+                  {t("serverInvite.goToServer")}
                 </button>
               </>
             ) : (
               <>
                 <p className="mb-6 mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  Deseja entrar neste servidor?
+                  {t("serverInvite.confirm")}
                 </p>
                 {joinError && (
                   <p className="mb-3 text-xs text-red-600 dark:text-red-400">{joinError}</p>
@@ -146,14 +148,14 @@ export default function ServerInvitePage() {
                     disabled={joining}
                     className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    Recusar
+                    {t("serverInvite.decline")}
                   </button>
                   <button
                     onClick={handleAccept}
                     disabled={joining}
                     className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
                   >
-                    {joining ? "Entrando..." : "Entrar"}
+                    {joining ? t("serverInvite.joining") : t("serverInvite.join")}
                   </button>
                 </div>
               </>

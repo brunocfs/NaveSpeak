@@ -16,6 +16,7 @@ const {
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { registerScreenAudioIpc } = require("./screenAudio");
+const { listScreens, listMinimizedWindows, restoreIfMinimized } = require("./winSources");
 
 // Instância única: sem isso, abrir o NaveSpeak de novo com o app já rodando
 // (atalho, duplo-clique) sobe uma SEGUNDA janela/processo do zero, cada uma
@@ -645,16 +646,36 @@ app.whenReady().then(() => {
   // Único ponto de contato com desktopCapturer: devolve apenas id/nome/
   // miniatura de cada janela/tela disponível - nunca o módulo inteiro, e só
   // isso é exposto ao renderer via preload.js.
+  //
+  // No Windows a lista de telas vem de winSources.js (o desktopCapturer
+  // perde monitores de outro adaptador de vídeo) e as janelas minimizadas
+  // entram no fim (o desktopCapturer não lista) - ambas sem miniatura quando
+  // o desktopCapturer não gerou uma.
+  //
+  // `sourceNames` guarda id -> nome da última listagem: o
+  // setDisplayMediaRequestHandler abaixo concede `{ id, name }` direto, sem
+  // listar tudo de novo a cada início/troca de compartilhamento.
+  const sourceNames = new Map();
   ipcMain.handle("screen:get-sources", async () => {
-    const sources = await desktopCapturer.getSources({
+    const captured = await desktopCapturer.getSources({
       types: ["window", "screen"],
       thumbnailSize: { width: 200, height: 120 },
     });
-    return sources.map((s) => ({
+    const thumbs = new Map(captured.map((s) => [s.id, s.thumbnail.toDataURL()]));
+    const winScreens = listScreens();
+    const screens = winScreens.length ? winScreens : captured.filter((s) => s.id.startsWith("screen:"));
+    const windows = [
+      ...captured.filter((s) => !s.id.startsWith("screen:")),
+      ...listMinimizedWindows(),
+    ];
+    const sources = [...screens, ...windows].map((s) => ({
       id: s.id,
       name: s.name,
-      thumbnail: s.thumbnail.toDataURL(),
+      thumbnail: thumbs.get(s.id) ?? null,
     }));
+    sourceNames.clear();
+    for (const s of sources) sourceNames.set(s.id, s.name);
+    return sources;
   });
 
   // Guarda qual fonte (id de `screen:get-sources`) o renderer escolheu no
@@ -688,20 +709,18 @@ app.whenReady().then(() => {
   // Loopback Capture) mas o Electron não encaixa isso aqui - loopback
   // continua sendo o próprio limite documentado.
   session.defaultSession.setDisplayMediaRequestHandler(
-    async (request, callback) => {
-      // Sem thumbnails/ícones: aqui só o `id` importa (o picker já mostrou as
-      // miniaturas antes). Com o padrão (150x150 de TODA janela aberta) cada
-      // início/troca de compartilhamento levava 100-500 ms a mais.
-      const sources = await desktopCapturer.getSources({
-        types: ["window", "screen"],
-        thumbnailSize: { width: 0, height: 0 },
-        fetchWindowIcons: false,
-      });
+    (request, callback) => {
       // Só a fonte escolhida no <ScreenSourcePicker>, e uma vez só: antes
       // caía em sources[0] e a tela podia ser capturada sem seletor nenhum.
-      const video = sources.find((s) => s.id === pendingScreenSourceId);
+      // `{ id, name }` direto (aceito pelo Electron) em vez de chamar
+      // desktopCapturer.getSources de novo - listar tudo custava 70-500 ms a
+      // mais em cada início/troca de compartilhamento, e nem acharia os
+      // monitores/janelas minimizadas que só winSources.js enxerga.
+      const id = pendingScreenSourceId;
       pendingScreenSourceId = null;
-      if (!video) return callback({});
+      if (!id || !sourceNames.has(id)) return callback({});
+      restoreIfMinimized(id);
+      const video = { id, name: sourceNames.get(id) };
       callback({
         video,
         audio: request.audioRequested ? "loopbackWithMute" : undefined,

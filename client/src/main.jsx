@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { loadStoredPreferences } from './context/PreferencesContext.jsx';
+import { setAppLanguage } from './i18n/index.js';
 import { reportClientEvent } from './observability/telemetry.js';
 import './styles/index.css';
 
@@ -31,12 +33,17 @@ window.addEventListener('unhandledrejection', (event) => {
   });
 });
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </ErrorBoundary>
-  </StrictMode>
-);
+// Carrega o idioma salvo ANTES do primeiro render - sem isso quem usa
+// en-US/es-ES veria a tela em pt-BR por um instante até o arquivo chegar.
+// setAppLanguage nunca lança (cai em pt-BR se falhar).
+setAppLanguage(loadStoredPreferences().language).then(() => {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </ErrorBoundary>
+    </StrictMode>
+  );
+});

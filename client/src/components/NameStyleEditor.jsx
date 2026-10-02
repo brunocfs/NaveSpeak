@@ -1,4 +1,5 @@
 import StyledUsername from "./StyledUsername.jsx";
+import { Toggle } from "./Toggle.jsx";
 
 export const DEFAULT_NAME_STYLE = {
   colorMode: "none", // "none" | "solid" | "gradient" - só de controle local, nunca vai pro servidor
@@ -9,6 +10,7 @@ export const DEFAULT_NAME_STYLE = {
   underline: false,
   font: "default",
   effect: "none",
+  showInVoice: true,
 };
 
 const FONT_OPTIONS = [
@@ -22,6 +24,7 @@ const EFFECT_OPTIONS = [
   { value: "none", label: "Nenhum" },
   { value: "shine", label: "Brilho" },
   { value: "pulse", label: "Pulsante" },
+  { value: "cipher", label: "Criptografado" },
 ];
 
 // name_style do servidor (color/gradient/bold/italic/underline/font/effect)
@@ -47,6 +50,7 @@ export function nameStyleToPayload(styleForm) {
     underline: styleForm.underline,
     font: styleForm.font,
     effect: styleForm.effect,
+    showInVoice: styleForm.showInVoice,
   };
 }
 
@@ -192,6 +196,13 @@ export default function NameStyleEditor({ value, onChange, disabled, previewName
           </select>
         </div>
       </div>
+
+      <Toggle
+        checked={value.showInVoice}
+        onChange={(showInVoice) => set({ showInVoice })}
+        disabled={disabled}
+        label="Exibir estilo na lista do canal de voz"
+      />
     </div>
   );
 }

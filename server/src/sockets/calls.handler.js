@@ -66,6 +66,45 @@ export async function handleCallLeave(io, callId, userId) {
   }
 }
 
+// Encerra a chamada quando não sobrou com quem falar: ninguém mais tocando e
+// no máximo uma pessoa dentro (quem ligou, sozinho). Usado depois de uma
+// recusa ou de um convite expirado - numa 1:1 isso derruba a chamada de quem
+// ligou; num grupo com outra pessoa ainda dentro, nada acontece. `reason`
+// ('declined' | 'missed') vai junto pro client mostrar o motivo.
+async function endIfAlone(io, callId, reason) {
+  const participants = await listParticipants(callId);
+  if (participants.length === 0) return;
+  const ringing = participants.some((p) => p.status === 'invited');
+  const inside = participants.filter((p) => p.status === 'accepted');
+  if (ringing || inside.length > 1) return;
+  io.to(voiceRoomOf(callId)).emit('call:ended', { callId, reason });
+  for (const p of inside) io.to(`user:${p.userId}`).emit('call:ended', { callId, reason });
+  // Quem ligou sai do estado "dentro" já aqui (o client dele também sai da
+  // voz ao receber call:ended) pra deleteCallIfInactive apagar o registro.
+  if (inside[0]) await setStatus(callId, inside[0].userId, 'left');
+  await deleteCallIfInactive(callId);
+}
+
+// Convite sem resposta expira sozinho (antes tocava pra sempre, até quem
+// ligou desistir). Timer em memória do processo: se ele reiniciar, o estado
+// de chamadas já é limpo no boot (resetEphemeralPresenceOnBoot), então nada
+// fica tocando órfão.
+// ponytail: ler-e-gravar do status não é atômico - um aceite no mesmo
+// milissegundo da expiração pode ser sobrescrito; trocar por script Lua/
+// WATCH se isso aparecer na prática.
+const INVITE_TIMEOUT_MS = 60_000;
+function scheduleInviteExpiry(io, callId, userId) {
+  const timer = setTimeout(async () => {
+    const entry = await getParticipant(callId, userId);
+    if (entry?.status !== 'invited') return;
+    await setStatus(callId, userId, 'missed');
+    io.to(`user:${userId}`).emit('call:ended', { callId });
+    await broadcastParticipants(io, callId);
+    await endIfAlone(io, callId, 'missed');
+  }, INVITE_TIMEOUT_MS);
+  timer.unref?.();
+}
+
 export function registerCallHandlers(io, socket) {
   const user = socket.data.user;
 
@@ -104,6 +143,7 @@ export function registerCallHandlers(io, socket) {
       callId,
       from: { id: user.id, username: user.username },
     });
+    scheduleInviteExpiry(io, callId, target.publicId);
     return ack({ ok: true, callId });
   });
 
@@ -138,6 +178,7 @@ export function registerCallHandlers(io, socket) {
       callId: parsedCall.data,
       from: { id: user.id, username: user.username },
     });
+    scheduleInviteExpiry(io, parsedCall.data, target.publicId);
     await broadcastParticipants(io, parsedCall.data);
     return ack({ ok: true });
   });
@@ -147,8 +188,10 @@ export function registerCallHandlers(io, socket) {
     const parsed = mediaChannelIdSchema.safeParse(callId);
     if (!parsed.success || !isCallChannel(parsed.data)) return ack({ error: 'Chamada inválida.' });
 
+    // Só convite ainda tocando - antes qualquer entrada servia, e quem já
+    // tinha recusado (ou deixado expirar) conseguia aceitar depois e entrar.
     const entry = await getParticipant(parsed.data, user.id);
-    if (!entry) return ack({ error: 'Convite não encontrado.' });
+    if (entry?.status !== 'invited') return ack({ error: 'Convite não encontrado ou expirado.' });
 
     await setStatus(parsed.data, user.id, 'accepted');
     await broadcastParticipants(io, parsed.data);
@@ -166,6 +209,7 @@ export function registerCallHandlers(io, socket) {
 
     await setStatus(parsed.data, user.id, 'declined');
     await broadcastParticipants(io, parsed.data);
+    await endIfAlone(io, parsed.data, 'declined');
     await deleteCallIfInactive(parsed.data);
     return ack({ ok: true });
   });

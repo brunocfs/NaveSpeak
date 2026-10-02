@@ -201,10 +201,15 @@ export default function FriendsPanel({ selectedFriendId, onSelectFriend }) {
       setScreenPickerSources([]);
       return;
     }
+    // Abre o modal já (com o foguete de carregando) em vez de esperar a
+    // lista - ver `sources === "loading"` em ScreenSourcePicker.jsx. O
+    // updater funcional ignora a resposta se o usuário cancelou no meio.
+    setScreenPickerSources("loading");
     try {
       const sources = await listScreenSources();
-      setScreenPickerSources(sources ?? []);
+      setScreenPickerSources((cur) => (cur === "loading" ? (sources ?? []) : cur));
     } catch (err) {
+      setScreenPickerSources(null);
       console.error("[screen-share] Falha ao listar fontes de tela:", err);
       setScreenPickerError(
         err.message ?? "Não foi possível listar as telas/janelas disponíveis.",

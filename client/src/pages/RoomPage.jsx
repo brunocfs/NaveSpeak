@@ -10,6 +10,7 @@ import {
   Bookmark,
   Volume2,
   ArrowLeft,
+  Pencil,
 } from "lucide-react";
 import {
   Link,
@@ -31,6 +32,11 @@ import VoiceControlBar from "../components/VoiceControlBar.jsx";
 import ServerSettingsModal from "../components/ServerSettingsModal.jsx";
 import CreateChannelModal from "../components/CreateChannelModal.jsx";
 import ServerUserInvite from "../components/ServerUserInvite.jsx";
+import NicknameModal from "../components/NicknameModal.jsx";
+import {
+  useDisplayName,
+  useNicknames,
+} from "../context/NicknamesContext.jsx";
 import { hasPermission } from "../api/roles.js";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
@@ -65,6 +71,14 @@ export default function RoomPage(serverId) {
   // Preview de perfil aberto a partir da lista de membros: { member, pos }.
   const [memberPreview, setMemberPreview] = useState(null);
   const closeMemberPreview = useCallback(() => setMemberPreview(null), []);
+  // Apelidos deste servidor (NicknamesContext) - todo nome exibido aqui
+  // passa por displayName(userId, username).
+  const { setServerNicknames } = useNicknames();
+  const displayName = useDisplayName(roomId);
+  // Menu de clique direito da lista de membros ({ target, x, y }) e alvo do
+  // NicknameModal ({ userId, username }).
+  const [memberMenu, setMemberMenu] = useState(null);
+  const [nicknameTarget, setNicknameTarget] = useState(null);
   const [channels, setChannels] = useState([]);
   const [roles, setRoles] = useState([]);
   const [settings, setSettings] = useState({ memberListMode: "grouped" });
@@ -238,10 +252,15 @@ export default function RoomPage(serverId) {
       setScreenPickerSources([]);
       return;
     }
+    // Abre o modal já (com o foguete de carregando) em vez de esperar a
+    // lista - ver `sources === "loading"` em ScreenSourcePicker.jsx. O
+    // updater funcional ignora a resposta se o usuário cancelou no meio.
+    setScreenPickerSources("loading");
     try {
       const sources = await listScreenSources();
-      setScreenPickerSources(sources ?? []);
+      setScreenPickerSources((cur) => (cur === "loading" ? (sources ?? []) : cur));
     } catch (err) {
+      setScreenPickerSources(null);
       // NÃO usa `setError` daqui - esse `error` (acima) troca a tela
       // INTEIRA da sala por uma página de erro (ver `if (error) return`
       // logo abaixo), reservado pra falha de carregar a sala em si. Um
@@ -300,6 +319,7 @@ export default function RoomPage(serverId) {
     const roomData = await apiRequest(`/rooms/${roomId}`);
     setRoom(roomData.room);
     setMembers(roomData.members);
+    setServerNicknames(roomId, roomData.members);
     setChannels(roomData.channels ?? []);
     setRoles(roomData.roles ?? []);
     setSettings(roomData.settings ?? { memberListMode: "grouped" });
@@ -436,6 +456,21 @@ export default function RoomPage(serverId) {
     socket.on("server:removed", handleRemoved);
     return () => socket.off("server:removed", handleRemoved);
   }, [roomId, navigate]);
+
+  // Estilo TURBO de um membro mudou (PATCH /users/me, ver users.routes.js) -
+  // atualiza a lista na hora; roster e chat leem o estilo daqui.
+  useEffect(() => {
+    const socket = getSocket();
+    function handleNameStyle({ userId, nameStyle }) {
+      setMembers((prev) =>
+        prev.some((m) => m.id === userId)
+          ? prev.map((m) => (m.id === userId ? { ...m, nameStyle } : m))
+          : prev,
+      );
+    }
+    socket.on("member:nameStyle", handleNameStyle);
+    return () => socket.off("member:nameStyle", handleNameStyle);
+  }, []);
 
   // Reporta o canal de TEXTO ativo pro NotificationContext - é o que decide
   // se uma mensagem nova nesse canal deve virar notificação desktop ou não
@@ -633,6 +668,14 @@ export default function RoomPage(serverId) {
     canDisconnect: hasPermission(myPermissions, "DISCONNECT_MEMBERS"),
     canMove: hasPermission(myPermissions, "MOVE_MEMBERS"),
   };
+  // Apelido: o próprio sempre; o de outros só com MANAGE_NICKNAMES (dono/
+  // ADMINISTRATOR incluídos via hasPermission). Servidor reforça no PATCH.
+  const canManageNicknames = hasPermission(myPermissions, "MANAGE_NICKNAMES");
+  const nicknameEditor = (userId, username) =>
+    userId === user?.id || canManageNicknames
+      ? () => setNicknameTarget({ userId, username })
+      : undefined;
+
   const anyVoiceModeration =
     voicePerms.canMute ||
     voicePerms.canDisableMedia ||
@@ -929,7 +972,7 @@ export default function RoomPage(serverId) {
                       <li>
                         <button
                           onClick={() => openVoiceChannel(c.id)}
-                          className={`w-full truncate rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
+                          className={`w-full truncate rounded-xl px-3 py-2 mb-2 text-left text-sm font-medium transition ${
                             c.id === activeChannelId
                               ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                               : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -938,7 +981,7 @@ export default function RoomPage(serverId) {
                           🔊 {c.name}
                         </button>
                       </li>
-                      <ul className="flex flex-col gap-2 ml-2">
+                      <ul className="flex flex-col gap-2">
                         {(voiceRosters[c.id] ?? []).map((p) => {
                           const isSelf = p.userId === user?.id;
 
@@ -959,8 +1002,12 @@ export default function RoomPage(serverId) {
                           // falando com ninguém ouvindo - outro participante
                           // mutado já vem sem áudio no consumer pausado, nunca
                           // precisou desse cuidado extra.
+                          // Ensurdecido não vê o anel de ninguém (nem roxo do
+                          // soundboard, ver soundboardSpeakers).
+                          const inThisCall =
+                            media.voiceChannelId === c.id && !media.deafened;
                           const micStream =
-                            media.voiceChannelId !== c.id
+                            !inThisCall
                               ? null
                               : isSelf
                                 ? media.micTransmitting
@@ -1006,9 +1053,18 @@ export default function RoomPage(serverId) {
                               userId={p.userId}
                               isSelf={isSelf}
                               username={p.username}
+                              displayName={displayName(p.userId, p.username)}
+                              onEditNickname={nicknameEditor(
+                                p.userId,
+                                p.username,
+                              )}
                               discriminator={p.discriminator}
                               avatarPath={p.avatarPath}
                               micStream={micStream}
+                              soundboardActive={
+                                inThisCall &&
+                                media.soundboardSpeakers.has(p.userId)
+                              }
                               micMuted={micMuted}
                               deafened={deafened}
                               cameraOn={cameraOn}
@@ -1115,7 +1171,7 @@ export default function RoomPage(serverId) {
         <section
           className={`min-w-0  bg-white dark:bg-[#161820] dark:ring-slate-800 lg:flex lg:min-h-0 lg:flex-col ${
             mobileContentOpen
-              ? "max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:flex max-lg:flex-col"
+              ? "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:top-(--titlebar-h) max-lg:z-40 max-lg:flex max-lg:flex-col"
               : "max-lg:hidden"
           }`}
         >
@@ -1194,7 +1250,7 @@ export default function RoomPage(serverId) {
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 items-center pr-3 max-lg:pl-2">
                 <div className="flex min-w-0 items-center">
-                <button
+                  <button
                     onClick={() => setMobileContentOpen(false)}
                     title="Voltar para os canais"
                     aria-label="Voltar para os canais"
@@ -1202,9 +1258,9 @@ export default function RoomPage(serverId) {
                   >
                     <ArrowLeft className="size-5" />
                   </button>
-                <h2 className="truncate  px-4 py-3 max-lg:px-2 text-sm font-semibold uppercase tracking-wide text-slate-500  dark:text-slate-400">
-                  {activeChannel.name ? `  ${activeChannel.name}` : ""}
-                </h2>
+                  <h2 className="truncate  px-4 py-3 max-lg:px-2 text-sm font-semibold uppercase tracking-wide text-slate-500  dark:text-slate-400">
+                    {activeChannel.name ? `  ${activeChannel.name}` : ""}
+                  </h2>
                 </div>
                 <button
                   onClick={
@@ -1212,24 +1268,14 @@ export default function RoomPage(serverId) {
                       ? () => setMobileMembersOpen((v) => !v)
                       : toggleMembersSidebar
                   }
-                  title={
-                    showMembers
-                      ? "Ocultar membros"
-                      : "Mostrar membros"
-                  }
+                  title={showMembers ? "Ocultar membros" : "Mostrar membros"}
                   aria-label={
-                    showMembers
-                      ? "Ocultar membros"
-                      : "Mostrar membros"
+                    showMembers ? "Ocultar membros" : "Mostrar membros"
                   }
                   aria-pressed={showMembers}
                   className="cursor-pointer inline-flex h-8 w-8 p-1.5 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
-                  {showMembers ? (
-                    <PanelRightClose />
-                  ) : (
-                    <PanelRightOpen />
-                  )}
+                  {showMembers ? <PanelRightClose /> : <PanelRightOpen />}
                 </button>
               </div>
               <div className="min-h-0 flex-1">
@@ -1247,12 +1293,12 @@ export default function RoomPage(serverId) {
 
         {showMembers && isMobile && (
           <div
-            className="fixed inset-0 z-50 bg-black/60 lg:hidden"
+            className="fixed inset-x-0 bottom-0 top-(--titlebar-h) z-50 bg-black/60 lg:hidden"
             onClick={() => setMobileMembersOpen(false)}
           />
         )}
         {showMembers && (
-          <aside className="lg:flex lg:min-h-0 lg:flex-col max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-50 max-lg:flex max-lg:w-72 max-lg:max-w-[85vw] max-lg:flex-col">
+          <aside className="lg:flex lg:min-h-0 lg:flex-col max-lg:fixed max-lg:top-(--titlebar-h) max-lg:bottom-0 max-lg:right-0 max-lg:z-50 max-lg:flex max-lg:w-72 max-lg:max-w-[85vw] max-lg:flex-col">
             <div className="flex min-h-0 flex-1 flex-col  bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-[#0f1117] dark:ring-slate-800">
               <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -1285,6 +1331,10 @@ export default function RoomPage(serverId) {
                           {group.members.map((m) => {
                             const status = m.status;
                             const isOnline = status !== "offline";
+                            const editNickname = nicknameEditor(
+                              m.id,
+                              m.username,
+                            );
 
                             return (
                               <li
@@ -1295,13 +1345,31 @@ export default function RoomPage(serverId) {
                                     pos: previewPosFromEvent(e),
                                   })
                                 }
+                                onContextMenu={(e) => {
+                                  if (!editNickname) return;
+                                  e.preventDefault();
+                                  setMemberMenu({
+                                    onEdit: editNickname,
+                                    x: Math.max(
+                                      8,
+                                      Math.min(
+                                        e.clientX,
+                                        window.innerWidth - 200 - 8,
+                                      ),
+                                    ),
+                                    y: Math.min(
+                                      e.clientY,
+                                      window.innerHeight - 48,
+                                    ),
+                                  });
+                                }}
                                 className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/60 dark:hover:bg-slate-800"
                               >
                                 <div className="flex min-w-0 items-center gap-3">
                                   <span className="relative inline-flex shrink-0">
                                     <Avatar
                                       avatarPath={m.avatarPath}
-                                      username={m.username}
+                                      username={displayName(m.id, m.username)}
                                       size="sm"
                                     />
                                     <StatusDot
@@ -1320,7 +1388,7 @@ export default function RoomPage(serverId) {
                                     }
                                   >
                                     <StyledUsername
-                                      username={m.username}
+                                      username={displayName(m.id, m.username)}
                                       style={m.nameStyle}
                                     />
                                   </span>
@@ -1347,6 +1415,41 @@ export default function RoomPage(serverId) {
               </div>
             </div>
           </aside>
+        )}
+        {memberMenu && (
+          <div
+            className="fixed inset-0 z-[9999]"
+            onClick={() => setMemberMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMemberMenu(null);
+            }}
+          >
+            <div
+              role="menu"
+              style={{ position: "fixed", left: memberMenu.x, top: memberMenu.y }}
+              className="w-[200px] rounded-lg bg-white p-3 text-sm shadow-sm dark:bg-[#181a20]"
+            >
+              <button
+                role="menuitem"
+                className="cursor-pointer flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-700"
+                onClick={memberMenu.onEdit}
+              >
+                <Pencil className="size-3.5 shrink-0" />
+                Alterar apelido
+              </button>
+            </div>
+          </div>
+        )}
+        {nicknameTarget && (
+          <NicknameModal
+            roomId={roomId}
+            userId={nicknameTarget.userId}
+            username={nicknameTarget.username}
+            nickname={displayName(nicknameTarget.userId, null)}
+            isSelf={nicknameTarget.userId === user?.id}
+            onClose={() => setNicknameTarget(null)}
+          />
         )}
         {memberPreview && (
           <UserProfilePreview

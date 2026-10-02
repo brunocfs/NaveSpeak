@@ -6,15 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "i18n:check": "node scripts/i18n-check.js"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "@sapphi-red/web-noise-suppressor": "^0.4.0",
+    "i18next": "^26.4.2",
     "lucide-react": "^1.33.0",
     "mediasoup-client": "^3.7.17",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.15",
     "react-router-dom": "^7.18.2",
     "socket.io-client": "^4.7.5"
   },

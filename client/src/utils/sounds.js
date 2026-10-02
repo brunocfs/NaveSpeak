@@ -13,6 +13,24 @@ const SOUNDS = {
   message: '/sounds/message.mp3', // mensagem nova (arquivo ainda não existe)
 };
 
+// Sons gerados na hora (sem arquivo, nada a baixar) - entram no mesmo
+// pipeline de buffer/loop/volume/saída dos arquivos acima.
+// ringback: "chamando" de quem liga - tom de 425 Hz, 1s ligado / 4s
+// desligado (padrão de chamada da telefonia no Brasil), em loop.
+const SYNTHS = {
+  ringback(ctx) {
+    const rate = ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, rate * 5, rate);
+    const data = buffer.getChannelData(0);
+    const fade = Math.floor(rate * 0.01); // 10ms de rampa: sem "clique" nas bordas
+    for (let i = 0; i < rate; i++) {
+      const env = Math.min(1, i / fade, (rate - i) / fade);
+      data[i] = 0.25 * env * Math.sin((2 * Math.PI * 425 * i) / rate);
+    }
+    return buffer;
+  },
+};
+
 // Web Audio API em vez de `new Audio(src).play()` de propósito: um <audio>
 // element só decodifica/buffeia sob demanda no primeiro play(), e pra
 // arquivo grande (calling.wav tem 6.6MB) isso é um delay perceptível bem no
@@ -119,6 +137,12 @@ const loading = new Map(); // name -> Promise<AudioBuffer> em andamento
 
 function loadBuffer(name) {
   if (buffers.has(name)) return Promise.resolve(buffers.get(name));
+  if (SYNTHS[name]) {
+    const buffer = SYNTHS[name](getAudioContext());
+    buffers.set(name, buffer);
+    onsets.set(name, 0);
+    return Promise.resolve(buffer);
+  }
   if (loading.has(name)) return loading.get(name);
 
   const promise = fetch(SOUNDS[name])
@@ -182,7 +206,7 @@ const lastPlayedAt = new Map();
 // arquivo ausente/404, AudioContext bloqueado por autoplay (sem interação do
 // usuário ainda) etc. só geram um aviso no console.
 export async function playSound(name, { volume = 1, loop = false } = {}) {
-  if (typeof window === 'undefined' || !SOUNDS[name]) return;
+  if (typeof window === 'undefined' || (!SOUNDS[name] && !SYNTHS[name])) return;
 
   if (!loop) {
     const now = Date.now();
@@ -276,23 +300,50 @@ function loadSoundboardBuffer(url) {
 // postura de playSound acima (404/decode inválido/autoplay bloqueado só
 // avisam no console). Sem dedupe por nome (diferente de playSound): sons
 // diferentes podem legitimamente tocar em sequência rápida, um do outro.
+// Retorna a duração em segundos (pro anel roxo de quem tocou, ver
+// MediaSessionContext.jsx) ou null se não tocou.
+//
+// `soundboardToken` segue a mesma ideia de loopTokens acima: stopSoundboardSounds
+// (ao ensurdecer/sair da voz) invalida qualquer play ainda em voo (baixando/
+// decodificando), senão o som começaria DEPOIS do deafen.
+let soundboardToken = 0;
+const activeSoundboardSources = new Set();
 export async function playSoundboardSound(url) {
-  if (typeof window === 'undefined' || !url) return;
+  if (typeof window === 'undefined' || !url) return null;
+  const myToken = soundboardToken;
   try {
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') await ctx.resume();
 
     const buffer = await loadSoundboardBuffer(url);
+    if (myToken !== soundboardToken) return null;
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const gain = ctx.createGain();
     gain.gain.value = soundboardVolume;
     source.connect(gain).connect(ctx.destination);
+    activeSoundboardSources.add(source);
+    source.onended = () => activeSoundboardSources.delete(source);
     source.start(0);
+    return buffer.duration;
   } catch (err) {
     console.warn(`[sounds] Não foi possível tocar o efeito sonoro "${url}":`, err.message);
+    return null;
   }
+}
+
+// Corta todo efeito de soundboard tocando agora (e os ainda carregando).
+export function stopSoundboardSounds() {
+  soundboardToken++;
+  for (const source of activeSoundboardSources) {
+    try {
+      source.stop();
+    } catch {
+      // já tinha terminado - nada a fazer.
+    }
+  }
+  activeSoundboardSources.clear();
 }
 
 // Para um som em loop (hoje só "calling" - CallContext.jsx toca em loop

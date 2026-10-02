@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { setNotificationVolume, setNotificationOutputDevice, setSoundboardVolume } from '../utils/sounds.js';
+import { detectLanguage, setAppLanguage } from '../i18n/index.js';
 
 const PreferencesContext = createContext(null);
 
@@ -9,7 +10,9 @@ const STORAGE_KEY = 'navespeak:preferences';
 // é sempre dark até o usuário trocar e persistir a escolha própria).
 const DEFAULT_PREFERENCES = {
   theme: 'dark',
-  language: 'pt-BR',
+  // Primeiro acesso segue o idioma do navegador/SO (se suportado) - depois
+  // vale o que o usuário escolher em Preferências.
+  language: detectLanguage(),
   notificationsEnabled: true,
   // null = "padrão do sistema" (nenhum deviceId específico salvo, ou o
   // salvo não existe mais no fallback de MediaSessionContext.joinVoice/
@@ -168,27 +171,27 @@ const DEFAULT_PREFERENCES = {
   callVolume: 100,
 };
 
-// Lista fechada por enquanto (sem i18n real ainda - ver LANGUAGES abaixo),
-// mas guardar o `code` já no formato BCP 47 deixa a troca por um i18n de
-// verdade (react-i18next etc.) direta no futuro: só passar a consumir
-// `language` num provider de traduções, sem mexer nesta tela.
 // Modos do supressor de ruído (ver noiseSuppressionMode acima) - usado em
 // Preferências e no ajuste rápido do mic (AudioQuickSettings.jsx).
+// `labelKey` = chave de tradução (i18n/index.js), traduzida no render.
 export const NOISE_SUPPRESSION_OPTIONS = [
-  { value: 'off', label: 'Desligado' },
-  { value: 'native', label: 'Nativo' },
-  { value: 'rnnoise', label: 'RNNoise' },
-  { value: 'gtcrn', label: 'GTCRN' },
-  { value: 'deepfilternet', label: 'DeepFilterNet3' },
+  { value: 'off', labelKey: 'noiseSuppression.off' },
+  { value: 'native', labelKey: 'noiseSuppression.native' },
+  { value: 'rnnoise', labelKey: 'noiseSuppression.rnnoise' },
+  { value: 'gtcrn', labelKey: 'noiseSuppression.gtcrn' },
+  { value: 'deepfilternet', labelKey: 'noiseSuppression.deepfilternet' },
 ];
 
+// Idiomas da interface - códigos BCP 47, os mesmos de SUPPORTED_LANGUAGES em
+// i18n/index.js. Rótulo sempre no próprio idioma (não se traduz), pra quem
+// caiu num idioma que não entende conseguir achar o seu.
 export const LANGUAGES = [
   { code: 'pt-BR', label: 'Português (Brasil)' },
   { code: 'en-US', label: 'English (US)' },
   { code: 'es-ES', label: 'Español' },
 ];
 
-function loadStoredPreferences() {
+export function loadStoredPreferences() {
   if (typeof window === 'undefined') return DEFAULT_PREFERENCES;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -225,6 +228,10 @@ export function PreferencesProvider({ children }) {
   // Preferências, só lê o estado que já foi setado aqui. Saída efetiva =
   // null quando o toggle está desligado, mesmo que um deviceId já tenha sido
   // escolhido antes (desligar volta pro padrão do sistema na hora).
+  useEffect(() => {
+    setAppLanguage(preferences.language);
+  }, [preferences.language]);
+
   useEffect(() => {
     setNotificationVolume(preferences.notificationVolume);
   }, [preferences.notificationVolume]);

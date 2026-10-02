@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { CheckCircle2, Loader2, TriangleAlert, Info, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const ToastContext = createContext(null);
 
@@ -100,6 +101,7 @@ function Toast({ toast, onDismiss }) {
   // esse truque, o elemento já nasceria no estado final e não haveria nada
   // pra transicionar). A saída usa o mesmo par de classes, só que disparada
   // por toast.closing (setado em dismissToast).
+  const { t } = useTranslation();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true));
@@ -124,7 +126,7 @@ function Toast({ toast, onDismiss }) {
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Fechar"
+        aria-label={t("common.close")}
         className="text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-200"
       >
         <X className="size-3.5" />

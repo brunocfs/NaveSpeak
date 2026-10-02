@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../context/AuthContext.jsx";
 import { getAuthConfig } from "../api/auth.js";
 import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
 
 export default function LoginPage() {
   const { login, logoutNotice } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [identifier, setIdentifier] = useState("");
@@ -72,7 +74,7 @@ export default function LoginPage() {
         <div className="relative max-w-md">
           <div className="mb-6 flex items-center gap-2.5 font-signal text-[11px] font-medium uppercase tracking-[0.2em] text-teal-300/90">
             <span className="login-ping-dot" aria-hidden="true" />
-            Sinal ativo
+            {t("auth.signalActive")}
             <span className="login-wave" aria-hidden="true">
               <span className="login-wave-bar" />
               <span className="login-wave-bar" />
@@ -83,32 +85,29 @@ export default function LoginPage() {
           </div>
 
           <h1 className="font-display text-4xl font-semibold leading-[1.1] tracking-tight text-white xl:text-[2.75rem]">
-            Sua tripulação,
+            {t("auth.heroTitleLine1")}
             <br />
-            no mesmo canal.
+            {t("auth.heroTitleLine2")}
           </h1>
 
           <p className="mt-5 text-[15px] leading-relaxed text-slate-400">
-            NaveSpeak junta voz, vídeo, texto e presença num só lugar. Crie
-            salas, organize canais e chame a galera pra call sem sair do
-            navegador.
+            {t("auth.heroText")}
           </p>
 
           {inviteOnly && (
             <div className="mt-8 rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] px-5 py-4">
               <p className="flex items-center gap-2 font-signal text-[11px] font-semibold uppercase tracking-[0.15em] text-amber-300">
-                <span aria-hidden="true">🔒</span> Teste fechado
+                <span aria-hidden="true">🔒</span> {t("auth.closedBeta")}
               </p>
               <p className="mt-2 text-[13px] leading-relaxed text-slate-400">
-                O acesso ainda é só por convite de quem já embarcou. Sem convite
-                em mãos? Peça o seu a um tripulante.
+                {t("auth.closedBetaText")}
               </p>
             </div>
           )}
         </div>
 
         <p className="relative font-signal text-[11px] uppercase tracking-[0.15em] text-slate-600">
-          Status: {inviteOnly ? "recebendo só convidados" : "cadastro aberto"}
+          {inviteOnly ? t("auth.statusInviteOnly") : t("auth.statusOpen")}
         </p>
       </aside>
 
@@ -125,13 +124,13 @@ export default function LoginPage() {
                   NaveSpeak
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Voz, texto e presença pra sua tripulação.
+                  {t("auth.tagline")}
                 </p>
               </div>
             </div>
             {inviteOnly && (
               <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 font-signal text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-600 dark:text-amber-300">
-                🔒 Teste fechado - só por convite
+                🔒 {t("auth.closedBetaBadge")}
               </p>
             )}
           </div>
@@ -142,7 +141,7 @@ export default function LoginPage() {
               onClick={() => setDarkMode((prev) => !prev)}
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
             >
-              {darkMode ? "☀️ Tema claro" : "🌙 Tema escuro"}
+              {darkMode ? `☀️ ${t("common.lightTheme")}` : `🌙 ${t("common.darkTheme")}`}
             </button>
           </div>
 
@@ -152,17 +151,17 @@ export default function LoginPage() {
           >
             <div className="mb-7">
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Entrar
+                {t("common.signIn")}
               </h2>
               <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                Acesse sua conta pra continuar.
+                {t("auth.login.subtitle")}
               </p>
             </div>
 
             <div className="space-y-5">
               <div>
                 <label htmlFor="identifier" className={labelClass}>
-                  Usuário#tag ou email
+                  {t("auth.identifier")}
                 </label>
                 <input
                   id="identifier"
@@ -171,14 +170,14 @@ export default function LoginPage() {
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
-                  placeholder="usuario#12345 ou email"
+                  placeholder={t("auth.identifierPlaceholder")}
                   className={inputClass}
                 />
               </div>
 
               <div>
                 <label htmlFor="password" className={labelClass}>
-                  Senha
+                  {t("auth.password")}
                 </label>
                 <input
                   id="password"
@@ -187,7 +186,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  placeholder="Digite sua senha"
+                  placeholder={t("auth.login.passwordPlaceholder")}
                   className={inputClass}
                 />
               </div>
@@ -203,7 +202,7 @@ export default function LoginPage() {
                 disabled={submitting}
                 className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-blue-400 dark:focus:ring-offset-slate-900"
               >
-                {submitting ? "Entrando..." : "Entrar"}
+                {submitting ? t("common.signingIn") : t("common.signIn")}
               </button>
             </div>
             <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
@@ -211,21 +210,21 @@ export default function LoginPage() {
                 to="/forgotPass"
                 className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
               >
-                Esqueci minha senha
+                {t("auth.login.forgot")}
               </Link>
             </p>
             <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-              Não tem conta?{" "}
+              {t("auth.login.noAccount")}{" "}
               <Link
                 to="/register"
                 className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
               >
-                Criar conta
+                {t("auth.register.title")}
               </Link>
               {inviteOnly && (
                 <span className="text-slate-400 dark:text-slate-500">
                   {" "}
-                  (convite necessário)
+                  {t("auth.login.inviteRequired")}
                 </span>
               )}
             </p>

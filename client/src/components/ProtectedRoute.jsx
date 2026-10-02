@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTranslation } from 'react-i18next';
 
 // `requireAdmin` gate a rota atrás de user.isAdmin (users.is_admin no
 // servidor, ver painel de convites - AdminInvitesPage.jsx) além do login já
@@ -9,8 +10,9 @@ import { useAuth } from '../context/AuthContext.jsx';
 // só acontece digitando a URL na mão.
 export default function ProtectedRoute({ children, requireAdmin = false }) {
   const { user, loading } = useAuth();
+  const { t } = useTranslation();
 
-  if (loading) return <p className="centered">Carregando...</p>;
+  if (loading) return <p className="centered">{t('common.loading')}</p>;
   if (!user) return <Navigate to="/login" replace />;
   if (requireAdmin && !user.isAdmin) return <Navigate to="/rooms" replace />;
 

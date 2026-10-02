@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { AppWindow, Monitor } from "lucide-react";
 import {
   SCREEN_RESOLUTIONS,
   SCREEN_FRAMERATES,
   DEFAULT_SCREEN_QUALITY,
   suggestScreenBitrateKbps,
 } from "../api/media.js";
+import NavespeakLogoV1 from "./NavespeakLogoV1.jsx";
 
 // Modal pra escolher o que compartilhar + qualidade.
 //
@@ -12,6 +14,9 @@ import {
 // não funciona lá - ver api/media.js). No navegador comum vem como array
 // vazio: o seletor de JANELA é o nativo do próprio getDisplayMedia (mostra
 // depois, ao confirmar), então aqui só sobra escolher a qualidade.
+//
+// `sources === "loading"`: o modal abre na hora do clique (listar as fontes
+// no Electron leva ~0,5-2s) e mostra o foguete "decolando" até a lista chegar.
 //
 // Abas "Telas" / "Janelas" (só com `sources`): separadas pelo prefixo do id
 // do desktopCapturer ('screen:' = tela inteira, o resto = janela). A grade da
@@ -40,15 +45,17 @@ export default function ScreenSourcePicker({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customBitrate, setCustomBitrate] = useState("");
 
-  const hasSources = sources.length > 0;
-  const screens = sources.filter((s) => s.id.startsWith("screen:"));
-  const windows = sources.filter((s) => !s.id.startsWith("screen:"));
+  const loading = sources === "loading";
+  const list = loading ? [] : sources;
+  const hasSources = list.length > 0;
+  const screens = list.filter((s) => s.id.startsWith("screen:"));
+  const windows = list.filter((s) => !s.id.startsWith("screen:"));
   const tabs = [
     { value: "screen", label: "Telas", items: screens, empty: "Nenhuma tela encontrada." },
     { value: "window", label: "Janelas", items: windows, empty: "Nenhuma janela aberta encontrada." },
   ];
   const activeTab = tabs.find((t) => t.value === tab);
-  const canConfirm = !hasSources || Boolean(selected);
+  const canConfirm = !loading && (!hasSources || Boolean(selected));
   const suggestedBitrate = suggestScreenBitrateKbps(resolution, frameRate);
 
   function confirm(sourceId) {
@@ -60,6 +67,16 @@ export default function ScreenSourcePicker({
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal-card">
         <h3>{title}</h3>
+
+        {loading && (
+          <div className="mb-4 flex flex-col items-center gap-2 py-6" role="status">
+            <NavespeakLogoV1
+              title="Carregando"
+              className="nvs-logo-launching h-14 w-14 text-slate-700 dark:text-slate-100"
+            />
+            <p className="text-sm text-slate-500 dark:text-slate-400">Carregando telas e janelas...</p>
+          </div>
+        )}
 
         {hasSources && (
           <>
@@ -92,7 +109,15 @@ export default function ScreenSourcePicker({
                   onClick={() => setSelected(source.id)}
                   onDoubleClick={() => confirm(source.id)}
                 >
-                  {source.thumbnail && <img src={source.thumbnail} alt="" />}
+                  {source.thumbnail ? (
+                    <img src={source.thumbnail} alt="" />
+                  ) : (
+                    // Sem miniatura: monitor que o Chromium não enxerga ou
+                    // janela minimizada (ver electron/winSources.js).
+                    <span className="flex aspect-[5/3] w-full items-center justify-center rounded bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+                      {source.id.startsWith("screen:") ? <Monitor className="size-6" /> : <AppWindow className="size-6" />}
+                    </span>
+                  )}
                   <span>{source.name}</span>
                 </button>
               ))}

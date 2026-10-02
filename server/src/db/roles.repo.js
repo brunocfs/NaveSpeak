@@ -142,6 +142,7 @@ export async function listMembersWithRoles(serverId) {
        ${turboActiveSql('u')} AS "isTurbo",
        ${publicNameStyleSql('u')} AS "nameStyle",
        rm.joined_at AS "joinedAt",
+       rm.nickname,
        COALESCE(
          json_agg(
            json_build_object('id', r.id, 'name', r.name, 'color', r.color, 'position', r.position, 'isDefault', r.is_default)
@@ -157,7 +158,7 @@ export async function listMembersWithRoles(serverId) {
          OR EXISTS (SELECT 1 FROM role_members rmem WHERE rmem.role_id = r.id AND rmem.user_id = rm.user_id)
        )
      WHERE rm.room_id = $1
-     GROUP BY u.id, rm.joined_at`,
+     GROUP BY u.id, rm.joined_at, rm.nickname`,
     [serverId]
   );
   return rows;

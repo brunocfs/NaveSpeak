@@ -27,6 +27,8 @@ test('turbo benefits only accept known keys', () => {
 test('profile nameStyle is validated strictly', () => {
   assert.equal(profileUpdateSchema.safeParse({ nameStyle: { color: '#ff00aa', effect: 'shine' } }).success, true);
   assert.equal(profileUpdateSchema.safeParse({ nameStyle: { color: 'red' } }).success, false);
+  assert.equal(profileUpdateSchema.safeParse({ nameStyle: { showInVoice: false } }).success, true);
+  assert.equal(profileUpdateSchema.safeParse({ nameStyle: { showInVoice: 'no' } }).success, false);
   assert.equal(profileUpdateSchema.safeParse({ nameStyle: { color: '#ff00aa', css: 'x' } }).success, false);
 });
 

@@ -208,6 +208,11 @@ CREATE TABLE IF NOT EXISTS room_members (
 -- PK começa por room_id, então buscas "servidores DO usuário" (shareCommonRoom,
 -- countCommonRooms, lista de salas) não usavam índice nenhum.
 CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members (user_id);
+-- Apelido do membro NESTE servidor (NULL = exibe o username). Por servidor de
+-- proposito: mudar aqui nao afeta como o usuario aparece em outros servidores.
+-- Alterado em PATCH /rooms/:roomId/members/:userId/nickname (o proprio membro,
+-- ou quem tem MANAGE_NICKNAMES).
+ALTER TABLE room_members ADD COLUMN IF NOT EXISTS nickname VARCHAR(32) NULL;
 
 -- Canais de texto ou voz dentro de um servidor (rooms.id = o servidor).
 -- type: 'text' (recebe mensagens) | 'voice' (estado de voz fica no Redis,

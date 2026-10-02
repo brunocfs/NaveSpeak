@@ -22,13 +22,27 @@ import StyledUsername from "./StyledUsername.jsx";
 // Ver mesma constante em ChatPanel.jsx.
 const TYPING_EXPIRE_MS = 5000;
 
+// Altura do painel da chamada embutido (arrastável pela divisória) -
+// lembrada por navegador, é só conveniência visual.
+const CALL_HEIGHT_KEY = "navespeak:dmCallHeight";
+const CALL_MIN_HEIGHT = 180;
+const CHAT_MIN_HEIGHT = 160;
+function readCallHeight() {
+  try {
+    const saved = Number(localStorage.getItem(CALL_HEIGHT_KEY));
+    return saved >= CALL_MIN_HEIGHT ? saved : 340;
+  } catch {
+    return 340;
+  }
+}
+
 // Conversa privada com um amigo. Mesmo padrão do ChatPanel (histórico via
 // REST, envio/recebimento em tempo real via socket) - só troca o canal de
 // texto de um servidor pelo par (usuário logado, friend).
 export default function DmPanel({ friend }) {
   const { user } = useAuth();
   const media = useMediaSession();
-  const { startCall, leaveCall } = useCall();
+  const { startCall, leaveCall, isCall, callPeer, callExpanded } = useCall();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -82,6 +96,51 @@ export default function DmPanel({ friend }) {
   // aberta no momento.
   const inAnyCall =
     media.connected && media.voiceChannelId?.startsWith("call:");
+  // A chamada ativa é com ESTE amigo: o painel dela fica embutido aqui em
+  // cima do chat (o VoicePanel global se porta pro anchor abaixo - ver
+  // media.setPanelAnchor, mesmo mecanismo de RoomPage). Fora desta DM ele
+  // vira o mini flutuante de sempre.
+  const callHere = inAnyCall && isCall && callPeer?.id === friend.id;
+  const callAnchorRef = useRef(null);
+  useEffect(() => {
+    if (!callHere) return undefined;
+    const node = callAnchorRef.current;
+    media.setPanelAnchor(node);
+    return () => media.setPanelAnchor((current) => (current === node ? null : current));
+  }, [callHere, media.setPanelAnchor]);
+
+  // Divisória arrastável: mexe direto no style durante o arrasto (sem
+  // re-renderizar a lista de mensagens a cada pixel) e só grava no fim.
+  const [callHeight, setCallHeight] = useState(readCallHeight);
+  const callDragRef = useRef(null);
+  function handleDividerPointerDown(e) {
+    if (e.button !== 0) return;
+    const container = e.currentTarget.parentElement.getBoundingClientRect();
+    callDragRef.current = {
+      startY: e.clientY,
+      startHeight: callAnchorRef.current.getBoundingClientRect().height,
+      max: Math.max(CALL_MIN_HEIGHT, container.height - CHAT_MIN_HEIGHT),
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function handleDividerPointerMove(e) {
+    const drag = callDragRef.current;
+    if (!drag) return;
+    const next = Math.min(drag.max, Math.max(CALL_MIN_HEIGHT, drag.startHeight + e.clientY - drag.startY));
+    callAnchorRef.current.style.height = `${next}px`;
+  }
+  function handleDividerPointerUp(e) {
+    if (!callDragRef.current) return;
+    callDragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const next = Math.round(callAnchorRef.current.getBoundingClientRect().height);
+    setCallHeight(next);
+    try {
+      localStorage.setItem(CALL_HEIGHT_KEY, String(next));
+    } catch {
+      /* sem storage: só não lembra na próxima vez */
+    }
+  }
 
   function formatMessageTime(value) {
     return new Date(value).toLocaleTimeString("pt-BR", {
@@ -261,7 +320,7 @@ export default function DmPanel({ friend }) {
           {/* Ligar não faz sentido pra conta oficial (não atende) - some só o
               botão de INICIAR chamada; "Sair da chamada" continua visível se
               já houver uma chamada em andamento com outra pessoa. */}
-          {(inAnyCall || !friend.isSystem) && (
+          {!callHere && (inAnyCall || !friend.isSystem) && (
             <button
               type="button"
               onClick={handleCallClick}
@@ -293,6 +352,46 @@ export default function DmPanel({ friend }) {
         </div>
       </div>
 
+      {callHere && (
+        <>
+          {/* Sem filhos próprios de propósito: o conteúdo é do VoicePanel
+              (portal). Com a janela desacoplada aberta o anchor some (fica
+              montado, só escondido) e sobra só o aviso abaixo. */}
+          <div
+            ref={callAnchorRef}
+            style={callExpanded ? undefined : { height: callHeight }}
+            className={`min-h-0 shrink-0 overflow-hidden ${callExpanded ? "flex-1" : ""} ${media.popout ? "hidden" : ""}`}
+          />
+          {media.popout ? (
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              Chamada aberta em outra janela.
+              <button
+                type="button"
+                onClick={media.closePopout}
+                className="cursor-pointer rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Encaixar de volta
+              </button>
+            </div>
+          ) : (
+            !callExpanded && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Redimensionar chamada"
+                onPointerDown={handleDividerPointerDown}
+                onPointerMove={handleDividerPointerMove}
+                onPointerUp={handleDividerPointerUp}
+                className="h-1.5 shrink-0 cursor-row-resize touch-none bg-slate-200 transition hover:bg-purple-400 dark:bg-slate-800 dark:hover:bg-purple-500"
+              />
+            )
+          )}
+        </>
+      )}
+
+      {/* Chamada expandida esconde o chat (sem desmontar: rascunho e scroll
+          continuam como estavam ao recolher). */}
+      <div className={`flex min-h-0 flex-1 flex-col ${callHere && callExpanded && !media.popout ? "hidden" : ""}`}>
       <div className="relative min-h-0 flex-1">
       <div
         ref={containerRef}
@@ -369,6 +468,7 @@ export default function DmPanel({ friend }) {
           />
         </div>
       )}
+      </div>
     </AttachmentDropZone>
   );
 }

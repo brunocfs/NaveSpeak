@@ -34,10 +34,15 @@ export default function VoiceStatusBar() {
       setScreenPickerSources([]);
       return;
     }
+    // Abre o modal já (com o foguete de carregando) em vez de esperar a
+    // lista - ver `sources === "loading"` em ScreenSourcePicker.jsx. O
+    // updater funcional ignora a resposta se o usuário cancelou no meio.
+    setScreenPickerSources("loading");
     try {
       const sources = await listScreenSources();
-      setScreenPickerSources(sources ?? []);
+      setScreenPickerSources((cur) => (cur === "loading" ? (sources ?? []) : cur));
     } catch (err) {
+      setScreenPickerSources(null);
       // Sem try/catch aqui antes: se o IPC (ipcMain.handle('screen:get-sources'))
       // rejeitasse - desktopCapturer falhando por qualquer motivo do lado
       // nativo -, a promise estourava sem handler e o clique parecia não

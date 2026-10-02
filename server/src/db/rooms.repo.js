@@ -48,6 +48,13 @@ export async function listRoomsForUser(userId) {
   return rows;
 }
 
+// Só os ids (sem o JOIN de criador de listRoomsForUser) - usado pra
+// broadcast nas rooms socket.io dos servidores do usuário.
+export async function listRoomIdsForUser(userId) {
+  const { rows } = await pool.query('SELECT room_id AS id FROM room_members WHERE user_id = $1', [userId]);
+  return rows.map((r) => r.id);
+}
+
 export async function isRoomMember(roomId, userId) {
   const { rows } = await pool.query(
     'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1',
@@ -89,6 +96,16 @@ export async function countCommonRooms(userA, userB) {
     [userA, userB]
   );
   return rows[0].n;
+}
+
+// Apelido por servidor (null limpa). O WHERE por (room_id, user_id) já garante
+// que o alvo é membro DESTE servidor - false = não é membro.
+export async function setMemberNickname(roomId, userId, nickname) {
+  const { rowCount } = await pool.query(
+    'UPDATE room_members SET nickname = $3 WHERE room_id = $1 AND user_id = $2',
+    [roomId, userId, nickname]
+  );
+  return rowCount > 0;
 }
 
 export async function removeRoomMember(roomId, userId) {

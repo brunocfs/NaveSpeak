@@ -1,0 +1,247 @@
+{
+  "common": {
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "systemDefault": "Predeterminado del sistema",
+    "back": "Volver",
+    "loading": "Cargando...",
+    "lightTheme": "Tema claro",
+    "darkTheme": "Tema oscuro",
+    "signIn": "Iniciar sesión",
+    "signingIn": "Iniciando sesión..."
+  },
+  "noiseSuppression": {
+    "off": "Desactivado",
+    "native": "Nativo",
+    "rnnoise": "RNNoise",
+    "gtcrn": "GTCRN",
+    "deepfilternet": "DeepFilterNet3"
+  },
+  "preferences": {
+    "title": "Preferencias",
+    "tabs": {
+      "account": "Cuenta y perfil",
+      "general": "General",
+      "notifications": "Notificaciones",
+      "audioVideo": "Audio y vídeo",
+      "privacy": "Privacidad"
+    },
+    "theme": {
+      "label": "Tema",
+      "light": "Claro",
+      "dark": "Oscuro"
+    },
+    "language": "Idioma",
+    "autoLaunch": {
+      "label": "Iniciar con el sistema",
+      "hint": "Abre NaveSpeak automáticamente al encender el ordenador"
+    },
+    "desktopNotifications": {
+      "label": "Notificaciones de escritorio",
+      "hint": "Avisos de mensajes nuevos cuando la aplicación no está en primer plano"
+    },
+    "notificationVolume": {
+      "label": "Volumen de las notificaciones",
+      "hint": "Sonidos al entrar/salir de un canal, silenciar, mensaje nuevo, etc. - no afecta al volumen de los participantes de una llamada."
+    },
+    "soundboardVolume": {
+      "label": "Volumen de los efectos de sonido del servidor",
+      "hint": "Volumen de los sonidos del soundboard que reproducen los miembros del servidor en un canal de voz - independiente del volumen de notificaciones de arriba."
+    },
+    "notificationOutput": {
+      "label": "Reproducir las notificaciones en otra salida de audio",
+      "hint": "Reproduce los efectos de sonido de arriba en otro altavoz/auricular - el audio de los participantes de una llamada sigue saliendo por la salida normal",
+      "selectLabel": "Salida de audio de las notificaciones"
+    },
+    "devices": {
+      "title": "Dispositivos",
+      "requesting": "Solicitando...",
+      "allowAccess": "Permitir acceso",
+      "mic": "Micrófono",
+      "camera": "Webcam",
+      "output": "Salida",
+      "speaker": "Salida de audio (altavoz/auricular)",
+      "missing": "Dispositivo guardado no encontrado",
+      "numbered": "{{kind}} {{number}}",
+      "numberedLocked": "{{kind}} {{number}} (permite el acceso para ver el nombre)",
+      "outputUnsupported": "Elegir la salida de audio no es compatible con este navegador (solo Chrome/Edge por ahora) - la aplicación usa el altavoz/auricular predeterminado del sistema.",
+      "hint": "Si el dispositivo elegido ya no está disponible al iniciar la llamada, se usa automáticamente el predeterminado del sistema. Cambiar de micrófono/webcam durante una llamada se aplica al instante; si no, se aplica la próxima vez que entres a voz/enciendas la cámara. La salida de audio siempre cambia al instante.",
+      "listError": "No se pudieron listar los dispositivos."
+    },
+    "cameraAsk": {
+      "label": "Preguntar al encender la cámara",
+      "hint": "Abre una vista previa para elegir la webcam y el fondo"
+    },
+    "autoplay": {
+      "title": "Reproducción automática de medios",
+      "description": "Decide si la webcam/pantalla de los OTROS participantes se reproduce sola cuando la activan, o si espera a que hagas clic en \"Ver\". Nunca afecta al audio (micrófono) ni a TUS propios medios - solo a lo que ves de los demás.",
+      "camera": "Webcam",
+      "cameraDefault": "Predeterminado: automático",
+      "screen": "Compartir pantalla",
+      "screenDefault": "Predeterminado: manual (clic para ver)",
+      "hint": "Ocultar los medios de alguien en concreto, o silenciar su audio solo para ti, está en el menú ⋮ de la lista de participantes o directamente en su recuadro durante la llamada."
+    },
+    "noiseSuppression": {
+      "title": "Supresión de ruido",
+      "level": "Nivel",
+      "hint": "Solo reduce el ruido de TU micrófono - no afecta a lo que oyes de los demás. Cambiar de modo se aplica a partir de la próxima vez que entres en un canal de voz.",
+      "rnnoiseHint": "RNNoise (código abierto, xiph/rnnoise) se ejecuta en tu navegador mediante WASM - filtra mejor el ruido de fondo (teclado, conversaciones, ventilador) que el supresor nativo; un nivel bajo conserva más del audio original, uno alto prioriza eliminar el ruido.",
+      "gtcrnHint": "GTCRN (código abierto) también se ejecuta mediante WASM, con una red más reciente que la de RNNoise - mejor calidad de supresión en los benchmarks estándar y aun así lo bastante ligero para tiempo real; un nivel bajo conserva más del audio original, uno alto prioriza eliminar el ruido.",
+      "deepfilternetHint": "DeepFilterNet3 (código abierto, Rikorose/DeepFilterNet) es el modelo más potente y más pesado de la lista - elimina ~20dB de ruido de fondo prácticamente sin tocar la voz en nuestras pruebas, pero descarga ~24MB de recursos (alojados por nosotros) la primera vez que entras a voz con este modo, y usa más CPU que los demás. Aquí el nivel es el límite de atenuación del modelo: 0% deja el audio intacto, 100% permite el corte máximo."
+    },
+    "micGate": {
+      "label": "Sensibilidad del micrófono",
+      "hint": "Corta lo que quede por debajo del umbral - el silencio/ruido de fondo ya no se envía",
+      "threshold": "Umbral: {{db}} dB",
+      "thresholdMarker": "Umbral",
+      "startTest": "Probar micrófono",
+      "stopTest": "Detener prueba",
+      "micError": "No se pudo acceder al micrófono.",
+      "help": "Haz clic en \"Probar micrófono\" para ver tu nivel en directo (línea roja = umbral elegido) y calibrarlo antes de activarlo. Se aplica DESPUÉS de la supresión de ruido de arriba, en la misma pista enviada - cambia lo que sale de tu micrófono, no lo que oyes. Cambiar el umbral (o activarlo/desactivarlo) solo se aplica a partir de la próxima vez que entres en un canal de voz."
+    },
+    "pushToTalk": {
+      "label": "Pulsar para hablar",
+      "hint": "El micrófono solo transmite mientras la tecla de abajo esté pulsada",
+      "key": "Tecla:",
+      "pressKey": "Pulsa una tecla...",
+      "noKey": "ninguna",
+      "escToCancel": "Esc para cancelar",
+      "assignKey": "Asignar tecla",
+      "noKeyWarning": "Sin tecla asignada, el micrófono queda siempre silenciado en los canales de voz - asigna una antes de salir.",
+      "help": "Mientras esté activado, el micrófono empieza silenciado en cualquier canal de voz y solo transmite mientras mantienes la tecla. Silenciar manualmente sigue funcionando por encima, incluso manteniendo la tecla.",
+      "globalHint": "En la aplicación de escritorio la tecla funciona incluso con la ventana sin foco/minimizada."
+    }
+  },
+  "auth": {
+    "signalActive": "Señal activa",
+    "heroTitleLine1": "Tu tripulación,",
+    "heroTitleLine2": "en el mismo canal.",
+    "heroText": "NaveSpeak reúne voz, vídeo, texto y presencia en un solo lugar. Crea salas, organiza canales y llama a tu gente sin salir del navegador.",
+    "closedBeta": "Beta cerrada",
+    "closedBetaText": "El acceso sigue siendo solo por invitación de quien ya está a bordo. ¿Sin invitación? Pídele una a un tripulante.",
+    "closedBetaBadge": "Beta cerrada - solo por invitación",
+    "statusInviteOnly": "Estado: solo invitados",
+    "statusOpen": "Estado: registro abierto",
+    "tagline": "Voz, texto y presencia para tu tripulación.",
+    "identifier": "Usuario#tag o email",
+    "identifierPlaceholder": "usuario#12345 o email",
+    "password": "Contraseña",
+    "passwordMinPlaceholder": "Mínimo 10 caracteres",
+    "passwordHint": "Mínimo 10 caracteres, con al menos una letra y un número.",
+    "login": {
+      "subtitle": "Accede a tu cuenta para continuar.",
+      "passwordPlaceholder": "Escribe tu contraseña",
+      "forgot": "Olvidé mi contraseña",
+      "noAccount": "¿No tienes cuenta?",
+      "inviteRequired": "(se necesita invitación)"
+    },
+    "register": {
+      "title": "Crear cuenta",
+      "submitting": "Creando...",
+      "inviteCode": "Código de invitación",
+      "invitePlaceholder": "Pega el código o el enlace de invitación",
+      "inviteChecking": "Verificando invitación...",
+      "inviteValid": "Invitación válida.",
+      "inviteInvalid": "Invitación no válida, caducada o sin usos restantes.",
+      "inviteRequired": "Registrarse en este servidor requiere una invitación.",
+      "username": "Nombre de usuario",
+      "usernamePlaceholder": "Cómo quieres que te llamen",
+      "usernameHint": "Puede repetirse entre cuentas - se genera un identificador único (usuario#12345) para ti.",
+      "email": "Email",
+      "emailPlaceholder": "tu@ejemplo.com",
+      "haveAccount": "¿Ya tienes cuenta?"
+    },
+    "forgot": {
+      "title": "Olvidé mi contraseña",
+      "codeHint": "Enviaremos un código de 6 dígitos al email registrado.",
+      "code": "Código recibido por email",
+      "newPassword": "Nueva contraseña",
+      "wrongIdentifier": "Me equivoqué de email/usuario, volver",
+      "sending": "Enviando...",
+      "sendCode": "Enviar código",
+      "reset": "Restablecer contraseña",
+      "backToLogin": "Volver al inicio de sesión"
+    }
+  },
+  "serverInvite": {
+    "loading": "Cargando invitación...",
+    "revoked": "Invitación revocada",
+    "expired": "Invitación caducada",
+    "noLongerValid": "Este enlace de invitación ya no es válido. Pide uno nuevo a algún miembro del servidor.",
+    "cannotJoin": "No puedes entrar",
+    "banned": "Has sido expulsado de este servidor.",
+    "alreadyMember": "Ya eres miembro de este servidor.",
+    "goToServer": "Ir al servidor",
+    "confirm": "¿Quieres unirte a este servidor?",
+    "decline": "Rechazar",
+    "join": "Unirse",
+    "joining": "Uniéndose...",
+    "joinError": "No se pudo unir al servidor."
+  },
+  "download": {
+    "readyToInstall": "Listo para instalar",
+    "heroTitleLine1": "Llévate la nave",
+    "heroTitleLine2": "contigo.",
+    "heroText": "NaveSpeak es una plataforma de comunicación por voz y vídeo diseñada para comunidades, equipos y grupos de amigos que quieren algo más que lo básico. Con una interfaz moderna y baja latencia, es tu nueva base de operaciones para llamadas, salas de voz y conversaciones en tiempo real.",
+    "status": "Estado: RECLUTANDO NUEVOS TRIPULANTES",
+    "tagline": "Descarga la aplicación de escritorio.",
+    "alreadyHere": "Ya estás aquí 🎉",
+    "alreadyHereText": "Esta ventana ya ES la aplicación de escritorio de NaveSpeak.",
+    "title": "Descargar NaveSpeak",
+    "subtitle": "Elige tu sistema. Siempre la versión más reciente.",
+    "recommended": "Recomendado",
+    "link": "Descargar app",
+    "linkTitle": "Descargar la aplicación de escritorio de NaveSpeak"
+  },
+  "shell": {
+    "logoTitle": "Canal de voz",
+    "titleBar": {
+      "minimize": "Minimizar",
+      "maximize": "Maximizar",
+      "restore": "Restaurar",
+      "closeHint": "Cerrar (se minimiza a la bandeja)"
+    },
+    "errorBoundary": {
+      "message": "Algo salió mal al mostrar esta pantalla.",
+      "reload": "Recargar"
+    },
+    "update": {
+      "available": "Hay una nueva versión de NaveSpeak disponible.",
+      "now": "Actualizar ahora"
+    },
+    "connection": {
+      "stats": "Estadísticas de conexión",
+      "connecting": "Conectando",
+      "ping": "Ping",
+      "packetLoss": "Pérdida de paquetes"
+    }
+  },
+  "status": {
+    "online": "En línea",
+    "busy": "Ocupado",
+    "away": "Ausente",
+    "offline": "Desconectado",
+    "invisible": "Invisible"
+  },
+  "whatsNew": {
+    "ariaLabel": "Novedades de la versión {{version}}",
+    "title": "Novedades",
+    "version": "Versión {{version}}",
+    "dontShowAgain": "No volver a mostrar",
+    "gotIt": "Entendido"
+  },
+  "serverModal": {
+    "ariaLabel": "Crear o unirse a un servidor",
+    "title": "Crear / Unirse a un servidor",
+    "createTab": "Crear servidor",
+    "joinTab": "Unirse con invitación",
+    "createHint": "Elige un nombre para crear un nuevo servidor.",
+    "namePlaceholder": "Nombre del servidor",
+    "creating": "Creando...",
+    "joinHint": "Pega un código de invitación o el enlace completo (p. ej.: .../join/ABC123DEF456).",
+    "invitePlaceholder": "Código o enlace de invitación",
+    "joining": "Uniéndose...",
+    "joinSubmit": "Unirse al servidor"
+  }
+}

@@ -41,3 +41,11 @@ export const banMember = (roomId, userId, reason) =>
 
 export const unbanMember = (roomId, userId) =>
   apiRequest(`/rooms/${roomId}/bans/${userId}`, { method: 'DELETE' });
+
+// Apelido por servidor - o próprio membro, ou quem tem MANAGE_NICKNAMES
+// (reforçado no servidor). null/"" remove.
+export const setMemberNickname = (roomId, userId, nickname) =>
+  apiRequest(`/rooms/${roomId}/members/${userId}/nickname`, {
+    method: 'PATCH',
+    body: JSON.stringify({ nickname }),
+  });

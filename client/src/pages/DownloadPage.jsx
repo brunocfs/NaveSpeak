@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download, Monitor, Terminal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { isElectron } from "../api/media.js";
 import { API_URL } from "../api/config.js";
 import NavespeakLogoV1 from "../components/NavespeakLogoV1.jsx";
@@ -21,6 +22,7 @@ function detectOS() {
 // duplicando esse shell (ver RegisterPage.jsx), seguir o padrão existente
 // em vez de inventar uma abstração nova só pra essa terceira página.
 export default function DownloadPage() {
+  const { t } = useTranslation();
   const [darkMode, setDarkMode] = useState(() =>
     document.documentElement.classList.contains("dark"),
   );
@@ -59,7 +61,7 @@ export default function DownloadPage() {
         <div className="relative max-w-md">
           <div className="mb-6 flex items-center gap-2.5 font-signal text-[11px] font-medium uppercase tracking-[0.2em] text-teal-300/90">
             <span className="login-ping-dot" aria-hidden="true" />
-            Pronto pra instalar
+            {t("download.readyToInstall")}
             <span className="login-wave" aria-hidden="true">
               <span className="login-wave-bar" />
               <span className="login-wave-bar" />
@@ -70,21 +72,18 @@ export default function DownloadPage() {
           </div>
 
           <h1 className="font-display text-4xl font-semibold leading-[1.1] tracking-tight text-white xl:text-[2.75rem]">
-            Leve a nave
+            {t("download.heroTitleLine1")}
             <br />
-            com você.
+            {t("download.heroTitleLine2")}
           </h1>
 
           <p className="mt-5 text-[15px] leading-relaxed text-slate-400">
-            NaveSpeak é uma plataforma de comunicação por voz e vídeo projetada
-            para comunidades, times e grupos de amigos que querem mais do que o
-            básico. Com interface moderna, baixa latência, ele é a sua nova base
-            de operações para chamadas, salas de voz e conversas em tempo real.
+            {t("download.heroText")}
           </p>
         </div>
 
         <p className="relative font-signal text-[11px] uppercase tracking-[0.15em] text-slate-600">
-          Status: CONVOCANDO NOVOS TRIPULANTES
+          {t("download.status")}
         </p>
       </aside>
 
@@ -99,7 +98,7 @@ export default function DownloadPage() {
                   NaveSpeak
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Baixe o app pra desktop.
+                  {t("download.tagline")}
                 </p>
               </div>
             </div>
@@ -111,7 +110,7 @@ export default function DownloadPage() {
               onClick={() => setDarkMode((prev) => !prev)}
               className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-950"
             >
-              {darkMode ? "☀️ Tema claro" : "🌙 Tema escuro"}
+              {darkMode ? `☀️ ${t("common.lightTheme")}` : `🌙 ${t("common.darkTheme")}`}
             </button>
           </div>
 
@@ -121,20 +120,20 @@ export default function DownloadPage() {
               // mesmo é o app (mesma detecção de DownloadAppLink.jsx).
               <div className="text-center">
                 <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                  Você já está aqui 🎉
+                  {t("download.alreadyHere")}
                 </h2>
                 <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                  Esta janela já É o app desktop do NaveSpeak.
+                  {t("download.alreadyHereText")}
                 </p>
               </div>
             ) : (
               <>
                 <div className="mb-7">
                   <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                    Baixar o NaveSpeak
+                    {t("download.title")}
                   </h2>
                   <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                    Escolha seu sistema. Sempre a versão mais recente.
+                    {t("download.subtitle")}
                   </p>
                 </div>
 
@@ -155,7 +154,7 @@ export default function DownloadPage() {
                           </span>
                           {recommended === os && (
                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-                              Recomendado
+                              {t("download.recommended")}
                             </span>
                           )}
                         </span>
@@ -169,12 +168,12 @@ export default function DownloadPage() {
                 </div>
 
                 <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-                  Já tem conta?{" "}
+                  {t("auth.register.haveAccount")}{" "}
                   <Link
                     to="/login"
                     className="font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
                   >
-                    Entrar
+                    {t("common.signIn")}
                   </Link>
                 </p>
               </>

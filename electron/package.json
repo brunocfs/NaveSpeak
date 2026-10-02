@@ -30,6 +30,7 @@
       "main.js",
       "preload.js",
       "screenAudio.js",
+      "winSources.js",
       "package.json",
       "assets/**"
     ],

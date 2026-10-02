@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { isElectron } from "../api/media.js";
 
 // Link "Baixar app" pra barra superior das telas - só faz sentido pra quem
@@ -10,16 +11,17 @@ import { isElectron } from "../api/media.js";
 // ela é quem de fato chama /download no server (redireciona pro instalador
 // mais recente publicado, ver server/src/index.js).
 export default function DownloadAppLink() {
+  const { t } = useTranslation();
   if (isElectron()) return null;
 
   return (
     <Link
       to="/baixar"
-      title="Baixar o app NaveSpeak para desktop"
+      title={t("download.linkTitle")}
       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
     >
       <Download className="size-4" />
-      Baixar app
+      {t("download.link")}
     </Link>
   );
 }

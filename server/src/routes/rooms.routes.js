@@ -7,6 +7,7 @@ import { parseBuffer } from 'music-metadata';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { requirePermission } from '../middleware/permissions.js';
+import { nicknameRateLimiter } from '../middleware/rateLimit.js';
 import { env } from '../config/env.js';
 import {
   roomNameSchema,
@@ -19,6 +20,7 @@ import {
   userIdParamSchema,
   soundboardUploadBodySchema,
   soundIdParamSchema,
+  memberNicknameSchema,
 } from '../validation/schemas.js';
 import {
   createRoom,
@@ -28,6 +30,7 @@ import {
   addRoomMember,
   removeRoomMember,
   updateRoomProfile,
+  setMemberNickname,
 } from '../db/rooms.repo.js';
 import {
   createServerInvite,
@@ -456,6 +459,39 @@ router.delete(
       const io = req.app.get('io');
       if (io) await evictUserFromServer(io, req.room.id, req.targetUser.publicId);
       return res.status(204).end();
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// Apelido por servidor: o próprio membro sempre pode mudar o seu; mudar o de
+// outro (inclusive do dono, regra pedida explicitamente) exige
+// MANAGE_NICKNAMES. Broadcast pra room socket.io do servidor (só membros
+// que fizeram server:join estão nela) - o client resolve o nome exibido por
+// userId, então roster/chat/tiles atualizam sem refetch.
+router.patch(
+  '/:roomId/members/:userId/nickname',
+  loadRoomForMember,
+  nicknameRateLimiter,
+  validateBody(memberNicknameSchema),
+  loadTargetUser,
+  (req, res, next) =>
+    req.targetUser.publicId === req.user.id
+      ? next()
+      : requirePermission(PERMISSIONS.MANAGE_NICKNAMES)(req, res, next),
+  async (req, res, next) => {
+    try {
+      const { nickname } = req.body;
+      const updated = await setMemberNickname(req.room.id, req.targetUser.id, nickname);
+      if (!updated) return res.status(404).json({ error: 'Membro não encontrado.' });
+      audit('member_nickname_changed', { room_id: req.room.id, target_user_id: req.targetUser.publicId });
+      req.app.get('io')?.to(req.room.id).emit('member:nickname', {
+        roomId: req.room.id,
+        userId: req.targetUser.publicId,
+        nickname,
+      });
+      return res.json({ nickname });
     } catch (err) {
       return next(err);
     }

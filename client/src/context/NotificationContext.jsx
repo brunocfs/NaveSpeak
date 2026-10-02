@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext.jsx';
 import { usePresence } from './PresenceContext.jsx';
 import { usePreferences } from './PreferencesContext.jsx';
+import { useNicknames } from './NicknamesContext.jsx';
 import { getSocket } from '../api/socket.js';
 import { isElectron } from '../api/media.js';
 import { avatarSrc } from '../components/Avatar.jsx';
@@ -47,6 +48,14 @@ export function NotificationProvider({ children }) {
   useEffect(() => {
     notificationsEnabledRef.current = notificationsEnabled;
   }, [notificationsEnabled]);
+
+  // Apelido por servidor no título da notificação - ref pelo mesmo motivo
+  // de notificationsEnabledRef (listener registrado uma vez só).
+  const { byServer: nicknames } = useNicknames();
+  const nicknamesRef = useRef(nicknames);
+  useEffect(() => {
+    nicknamesRef.current = nicknames;
+  }, [nicknames]);
 
   const ownUserIdRef = useRef(user?.id);
   useEffect(() => {
@@ -156,7 +165,7 @@ export function NotificationProvider({ children }) {
       // aqui de novo quando o arquivo existir.
       playSound('message');
       fireNotification(`chat:${message.id}`, {
-        title: message.username,
+        title: nicknamesRef.current[message.serverId]?.[message.user_id] || message.username,
         body: truncate(message.content),
         icon: avatarSrc(message.avatarPath) ?? undefined,
         tag: `chat:${message.channel_id}`,

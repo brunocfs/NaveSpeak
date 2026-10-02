@@ -11,7 +11,8 @@
 // servidor entra direto.
 //
 // Hash call:<uuid>:participants -> userId(public) -> JSON
-//   { username, status: 'invited'|'accepted'|'declined'|'left', invitedBy: {id, username} | null }
+//   { username, status: 'invited'|'accepted'|'declined'|'missed'|'left', invitedBy: {id, username} | null }
+//   ('missed' = convite expirou sem resposta, ver scheduleInviteExpiry em calls.handler.js)
 // Um campo especial "__meta" no mesmo hash guarda quem criou a chamada
 // (nunca colide com um userId real, que é sempre um UUID).
 // Set  calls:pending:<userId> -> callIds em que esse usuário tem convite
@@ -80,14 +81,16 @@ export async function getParticipant(callId, userId) {
   }
 }
 
-// "Faz parte da chamada" = tem um convite que não foi recusado - cobre quem
-// ainda está tocando (invited), quem já aceitou/entrou (accepted) e quem
-// saiu e pode reentrar (left). Só 'declined' (ou nunca convidado) fica de
-// fora - é essa checagem, não o formato do callId, que autoriza media:join
-// numa chamada privada (ver mediasoup.handler.js).
+// "Faz parte da chamada" = quem ainda está tocando (invited), quem já
+// aceitou/entrou (accepted) e quem saiu e pode reentrar (left). Lista
+// branca de propósito: recusou (declined), deixou expirar (missed) ou
+// qualquer status futuro fica de fora por padrão - é essa checagem, não o
+// formato do callId, que autoriza media:join numa chamada privada (ver
+// mediasoup.handler.js).
+const JOINABLE_STATUSES = new Set(['invited', 'accepted', 'left']);
 export async function isCallParticipant(callId, userId) {
   const entry = await getParticipant(callId, userId);
-  return Boolean(entry) && entry.status !== 'declined';
+  return Boolean(entry) && JOINABLE_STATUSES.has(entry.status);
 }
 
 export async function listParticipants(callId) {

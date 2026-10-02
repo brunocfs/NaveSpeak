@@ -17,7 +17,7 @@ export const assignRole = (roomId, roleId, userId) =>
 export const unassignRole = (roomId, roleId, userId) =>
   apiRequest(`/rooms/${roomId}/roles/${roleId}/members/${userId}`, { method: 'DELETE' });
 
-// Rótulos em PT das 9 permissões (PERMISSIONS em server/src/utils/permissions.js)
+// Rótulos em PT das permissões (PERMISSIONS em server/src/utils/permissions.js)
 // - única fonte usada pelos checkboxes de RoleEditor e pelas checagens de
 // `myPermissions` espalhadas pelo client.
 export const PERMISSION_LABELS = {
@@ -31,6 +31,7 @@ export const PERMISSION_LABELS = {
   CREATE_INVITE: 'Criar convites para o servidor',
   MANAGE_SERVER: 'Alterar nome/imagem do servidor',
   USE_SOUNDBOARD: 'Tocar efeitos sonoros do servidor',
+  MANAGE_NICKNAMES: 'Alterar apelido dos usuários',
 };
 
 export const PERMISSION_KEYS = Object.keys(PERMISSION_LABELS);

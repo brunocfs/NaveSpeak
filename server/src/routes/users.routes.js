@@ -21,7 +21,7 @@ import {
   updateUserStatus,
 } from '../db/users.repo.js';
 import { formatTag } from '../utils/discriminator.js';
-import { countCommonRooms } from '../db/rooms.repo.js';
+import { countCommonRooms, listRoomIdsForUser } from '../db/rooms.repo.js';
 import { findExistingFriendship } from '../db/friends.repo.js';
 import { revokeAllRefreshTokensForUser } from '../db/refreshTokens.repo.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
@@ -140,6 +140,23 @@ router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) =>
 
     const updated = await updateProfile(req.user.internalId, { username, email, bio, nameStyle, showCommonServers });
     if (emailChanged) audit('email_changed', { user_id: req.user.id });
+    // Estilo TURBO ao vivo pros outros membros dos servidores do usuário -
+    // sem isso só apareceria depois de recarregar o servidor. Mesma regra
+    // de publicCard (só o estilo público). Falha aqui não desfaz o save.
+    const io = req.app.get('io');
+    if (nameStyle !== undefined && io) {
+      try {
+        const roomIds = await listRoomIdsForUser(req.user.internalId);
+        if (roomIds.length > 0) {
+          io.to(roomIds).emit('member:nameStyle', {
+            userId: req.user.id,
+            nameStyle: publicCard(updated).nameStyle,
+          });
+        }
+      } catch {
+        /* broadcast é best-effort */
+      }
+    }
     return res.json({ user: toPublicProfile(updated) });
   } catch (err) {
     return next(err);
