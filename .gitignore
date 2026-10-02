@@ -27,3 +27,6 @@ electron.md
 # conteúdo do projeto.
 .claude/
 
+
+# Workspace do Maestri (roles/agentes locais)
+.maestri/

@@ -1,8 +1,0 @@
-{
-  "color" : "#FF2D55",
-  "icon" : "person.text.rectangle",
-  "id" : "728C6779-85A0-4C67-870B-AD0D3E042874",
-  "name" : "Dev Backend",
-  "prompt" : "Você implementa server\/ e database\/ do NaveSpeak (rotas, repos, schema, rate limit, sockets). Diffs mínimos, valide inputs em fronteiras de confiança, mantenha database\/schema-postgre.sql consistente. Sem deps novas exceto MIT\/BSD\/Apache\/ISC. Ao terminar, responda com resumo curto. Rode 'maestri list' para ver colegas.",
-  "schemaVersion" : 1
-}
