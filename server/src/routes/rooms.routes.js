@@ -52,18 +52,20 @@ import {
 import { getServerSettings, updateServerSettings } from '../db/serverSettings.repo.js';
 import { getUnreadCountsForServer, getUnreadCountsByServer } from '../db/messages.repo.js';
 import { banUser, unbanUser, isBanned, listBans } from '../db/serverBans.repo.js';
-import { findUserByPublicId } from '../db/users.repo.js';
+import { findUserByPublicId, hasBenefit, hasBenefitByPublicId } from '../db/users.repo.js';
+import { soundboardLimits } from '../utils/turbo.js';
 import { getAppSettings } from '../db/appSettings.repo.js';
 import {
   countSoundsForServer,
+  countPersonalSounds,
+  findSoundForDelete,
   listSoundsForServer,
-  findSoundInServer,
   createSound,
   deleteSound,
 } from '../db/soundboardSounds.repo.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
 import { decodeSoundboardAudioDataUrl } from '../utils/soundboardUpload.js';
-import { PERMISSIONS, canAccessChannel, permissionKeysFor, isServerOwner } from '../utils/permissions.js';
+import { PERMISSIONS, canAccessChannel, permissionKeysFor, isServerOwner, checkPermission } from '../utils/permissions.js';
 import { formatTag } from '../utils/discriminator.js';
 import { audit } from '../observability/logger.js';
 import { evictUserFromServer } from '../sockets/mediasoup.handler.js';
@@ -562,17 +564,27 @@ router.delete(
 // `maxDurationMs` vão junto pra Aba "Efeitos sonoros" de ServerSettingsModal.jsx
 // mostrar o limite atual sem precisar de acesso a GET /admin/settings (que é
 // admin da aplicação, não de servidor).
+// Limites do servidor: serverPerks do DONO (created_by = public_id) amplia a
+// cota e a duração dos sons do servidor.
+async function soundboardLimitsFor(room) {
+  const [appSettings, perks] = await Promise.all([getAppSettings(), hasBenefitByPublicId(room.created_by, 'serverPerks')]);
+  return soundboardLimits(appSettings, perks);
+}
+
 router.get('/:roomId/soundboard', loadRoomForMember, async (req, res, next) => {
   try {
-    const [sounds, appSettings] = await Promise.all([
-      listSoundsForServer(req.room.id),
-      getAppSettings(),
+    const [sounds, limits, canUsePersonal] = await Promise.all([
+      listSoundsForServer(req.room.id, req.user.internalId),
+      soundboardLimitsFor(req.room),
+      hasBenefit(req.user.internalId, 'personalSounds'),
     ]);
     return res.json({
       sounds,
-      maxSounds: appSettings.soundboardMaxSounds,
-      maxDurationMs: appSettings.soundboardMaxDurationMs,
-      maxBytes: appSettings.soundboardMaxBytes,
+      maxSounds: limits.maxSounds,
+      maxDurationMs: limits.maxDurationMs,
+      maxBytes: limits.maxBytes,
+      personalPerUser: limits.personalPerUser,
+      canUsePersonal,
     });
   } catch (err) {
     return next(err);
@@ -582,17 +594,30 @@ router.get('/:roomId/soundboard', loadRoomForMember, async (req, res, next) => {
 router.post(
   '/:roomId/soundboard',
   loadRoomForMember,
-  requirePermission(PERMISSIONS.MANAGE_SERVER),
   validateBody(soundboardUploadBodySchema),
+  // Som do servidor exige MANAGE_SERVER; som pessoal é checado na rota.
+  (req, res, next) => (req.body.personal ? next() : requirePermission(PERMISSIONS.MANAGE_SERVER)(req, res, next)),
   async (req, res, next) => {
     try {
-      const appSettings = await getAppSettings();
-      const count = await countSoundsForServer(req.room.id);
-      if (count >= appSettings.soundboardMaxSounds) {
-        return res.status(400).json({ error: `Limite de ${appSettings.soundboardMaxSounds} efeitos sonoros atingido.` });
+      const personal = req.body.personal === true;
+      const limits = await soundboardLimitsFor(req.room);
+      if (personal) {
+        // Benefício + USE_SOUNDBOARD (sem ela o som nunca tocaria) + cota própria.
+        const bitmask = await getUserPermissionBitmask(req.room.id, req.user.internalId);
+        if (!checkPermission({ room: req.room, user: req.user, bitmask, flag: PERMISSIONS.USE_SOUNDBOARD })) {
+          return res.status(403).json({ error: 'Você não tem permissão para isso.' });
+        }
+        if (!(await hasBenefit(req.user.internalId, 'personalSounds'))) {
+          return res.status(403).json({ error: 'Sons pessoais são um benefício TURBO.', code: 'personal_sounds_locked' });
+        }
+        if ((await countPersonalSounds(req.room.id, req.user.internalId)) >= limits.personalPerUser) {
+          return res.status(400).json({ error: `Limite de ${limits.personalPerUser} sons pessoais atingido.`, code: 'personal_sounds_limit', max: limits.personalPerUser });
+        }
+      } else if ((await countSoundsForServer(req.room.id)) >= limits.maxSounds) {
+        return res.status(400).json({ error: `Limite de ${limits.maxSounds} efeitos sonoros atingido.`, code: 'soundboard_limit', max: limits.maxSounds });
       }
 
-      const decoded = decodeSoundboardAudioDataUrl(req.body.fileData, { maxBytes: appSettings.soundboardMaxBytes });
+      const decoded = decodeSoundboardAudioDataUrl(req.body.fileData, { maxBytes: limits.maxBytes });
       if (decoded.error) return res.status(400).json({ error: decoded.error });
 
       // Duração REAL do áudio (nunca confia em nada que o client possa
@@ -609,9 +634,9 @@ router.post(
       if (durationMs <= 0) {
         return res.status(400).json({ error: 'Não foi possível ler a duração do áudio.' });
       }
-      if (durationMs > appSettings.soundboardMaxDurationMs) {
+      if (durationMs > limits.maxDurationMs) {
         return res.status(400).json({
-          error: `Áudio muito longo (máx. ${Math.round(appSettings.soundboardMaxDurationMs / 1000)}s).`,
+          error: `Áudio muito longo (máx. ${Math.round(limits.maxDurationMs / 1000)}s).`,
         });
       }
 
@@ -626,6 +651,7 @@ router.post(
         name: req.body.name,
         filePath: relativePath,
         durationMs,
+        personal,
       });
       audit('soundboard_sound_created', { room_id: req.room.id, resource_type: 'soundboard_sound', resource_id: sound.id });
       return res.status(201).json({ sound });
@@ -638,14 +664,22 @@ router.post(
 router.delete(
   '/:roomId/soundboard/:soundId',
   loadRoomForMember,
-  requirePermission(PERMISSIONS.MANAGE_SERVER),
   async (req, res, next) => {
     try {
       const parsedId = soundIdParamSchema.safeParse(req.params.soundId);
       if (!parsedId.success) return res.status(400).json({ error: 'ID de som inválido.' });
 
-      const sound = await findSoundInServer(req.room.id, parsedId.data);
+      // Acha mesmo som pessoal de dono sem benefício (senão ficaria órfão).
+      const sound = await findSoundForDelete(req.room.id, parsedId.data);
       if (!sound) return res.status(404).json({ error: 'Efeito sonoro não encontrado.' });
+
+      // Dono apaga o próprio som pessoal; o resto exige MANAGE_SERVER.
+      if (sound.ownerId !== req.user.id) {
+        const bitmask = await getUserPermissionBitmask(req.room.id, req.user.internalId);
+        if (!checkPermission({ room: req.room, user: req.user, bitmask, flag: PERMISSIONS.MANAGE_SERVER })) {
+          return res.status(403).json({ error: 'Você não tem permissão para isso.' });
+        }
+      }
 
       await fs.unlink(path.join(UPLOADS_DIR, sound.filePath)).catch(() => {});
       await deleteSound(sound.id);

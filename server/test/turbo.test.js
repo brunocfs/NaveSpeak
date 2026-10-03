@@ -3,10 +3,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   turboGrantSchema,
-  turboBenefitsSchema,
+  turboOverrideSchema,
+  turboCatalogSchema,
   profileUpdateSchema,
 } from '../src/validation/schemas.js';
-import { publicNameStyleSql } from '../src/db/users.repo.js';
+import { publicNameStyleSql, turboBenefitSql } from '../src/db/users.repo.js';
 
 const id = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
@@ -20,8 +21,26 @@ test('turbo grant accepts days or null (permanent) and caps the batch', () => {
 });
 
 test('turbo benefits only accept known keys', () => {
-  assert.equal(turboBenefitsSchema.safeParse({ nameStyle: false }).success, true);
-  assert.equal(turboBenefitsSchema.safeParse({ nameStyle: true, unknown: true }).success, false);
+  assert.equal(turboOverrideSchema.safeParse({ nameStyle: false, ghostVoice: true }).success, true);
+  assert.equal(turboOverrideSchema.safeParse({ nameStyle: true, unknown: true }).success, false);
+  assert.equal(turboOverrideSchema.safeParse({ nameStyle: 'turbo' }).success, false);
+});
+
+test('turbo catalog takes modes, migrates legacy booleans, hdScreen-only turboBitrate', () => {
+  assert.equal(turboCatalogSchema.safeParse({ nameStyle: 'free', hdScreen: 'turboBitrate' }).success, true);
+  assert.deepEqual(turboCatalogSchema.parse({ nameStyle: false, ghostVoice: true }), { nameStyle: 'off', ghostVoice: 'turbo' });
+  assert.equal(turboCatalogSchema.safeParse({ nameStyle: 'turboBitrate' }).success, false);
+  assert.equal(turboCatalogSchema.safeParse({ nope: 'turbo' }).success, false);
+});
+
+test('turboBenefitSql rejects keys outside the catalog', () => {
+  assert.throws(() => turboBenefitSql('u', "x'; DROP TABLE users;--"));
+  const sql = turboBenefitSql('u', 'ghostVoice'); // default turbo: free/off explícitos, resto = turbo
+  assert.match(sql, /WHEN m IN \('free'\) THEN TRUE WHEN m IN \('off', 'false'\) THEN FALSE ELSE/);
+  assert.match(sql, /jsonb_typeof\(u\.turbo_benefits->'ghostVoice'\) = 'boolean'/);
+  // default free/off: o grupo do default vira o ELSE (valor desconhecido = default)
+  assert.match(turboBenefitSql('u', 'mediaPopout'), /ELSE TRUE END/);
+  assert.match(turboBenefitSql('u', 'serverPerks'), /ELSE FALSE END/);
 });
 
 test('profile nameStyle is validated strictly', () => {

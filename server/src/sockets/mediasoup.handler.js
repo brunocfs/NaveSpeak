@@ -10,7 +10,9 @@ import {
   removePeer,
   listOtherProducers,
 } from '../mediasoup/rooms.js';
-import { addVoicePresence, removeVoicePresence, listVoicePresence, setVoiceMediaState, getVoiceMediaState } from './voicePresence.js';
+import { addVoicePresence, removeVoicePresence, setVoiceMediaState, getVoiceMediaState, setGhost, voiceRoomOf, broadcastVoicePresence } from './voicePresence.js';
+import { computeEffectiveGhost } from './voiceGhost.js';
+import { modsRoomOf } from './modsRoom.js';
 import { isCallChannel, handleCallLeave } from './calls.handler.js';
 import { isCallParticipant, setStatus as setCallStatus } from './callsStore.js';
 import { getUserPermissionBitmask, listRoleIdsForUser } from '../db/roles.repo.js';
@@ -22,6 +24,8 @@ import { logger, audit } from '../observability/logger.js';
 import { metrics } from '../observability/metrics.js';
 import { logError } from '../observability/errors.js';
 import { permissionName } from '../middleware/permissions.js';
+import { getTurboState, getVoiceCosmetics } from '../db/users.repo.js';
+import { exceedsScreenBitrate } from '../utils/turbo.js';
 
 const SOUNDBOARD_RATE_LIMIT_WINDOW_MS = 10_000;
 const SOUNDBOARD_RATE_LIMIT_MAX_PLAYS = 10;
@@ -126,17 +130,8 @@ function logVoiceSessionEnded(peer, { channelId, socketId, reason, producersClos
   logger.info({ event: 'voice_session_ended', ...fields, producers_closed: producersClosed }, 'Voice session ended');
 }
 
-// Room do socket.io dedicada a quem está DE FATO conectado à chamada de um
-// canal - separada da room `channelId` usada por presence.handler.js para
-// "quem está vendo este canal" (channel:join/channel:leave). São dois
-// conceitos diferentes que só coincidiam por acidente antes: um socket que dá
-// channel:leave (ex.: trocou de canal na UI) chamava socket.leave(channelId)
-// e podia derrubar esse MESMO socket da room usada pro broadcast de
-// voice:update, fazendo o próprio usuário que estava trocando de canal de voz
-// perder o aviso de que saiu do canal anterior (o roster ficava "grudado"
-// mostrando ele em dois canais ao mesmo tempo). Com rooms separadas, uma
-// nunca interfere na outra.
-const voiceRoomOf = (channelId) => `voice:${channelId}`;
+// voiceRoomOf / broadcastVoicePresence vivem em voicePresence.js (rooms de voz
+// x room de moderadores do ghostVoice).
 
 // Travas de moderação "persistentes" (modo 'lock' - ver §7 do plano):
 // sobrevivem a sair/entrar de novo na chamada, diferente do Map de
@@ -233,19 +228,6 @@ function clearScreenViewer(io, channelId, viewerUserId) {
   }
 }
 
-// Avisa quem está conectado na chamada e, quando dá pra saber o servidor
-// (serverId), TODO MUNDO que tem o servidor aberto (server:join) - mesmo sem
-// ter entrado nesse canal específico - sobre a lista atual de participantes
-// da voz. Lê do Redis (fonte de verdade do roster, ver voicePresence.js) em
-// vez do Map em memória do mediasoup - assim continua correto entre
-// múltiplas instâncias e depois de um restart deste processo.
-async function broadcastVoicePresence(io, channelId, serverId) {
-  const participants = await listVoicePresence(channelId);
-  const targets = serverId ? [voiceRoomOf(channelId), serverId] : voiceRoomOf(channelId);
-  io.to(targets).emit('voice:update', { channelId, participants });
-  return participants;
-}
-
 // Sai da chamada de voz de um canal - corpo compartilhado entre 'media:leave'
 // (o próprio usuário saindo), 'disconnect' (socket caiu) e
 // 'voice:moderateDisconnect' (um moderador desconectando outro usuário):
@@ -274,7 +256,7 @@ async function leaveVoiceChannel(io, { channelId, socketId, userId, reason = 'un
 // peers mediasoup desta instância em canais desse servidor.
 export async function evictUserFromServer(io, serverId, userId) {
   const channelIds = (await listChannelsForServer(serverId)).map((c) => c.id);
-  io.in(`user:${userId}`).socketsLeave([serverId, ...channelIds, ...channelIds.map(voiceRoomOf)]);
+  io.in(`user:${userId}`).socketsLeave([serverId, modsRoomOf(serverId), ...channelIds, ...channelIds.map(voiceRoomOf)]);
 
   for (const socket of io.sockets.sockets.values()) {
     if (socket.data.user?.id !== userId || socket.data.voiceServerId !== serverId) continue;
@@ -393,7 +375,8 @@ export function registerMediasoupHandlers(io, socket) {
       // sobrescrevia, deixando transports/producer de mic antigos vivos
       // (áudio duplicado, portas presas) até o socket desconectar. Antes do
       // getOrCreateRoom: removePeer fecha o router se o canal esvaziar.
-      if (getPeer(id, socket.id)) {
+      const isRejoin = Boolean(getPeer(id, socket.id));
+      if (isRejoin) {
         for (const producerId of removePeer(id, socket.id)) {
           io.to(voiceRoomOf(id)).except(socket.id).emit('media:producerClosed', { producerId });
         }
@@ -410,6 +393,8 @@ export function registerMediasoupHandlers(io, socket) {
       const sessionId = `vs-${randomUUID()}`;
       addPeer(id, socket.id, { userId: user.id, username: user.username, sessionId, serverId });
       await addVoicePresence(id, user, socket.id);
+      // Fantasma só em canal de servidor; gravado ANTES do broadcast abaixo.
+      if (serverId) await setGhost(id, user.id, await computeEffectiveGhost(user));
       // Entrada nova = estado de mídia novo. O hash de mídia é por USUÁRIO e só
       // é limpo quando o último socket dele sai - um socket antigo morto sem
       // close (aba congelada/rede trocada, até ~45s de ping timeout) mantinha
@@ -417,7 +402,8 @@ export function registerMediasoupHandlers(io, socket) {
       // sobrescrevia micMuted: todos viam "mutado/ensurdecido" ouvindo a voz.
       // O reconnect reaplica o estado real logo depois (produce pausado +
       // media:setDeafened).
-      await setVoiceMediaState(id, user.id, { micMuted: false, cameraOn: false, sharingScreen: false, deafened: false });
+      const cosmetics = serverId ? await getVoiceCosmetics(user.internalId) : { speakingRing: false, joinSound: null };
+      await setVoiceMediaState(id, user.id, { micMuted: false, cameraOn: false, sharingScreen: false, deafened: false, speakingRing: cosmetics.speakingRing });
       socket.data.voiceChannelId = id;
       socket.data.voiceServerId = serverId;
       // Garante que o socket receba media:newProducer e voice:update deste
@@ -425,6 +411,12 @@ export function registerMediasoupHandlers(io, socket) {
       // texto (sem ter feito channel:join no canal de voz).
       socket.join(voiceRoomOf(id));
       await broadcastVoicePresence(io, id, serverId);
+      // Som de entrada (joinSound): só pra quem já está NA voz (voiceRoom, nunca a
+      // room do servidor - então fantasma não toca pra quem está de fora) e
+      // não repete em reconexão do mesmo socket. Sem o benefício fica mudo.
+      if (cosmetics.joinSound && !isRejoin) {
+        io.to(voiceRoomOf(id)).except(socket.id).emit('voice:joinSound', { channelId: id, userId: user.id, ...cosmetics.joinSound });
+      }
 
       const sessionFields = {
         channel_id: id,
@@ -555,6 +547,19 @@ export function registerMediasoupHandlers(io, socket) {
         ]);
         const canShare = canAccessChannel({ channel, room, user, bitmask, roleIds, action: 'share' });
         if (!canShare) return ack({ error: 'Você não tem permissão para compartilhar mídia neste canal.' });
+      }
+    }
+
+    // Teto de bitrate da tela por usuário (hdScreen) - calculado aqui, o que o
+    // client declara não conta. Resolução/fps ficam por conta do client.
+    if (kind === 'video' && appData?.source === 'screen') {
+      const state = await getTurboState(user.internalId);
+      if (state && exceedsScreenBitrate(rtpParameters, state.limits)) {
+        return ack({
+          error: 'Qualidade de compartilhamento acima do permitido.',
+          code: 'screen_bitrate_limit',
+          maxBitrateKbps: state.limits.screenMaxBitrateKbps,
+        });
       }
     }
 
@@ -784,7 +789,7 @@ export function registerMediasoupHandlers(io, socket) {
       return ack({ error: 'Você não tem permissão para usar o soundboard.' });
     }
 
-    const sound = await findSoundInServer(channel.server_id, parsedSound.data);
+    const sound = await findSoundInServer(channel.server_id, parsedSound.data, user.internalId);
     if (!sound) return ack({ error: 'Efeito sonoro não encontrado.' });
 
     io.to(voiceRoomOf(id)).emit('soundboard:played', {

@@ -9,16 +9,38 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { randomDiscriminator } from '../utils/discriminator.js';
+import { TURBO_KEYS, TURBO_DEFAULTS, normalizeCatalog, resolveLimits, isSpeakingRingOn } from '../utils/turbo.js';
 
 // TURBO ativo pra linha `a` de users (alias da tabela na query).
 export const turboActiveSql = (a) => `COALESCE(${a}.turbo_until > NOW(), FALSE)`;
 
-// Benefício TURBO efetivo: override do usuário (turbo_benefits) > catálogo
-// global (app_settings) > ligado. A subquery do catálogo não depende da
-// linha, então o Postgres roda uma vez por query (InitPlan), não por usuário.
-// `key` é sempre constante do código (nunca entrada do usuário).
-export const turboBenefitSql = (a, key) =>
-  `(${turboActiveSql(a)} AND COALESCE((${a}.turbo_benefits->>'${key}')::boolean, (SELECT (turbo_benefits->>'${key}')::boolean FROM app_settings WHERE id = 1), TRUE))`;
+// Benefício TURBO efetivo. Modo do catálogo (app_settings): free = todos, off =
+// ninguém, turbo/turboBitrate = só TURBO ativo e sem override `false` do
+// usuário (turbo_benefits, lido só se for jsonb boolean). Booleano legado
+// ('true'/'false') vale turbo/off; qualquer outro valor (ou ausente) cai no
+// default da chave (TURBO_DEFAULTS), como normalizeCatalog. A subquery do
+// catálogo não depende da linha, então o Postgres roda uma vez por query.
+// `key` é validada contra TURBO_KEYS (nunca interpola entrada do usuário).
+export const turboBenefitSql = (a, key) => {
+  if (!TURBO_KEYS.includes(key)) throw new Error(`Benefício TURBO desconhecido: ${key}`);
+  const branches = {
+    free: ['free'],
+    off: ['off', 'false'],
+    turbo: key === 'hdScreen' ? ['turbo', 'turboBitrate', 'true'] : ['turbo', 'true'],
+  };
+  const result = {
+    free: 'TRUE',
+    off: 'FALSE',
+    turbo: `(${turboActiveSql(a)} AND CASE WHEN jsonb_typeof(${a}.turbo_benefits->'${key}') = 'boolean' THEN (${a}.turbo_benefits->>'${key}')::boolean ELSE TRUE END)`,
+  };
+  // O grupo do default vira o ELSE (valor desconhecido/ausente = default).
+  const group = TURBO_DEFAULTS[key] === 'turboBitrate' ? 'turbo' : TURBO_DEFAULTS[key];
+  const whens = Object.keys(branches)
+    .filter((g) => g !== group)
+    .map((g) => `WHEN m IN (${branches[g].map((v) => `'${v}'`).join(', ')}) THEN ${result[g]}`)
+    .join(' ');
+  return `(SELECT CASE ${whens} ELSE ${result[group]} END FROM (SELECT (SELECT turbo_benefits->>'${key}' FROM app_settings WHERE id = 1) AS m) t)`;
+};
 
 // name_style que pode ir pra OUTROS usuários: só com o benefício ativo (ou
 // conta do sistema, Zeno). Expirado continua salvo no banco e volta sozinho
@@ -48,6 +70,13 @@ const USER_COLUMNS = `
   turbo_benefits AS "turboBenefits",
   ${turboBenefitSql('users', 'nameStyle')} AS "canStyleName",
   show_common_servers AS "showCommonServers",
+  ghost_voice AS "ghostVoice",
+  speaking_ring AS "speakingRingPref",
+  banner_path AS "bannerPath",
+  (SELECT json_build_object('soundId', s.id, 'name', s.name, 'serverId', s.server_id, 'serverName', r.name,
+                            'path', s.file_path, 'durationMs', s.duration_ms)
+   FROM soundboard_sounds s JOIN rooms r ON r.id = s.server_id WHERE s.id = users.join_sound_id) AS "joinSound",
+  ${turboBenefitSql('users', 'profileBanner')} AS "canShowBanner",
   failed_login_attempts,
   locked_until,
   created_at,
@@ -161,7 +190,7 @@ export async function clearFailedLogins(userId) {
 // só username, só bio, ou qualquer combinação, sem sobrescrever o resto com
 // null. A checagem de username/email já em uso é responsabilidade de quem
 // chama (users.routes.js), igual ao padrão de auth.routes.js no cadastro.
-export async function updateProfile(userId, { username, email, bio, nameStyle, showCommonServers } = {}) {
+export async function updateProfile(userId, { username, email, bio, nameStyle, showCommonServers, ghostVoice, speakingRing } = {}) {
   const sets = [];
   const values = [];
   let i = 1;
@@ -188,6 +217,14 @@ export async function updateProfile(userId, { username, email, bio, nameStyle, s
   if (showCommonServers !== undefined) {
     sets.push(`show_common_servers = $${i++}`);
     values.push(showCommonServers);
+  }
+  if (ghostVoice !== undefined) {
+    sets.push(`ghost_voice = $${i++}`);
+    values.push(ghostVoice);
+  }
+  if (speakingRing !== undefined) {
+    sets.push(`speaking_ring = $${i++}`);
+    values.push(speakingRing);
   }
   sets.push('updated_at = NOW()');
 
@@ -251,7 +288,7 @@ export function banMessage(user) {
 // TURBO em massa (painel admin). days = null -> sem expiração. Quem já tem
 // TURBO ativo soma ao tempo restante (GREATEST ignora NULL; 'infinity' +
 // intervalo continua 'infinity'). Conta do sistema nunca recebe.
-// Devolve os publicIds de fato atualizados.
+// Devolve [{ publicId, turboUntil }] de fato atualizados (turboUntil null = sem expiração).
 export async function grantTurbo(publicIds, days) {
   const { rows } = await pool.query(
     `UPDATE users SET turbo_until = CASE
@@ -259,10 +296,10 @@ export async function grantTurbo(publicIds, days) {
        ELSE GREATEST(turbo_until, NOW()::timestamp) + make_interval(days => $2::int)
      END
      WHERE public_id = ANY($1::uuid[]) AND is_system = FALSE
-     RETURNING public_id AS "publicId"`,
+     RETURNING public_id AS "publicId", NULLIF(turbo_until, 'infinity') AS "turboUntil"`,
     [publicIds, days]
   );
-  return rows.map((r) => r.publicId);
+  return rows;
 }
 
 // Remove o TURBO na hora. name_style/turbo_benefits ficam guardados.
@@ -276,7 +313,98 @@ export async function revokeTurbo(publicIds) {
   return rows.map((r) => r.publicId);
 }
 
-// Override de benefícios de UM usuário - objeto inteiro (ver turboBenefitsSchema).
+// Benefício por public_id (dono do servidor etc.).
+export async function hasBenefitByPublicId(publicId, key) {
+  const { rows } = await pool.query(
+    `SELECT ${turboBenefitSql('u', key)} AS has FROM users u WHERE u.public_id = $1`,
+    [publicId]
+  );
+  return rows[0]?.has === true;
+}
+
+// Extras de voz TURBO lidos no media:join: anel de fala (vai no roster) e som
+// de entrada (null sem o benefício joinSound ou se o som escolhido não vale mais).
+export async function getVoiceCosmetics(userId) {
+  const { rows } = await pool.query(
+    `SELECT ${turboBenefitSql('u', 'speakingRing')} AS "hasRing", u.speaking_ring AS "ringPref", ${turboBenefitSql('u', 'joinSound')} AS "hasJoinSound",
+            -- som escolhido: ainda existe e (membro do servidor | pessoal do próprio com personalSounds)
+            (SELECT json_build_object('filePath', s.file_path, 'durationMs', s.duration_ms)
+             FROM soundboard_sounds s
+             WHERE s.id = u.join_sound_id
+               AND ((s.owner_user_id IS NULL AND EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = s.server_id AND rm.user_id = u.id))
+                    OR (s.owner_user_id = u.id AND ${turboBenefitSql('u', 'personalSounds')}))) AS sound
+     FROM users u WHERE u.id = $1`,
+    [userId]
+  );
+  const r = rows[0];
+  return {
+    speakingRing: isSpeakingRingOn({ hasBenefit: r?.hasRing === true, pref: r?.ringPref === true }),
+    joinSound: r?.hasJoinSound && r.sound ? r.sound : null,
+  };
+}
+
+// Banner e som de entrada (arquivo já gravado pela rota). null = remove.
+export async function updateBannerPath(userId, bannerPath) {
+  const { rows } = await pool.query(
+    `UPDATE users SET banner_path = $1, updated_at = NOW() WHERE id = $2 RETURNING ${USER_COLUMNS}`,
+    [bannerPath, userId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function updateJoinSound(userId, soundId) {
+  const { rows } = await pool.query(
+    `UPDATE users SET join_sound_id = $1, updated_at = NOW() WHERE id = $2 RETURNING ${USER_COLUMNS}`,
+    [soundId, userId]
+  );
+  return rows[0] ?? null;
+}
+
+// Estado TURBO de um usuário numa query só: { active, until, catalog,
+// benefits (efetivo por chave), limits }. userId = PK interna.
+export async function getTurboState(userId) {
+  const cols = TURBO_KEYS.map((k, n) => `${turboBenefitSql('u', k)} AS b${n}`).join(', ');
+  const { rows } = await pool.query(
+    `SELECT ${turboActiveSql('u')} AS active, NULLIF(u.turbo_until, 'infinity') AS until,
+            s.turbo_benefits AS catalog, s.user_backgrounds_max_count AS bg, ${cols}
+     FROM users u LEFT JOIN app_settings s ON s.id = 1
+     WHERE u.id = $1`,
+    [userId]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  const catalog = normalizeCatalog(r.catalog);
+  const benefits = Object.fromEntries(TURBO_KEYS.map((k, n) => [k, r[`b${n}`]]));
+  return {
+    active: r.active,
+    until: r.until ? new Date(r.until).toISOString() : null,
+    catalog,
+    benefits,
+    limits: resolveLimits(catalog, benefits, r.bg ?? undefined),
+  };
+}
+
+// Para handlers de socket (userId = PK interna).
+export async function hasBenefit(userId, key) {
+  const { rows } = await pool.query(
+    `SELECT ${turboBenefitSql('u', key)} AS has FROM users u WHERE u.id = $1`,
+    [userId]
+  );
+  return rows[0]?.has === true;
+}
+
+// Insumos do fantasma efetivo (ghostVoice): benefício, preferência salva e
+// status salvo no banco (fallback quando o Redis ainda não tem a sessão).
+export async function getGhostEligibility(userId) {
+  const { rows } = await pool.query(
+    `SELECT ${turboBenefitSql('u', 'ghostVoice')} AS "hasBenefit", u.ghost_voice AS "ghostPref", u.status
+     FROM users u WHERE u.id = $1`,
+    [userId]
+  );
+  return rows[0] ?? null;
+}
+
+// Override de benefícios de UM usuário - objeto inteiro (ver turboOverrideSchema).
 export async function setTurboBenefits(publicId, benefits) {
   const { rows } = await pool.query(
     `UPDATE users SET turbo_benefits = $1::jsonb

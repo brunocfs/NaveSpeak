@@ -5,10 +5,17 @@ import { validateBody } from '../middleware/validate.js';
 import { userTagSchema, userIdParamSchema } from '../validation/schemas.js';
 import { parseTag, formatTag } from '../utils/discriminator.js';
 import { findUserByTag, findUserByPublicId, listAdmins, setAdmin } from '../db/users.repo.js';
+import { listRoomIdsForUser } from '../db/rooms.repo.js';
+import { refreshModsRoom } from '../sockets/voiceGhost.js';
 import { audit } from '../observability/logger.js';
 
 // Quem é admin da APLICAÇÃO (users.is_admin). requireAuth relê is_admin do
 // banco a cada request, então promover/remover vale na hora.
+// is_admin mudou: recalcula a mods:{serverId} de cada servidor do usuário.
+async function refreshModsRoomsOf(io, internalUserId) {
+  for (const roomId of await listRoomIdsForUser(internalUserId)) await refreshModsRoom(io, roomId);
+}
+
 const router = Router();
 router.use(requireAuth, requireAdmin);
 
@@ -31,6 +38,7 @@ router.post('/', validateBody(userTagSchema), async (req, res, next) => {
     if (target.isAdmin) return res.status(409).json({ error: 'Esse usuário já é administrador.' });
 
     const updated = await setAdmin(target.id, true);
+    await refreshModsRoomsOf(req.app.get('io'), target.id);
     audit('app_admin_granted', { target_user_id: target.publicId });
     return res.json({ admin: toPublic(updated) });
   } catch (err) {
@@ -50,6 +58,7 @@ router.delete('/:userId', async (req, res, next) => {
     if (!target?.isAdmin) return res.status(404).json({ error: 'Administrador não encontrado.' });
 
     await setAdmin(target.id, false);
+    await refreshModsRoomsOf(req.app.get('io'), target.id);
     audit('app_admin_revoked', { target_user_id: target.publicId });
     return res.json({ ok: true });
   } catch (err) {

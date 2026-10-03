@@ -94,6 +94,11 @@ export async function setIdle(userId, idle) {
   }
 }
 
+// Preferência escolhida nesta sessão (null = conexão ainda sem entrada no Redis).
+export async function getPreference(userId) {
+  return (await getStatusEntry(userId))?.preference ?? null;
+}
+
 // Status "de verdade", nunca colapsa invisível - só pra o PRÓPRIO usuário
 // decidir o que exibir (o seletor sempre mostra a preferência escolhida, não
 // isto - ver StatusSelector.jsx).

@@ -1,4 +1,5 @@
-import { findUserByPublicId } from "../db/users.repo.js";
+import { findUserByPublicId, getTurboState } from "../db/users.repo.js";
+import { TURBO_LIMITS, messageTooLong } from "../utils/turbo.js";
 import { areFriends } from "../db/friends.repo.js";
 import { shareCommonRoom } from "../db/rooms.repo.js";
 import { isBlockedEitherDirection } from "../db/blocks.repo.js";
@@ -90,6 +91,11 @@ export function registerDmHandlers(io, socket) {
         });
       }
       content = contentResult.data;
+      // Só consulta o plano quando passa do limite grátis.
+      if (content.length > TURBO_LIMITS.messageMaxChars) {
+        const tooLong = messageTooLong(content, (await getTurboState(user.internalId))?.limits ?? TURBO_LIMITS);
+        if (tooLong) return ack(tooLong);
+      }
     } else if (!hasAttachments) {
       return ack({ error: "Mensagem vazia." });
     }

@@ -25,6 +25,10 @@ router.patch('/', validateBody(appSettingsUpdateSchema), async (req, res, next) 
   try {
     const settings = await updateAppSettings(req.body);
     audit('app_settings_updated', { changed_fields: Object.keys(req.body) });
+    // Benefício é por usuário: o payload leva só o catálogo, o client refaz GET /users/me.
+    if (req.body.turboBenefits) {
+      req.app.get('io')?.emit('turbo:catalogChanged', { catalog: settings.turboBenefits, at: new Date().toISOString() });
+    }
     return res.json({ settings });
   } catch (err) {
     return next(err);

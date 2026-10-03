@@ -5,9 +5,10 @@ import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
-import { attachmentUploadRateLimiter } from '../middleware/rateLimit.js';
 import { attachmentUploadBodySchema } from '../validation/schemas.js';
 import { decodeAttachmentDataUrl } from '../utils/attachmentUpload.js';
+import { getTurboState } from '../db/users.repo.js';
+import { TURBO_LIMITS } from '../utils/turbo.js';
 import { pool } from '../config/db.js';
 import { redis } from '../config/redis.js';
 import { logger } from '../observability/logger.js';
@@ -18,7 +19,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (server/src/index.js).
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 const ATTACHMENTS_DIR = path.join(UPLOADS_DIR, 'attachments');
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB, já decodificado (sem o overhead do base64)
 // Cota diária por usuário - o rate limit sozinho ainda deixava ~86GB/dia.
 const DAILY_QUOTA_BYTES = 500 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,12 +46,17 @@ router.use(requireAuth);
 // mandar a mensagem em si via socket (chat:send/dm:send). O arquivo já fica
 // em disco antes de qualquer mensagem existir; se o usuário nunca enviar,
 // fica órfão - startOrphanAttachmentCleanup (abaixo) apaga depois de 24h.
-router.post('/', attachmentUploadRateLimiter, validateBody(attachmentUploadBodySchema), async (req, res, next) => {
+// attachmentUploadRateLimiter roda no index.js, ANTES do parser de body.
+router.post('/', validateBody(attachmentUploadBodySchema), async (req, res, next) => {
   try {
-    const decoded = decodeAttachmentDataUrl(req.body.fileData, req.body.fileName, {
-      maxBytes: MAX_ATTACHMENT_BYTES,
-    });
-    if (decoded.error) return res.status(400).json({ error: decoded.error });
+    // Teto por usuário (bigUploads), já decodificado, recalculado a cada upload.
+    const state = await getTurboState(req.user.internalId);
+    const maxBytes = state?.limits.attachmentMaxBytes ?? TURBO_LIMITS.attachmentMaxBytes;
+    const decoded = decodeAttachmentDataUrl(req.body.fileData, req.body.fileName, { maxBytes });
+    if (decoded.error) {
+      const tooBig = decoded.error.includes('maior que');
+      return res.status(tooBig ? 413 : 400).json({ error: decoded.error, ...(tooBig && { code: 'attachment_too_large', maxBytes }) });
+    }
     const { buffer, mime, safeName } = decoded;
     if (await exceedsDailyQuota(req.user.internalId, buffer.length)) {
       return res.status(429).json({ error: 'Você atingiu o limite diário de envio de arquivos.' });

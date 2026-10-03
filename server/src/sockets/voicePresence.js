@@ -17,6 +17,12 @@
 //     roteado via pub/sub do Redis para todas as instâncias.
 import { createRoomPresenceStore } from './roomPresence.js';
 import { redis } from '../config/redis.js';
+import { splitRoster } from '../utils/voiceGhost.js';
+import { modsRoomOf } from './modsRoom.js';
+
+// Room socket.io de quem está DE FATO na chamada do canal (ver comentário em
+// mediasoup.handler.js) - separada da room `channelId` de "quem vê o canal".
+export const voiceRoomOf = (channelId) => `voice:${channelId}`;
 
 const store = createRoomPresenceStore('voice', (channelId) => `voice:channel:${channelId}:members`);
 
@@ -36,7 +42,8 @@ const store = createRoomPresenceStore('voice', (channelId) => `voice:channel:${c
 // vai pra room do canal E pra room do servidor, ver broadcastVoicePresence
 // em mediasoup.handler.js) recebe o estado atual, não só quem está na call.
 const mediaKey = (channelId) => `voice:channel:${channelId}:media`;
-const defaultMediaState = () => ({ micMuted: false, cameraOn: false, sharingScreen: false, deafened: false });
+// speakingRing (benefício, gravado no media:join) vai no roster pra todos verem o anel.
+const defaultMediaState = () => ({ micMuted: false, cameraOn: false, sharingScreen: false, deafened: false, speakingRing: false });
 
 export async function setVoiceMediaState(channelId, userId, patch) {
   try {
@@ -89,6 +96,29 @@ async function clearVoiceMediaState(channelId, userId) {
   }
 }
 
+// Set de fantasmas (ghostVoice) por canal - mesmo prefixo voice:channel:*,
+// então a limpeza do boot também varre. Escrito no media:join e a cada troca
+// de status/preferência (sockets/voiceGhost.js). Fail-open: sem Redis ninguém
+// é fantasma (todos aparecem).
+const ghostsKey = (channelId) => `voice:channel:${channelId}:ghosts`;
+
+// Devolve true se o estado mudou.
+export async function setGhost(channelId, userId, ghost) {
+  try {
+    return (await (ghost ? redis.sadd(ghostsKey(channelId), userId) : redis.srem(ghostsKey(channelId), userId))) === 1;
+  } catch {
+    return false;
+  }
+}
+
+export async function listGhostIds(channelId) {
+  try {
+    return await redis.smembers(ghostsKey(channelId));
+  } catch {
+    return [];
+  }
+}
+
 export const addVoicePresence = store.add;
 
 // Envelope de store.remove: quando o usuário fica totalmente fora do canal
@@ -97,7 +127,10 @@ export const addVoicePresence = store.add;
 // roster, mas ficariam ocupando espaço à toa no Redis).
 export async function removeVoicePresence(channelId, userId, socketId) {
   const left = await store.remove(channelId, userId, socketId);
-  if (left) await clearVoiceMediaState(channelId, userId);
+  if (left) {
+    await clearVoiceMediaState(channelId, userId);
+    await setGhost(channelId, userId, false);
+  }
   return left;
 }
 
@@ -123,7 +156,9 @@ export async function listUsersInVoice() {
 // Roster de um canal de voz já com o estado de mídia de cada participante
 // mesclado - RoomPage/VoiceRosterEntry leem micMuted/cameraOn/sharingScreen
 // direto do participante, sem precisar estar conectado à chamada pra saber.
-export async function listVoicePresence(channelId) {
+// Por padrão devolve a lista FILTRADA (sem fantasmas) - quem enxerga tudo
+// (voiceRoom/modsRoom) pede { full: true } e recebe `ghost: true` nos fantasmas.
+export async function listVoicePresence(channelId, { full = false } = {}) {
   const participants = await store.list(channelId);
   if (participants.length === 0) return participants;
 
@@ -134,7 +169,7 @@ export async function listVoicePresence(channelId) {
     /* fail-open: todo mundo cai no default abaixo */
   }
 
-  return participants.map((p) => {
+  const merged = participants.map((p) => {
     let state = defaultMediaState();
     const raw = mediaHash[p.userId];
     if (raw) {
@@ -146,4 +181,22 @@ export async function listVoicePresence(channelId) {
     }
     return { ...p, ...state };
   });
+  const { full: withGhosts, filtered } = splitRoster(merged, await listGhostIds(channelId));
+  return full ? withGhosts : filtered;
+}
+
+// Avisa a voz do canal e quem tem o servidor aberto. Com fantasmas, a lista
+// completa vai só pra voiceRoom + mods:{serverId} e a filtrada pro resto do
+// servidor (except). Chamada privada (sem serverId) não tem fantasma.
+export async function broadcastVoicePresence(io, channelId, serverId) {
+  const participants = await listVoicePresence(channelId, { full: true });
+  const voiceRoom = voiceRoomOf(channelId);
+  if (!serverId || !participants.some((p) => p.ghost)) {
+    io.to(serverId ? [voiceRoom, serverId] : voiceRoom).emit('voice:update', { channelId, participants });
+    return participants;
+  }
+  const privileged = [voiceRoom, modsRoomOf(serverId)];
+  io.to(privileged).emit('voice:update', { channelId, participants });
+  io.to(serverId).except(privileged).emit('voice:update', { channelId, participants: participants.filter((p) => !p.ghost) });
+  return participants;
 }

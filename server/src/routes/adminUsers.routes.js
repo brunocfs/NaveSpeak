@@ -7,7 +7,7 @@ import {
   adminBanSchema,
   turboGrantSchema,
   turboRevokeSchema,
-  turboBenefitsSchema,
+  turboOverrideSchema,
 } from '../validation/schemas.js';
 import { formatTag } from '../utils/discriminator.js';
 import {
@@ -19,6 +19,8 @@ import {
   revokeTurbo,
   setTurboBenefits,
 } from '../db/users.repo.js';
+import { refreshUserGhostByPublicId } from '../sockets/voiceGhost.js';
+import { getAppSettings } from '../db/appSettings.repo.js';
 import { revokeAllRefreshTokensForUser } from '../db/refreshTokens.repo.js';
 import { listOnlineUserIds } from '../sockets/onlineStore.js';
 import { listUsersInVoice } from '../sockets/voicePresence.js';
@@ -147,7 +149,14 @@ router.post('/turbo', validateBody(turboGrantSchema), async (req, res, next) => 
   try {
     const { userIds, days } = req.body;
     const updated = await grantTurbo(userIds, days);
-    audit('turbo_granted', { target_user_ids: updated, days });
+    const io = req.app.get('io');
+    // ponytail: emite pra todos, inclusive quem já tinha TURBO ativo.
+    for (const { publicId, turboUntil } of updated) {
+      io?.to(`user:${publicId}`).emit('account:turboGranted', {
+        until: turboUntil ? new Date(turboUntil).toISOString() : null,
+      });
+    }
+    audit('turbo_granted', { target_user_ids: updated.map((u) => u.publicId), days });
     return res.json({ ok: true, updated: updated.length });
   } catch (err) {
     return next(err);
@@ -157,6 +166,12 @@ router.post('/turbo', validateBody(turboGrantSchema), async (req, res, next) => 
 router.post('/turbo/revoke', validateBody(turboRevokeSchema), async (req, res, next) => {
   try {
     const updated = await revokeTurbo(req.body.userIds);
+    // Client refaz GET /users/me (benefícios mudam na hora).
+    if (updated.length) {
+      const payload = { catalog: (await getAppSettings()).turboBenefits, at: new Date().toISOString() };
+      for (const id of updated) req.app.get('io')?.to(`user:${id}`).emit('turbo:catalogChanged', payload);
+      for (const id of updated) await refreshUserGhostByPublicId(req.app.get('io'), id);
+    }
     audit('turbo_revoked', { target_user_ids: updated });
     return res.json({ ok: true, updated: updated.length });
   } catch (err) {
@@ -164,12 +179,17 @@ router.post('/turbo/revoke', validateBody(turboRevokeSchema), async (req, res, n
   }
 });
 
-router.put('/:userId/turbo-benefits', validateBody(turboBenefitsSchema), async (req, res, next) => {
+router.put('/:userId/turbo-benefits', validateBody(turboOverrideSchema), async (req, res, next) => {
   try {
     const parsed = userIdParamSchema.safeParse(req.params.userId);
     if (!parsed.success) return res.status(400).json({ error: 'ID de usuário inválido.' });
     const updated = await setTurboBenefits(parsed.data, req.body);
     if (!updated) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    await refreshUserGhostByPublicId(req.app.get('io'), parsed.data);
+    req.app.get('io')?.to(`user:${parsed.data}`).emit('turbo:catalogChanged', {
+      catalog: (await getAppSettings()).turboBenefits,
+      at: new Date().toISOString(),
+    });
     audit('turbo_benefits_updated', { target_user_id: parsed.data, benefits: req.body });
     return res.json({ ok: true });
   } catch (err) {

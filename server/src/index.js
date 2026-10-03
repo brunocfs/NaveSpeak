@@ -37,6 +37,9 @@ import reportsRoutes from './routes/reports.routes.js';
 import invitesRoutes from './routes/invites.routes.js';
 import attachmentsRoutes, { startOrphanAttachmentCleanup } from './routes/attachments.routes.js';
 import { requireAuth } from './middleware/auth.js';
+import { attachmentUploadRateLimiter } from './middleware/rateLimit.js';
+import { getTurboState } from './db/users.repo.js';
+import { TURBO_LIMITS } from './utils/turbo.js';
 import clientErrorsRoutes from './routes/clientErrors.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { attachSockets } from './sockets/index.js';
@@ -151,6 +154,8 @@ app.get('/metrics', metricsHandler);
 // bufferizar até 28MB por requisição antes de ser recusado. Todos esses
 // routers já exigem login inteiros (requireAuth pula se req.user já existe).
 app.use('/api/users/me/avatar', requireAuth, express.json({ limit: '3mb' }));
+// Banner (2MB -> ~2,7MB em base64) - mesmo motivo do avatar.
+app.use('/api/users/me/banner', requireAuth, express.json({ limit: '3mb' }));
 // Mesmo motivo do avatar acima - upload de foto do Zeno (adminSystemUser.routes.js)
 // também manda a imagem em base64 dentro do JSON.
 app.use('/api/admin/system-user/avatar', requireAuth, express.json({ limit: '3mb' }));
@@ -159,9 +164,21 @@ app.use('/api/rooms/:roomId/soundboard', requireAuth, express.json({ limit: '15m
 app.use('/api/rooms', requireAuth, express.json({ limit: '3mb' }));
 app.use('/api/backgrounds', requireAuth, express.json({ limit: '3mb' }));
 // Anexo de chat vai de base64 dentro do JSON também (mesmo motivo do
-// comentário acima) - 20MB decodificados vira ~27MB em base64, mais folga
-// pro resto do payload.
-app.use('/api/attachments', requireAuth, express.json({ limit: '28mb' }));
+// comentário acima). Ordem: login -> rate limit por usuário -> parser, e o teto
+// do body depende do plano (bigUploads): grátis 20MB (~27MB em base64), TURBO
+// 50MB (~67MB). Anônimo ou grátis nunca aloca 70MB; o limite real em bytes
+// decodificados ainda é checado na rota.
+const attachmentJsonFree = express.json({ limit: '28mb' });
+const attachmentJsonBig = express.json({ limit: '70mb' });
+app.use('/api/attachments', requireAuth, attachmentUploadRateLimiter, async (req, res, next) => {
+  try {
+    const state = await getTurboState(req.user.internalId);
+    const big = (state?.limits.attachmentMaxBytes ?? 0) > TURBO_LIMITS.attachmentMaxBytes;
+    return (big ? attachmentJsonBig : attachmentJsonFree)(req, res, next);
+  } catch (err) {
+    return next(err);
+  }
+});
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 

@@ -9,6 +9,8 @@ import {
   messageContentSchema,
   attachmentsArraySchema,
 } from "../validation/schemas.js";
+import { getTurboState } from "../db/users.repo.js";
+import { TURBO_LIMITS, messageTooLong } from "../utils/turbo.js";
 import { resolveAttachments } from "../utils/resolveAttachments.js";
 import { logSocketRateLimited } from "../observability/sockets.js";
 import { logError } from "../observability/errors.js";
@@ -125,6 +127,11 @@ export function registerChatHandlers(io, socket) {
         });
       }
       content = contentResult.data;
+      // Só consulta o plano quando passa do limite grátis.
+      if (content.length > TURBO_LIMITS.messageMaxChars) {
+        const tooLong = messageTooLong(content, (await getTurboState(user.internalId))?.limits ?? TURBO_LIMITS);
+        if (tooLong) return ack(tooLong);
+      }
     } else if (!hasAttachments) {
       return ack({ error: "Mensagem vazia." });
     }

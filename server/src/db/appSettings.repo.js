@@ -1,5 +1,6 @@
 // Queries parametrizadas ($1, $2, ...) - nunca concatenar entrada do usuário na string SQL.
 import { pool } from '../config/db.js';
+import { normalizeCatalog } from '../utils/turbo.js';
 
 const DEFAULTS = {
   soundboardMaxSounds: 20,
@@ -7,7 +8,7 @@ const DEFAULTS = {
   soundboardMaxBytes: 2 * 1024 * 1024,
   userBackgroundsServerEnabled: false,
   userBackgroundsMaxCount: 10,
-  turboBenefits: {},
+  turboBenefits: normalizeCatalog({}),
 };
 const COLUMNS =
   'soundboard_max_sounds, soundboard_max_duration_ms, soundboard_max_bytes, user_backgrounds_server_enabled, user_backgrounds_max_count, turbo_benefits';
@@ -20,7 +21,7 @@ function toClient(row) {
     soundboardMaxBytes: row.soundboard_max_bytes,
     userBackgroundsServerEnabled: row.user_backgrounds_server_enabled,
     userBackgroundsMaxCount: row.user_backgrounds_max_count,
-    turboBenefits: row.turbo_benefits,
+    turboBenefits: normalizeCatalog(row.turbo_benefits),
   };
 }
 
@@ -58,7 +59,7 @@ export async function updateAppSettings({
   if (soundboardMaxBytes !== undefined) { fields.push(`soundboard_max_bytes = $${i++}`); values.push(soundboardMaxBytes); }
   if (userBackgroundsServerEnabled !== undefined) { fields.push(`user_backgrounds_server_enabled = $${i++}`); values.push(userBackgroundsServerEnabled); }
   if (userBackgroundsMaxCount !== undefined) { fields.push(`user_backgrounds_max_count = $${i++}`); values.push(userBackgroundsMaxCount); }
-  // Catálogo TURBO: objeto inteiro (ver turboBenefitsSchema), sem merge.
+  // Catálogo TURBO: objeto inteiro (ver turboCatalogSchema), sem merge.
   if (turboBenefits !== undefined) { fields.push(`turbo_benefits = $${i++}::jsonb`); values.push(JSON.stringify(turboBenefits)); }
   if (fields.length === 0) return getAppSettings();
 

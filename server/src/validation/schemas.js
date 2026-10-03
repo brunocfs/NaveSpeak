@@ -1,6 +1,7 @@
 // Schemas de validação compartilhados entre rotas HTTP e handlers de socket,
 // para que a mesma regra (tamanho, formato) valha nos dois transportes.
 import { z } from 'zod';
+import { TURBO_KEYS, TURBO_LIMITS } from '../utils/turbo.js';
 
 export const roomNameSchema = z.object({
   name: z.string().trim().min(1, 'Nome da sala é obrigatório.').max(64, 'Nome muito longo.'),
@@ -148,7 +149,9 @@ export const messageContentSchema = z
     z
       .string()
       .min(1, 'Mensagem vazia.')
-      .max(2000, 'Mensagem muito longa (máx. 2000 caracteres).')
+      // Teto absoluto (longMessages); o limite por usuário é checado no
+      // handler via messageTooLong (utils/turbo.js).
+      .max(TURBO_LIMITS.messageMaxCharsTurbo, `Mensagem muito longa (máx. ${TURBO_LIMITS.messageMaxCharsTurbo} caracteres).`)
   );
 
 // Campos de identidade compartilhados entre cadastro (auth.routes.js) e
@@ -230,6 +233,8 @@ export const profileUpdateSchema = z
     // Benefício TURBO - users.routes.js recusa se o usuário não tem.
     nameStyle: z.lazy(() => nameStyleSchema).optional(),
     showCommonServers: z.boolean().optional(),
+    ghostVoice: z.boolean().optional(),
+    speakingRing: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 
@@ -265,10 +270,29 @@ export const nameStyleSchema = z
 // no ponto de uso via turboBenefitSql (db/users.repo.js). O mesmo formato
 // serve pro catálogo global e pro override por usuário (chave ausente =
 // segue o global).
-export const turboBenefitsSchema = z
-  .object({
-    nameStyle: z.boolean().optional(),
-  })
+export const turboModeSchema = z.enum(['turbo', 'free', 'off']);
+
+// Catálogo global: chave -> modo (objeto inteiro). Booleano legado vira
+// modo (true -> turbo, false -> off).
+const boolToMode = (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
+  return Object.fromEntries(
+    Object.entries(v).map(([k, x]) => [k, x === true ? 'turbo' : x === false ? 'off' : x])
+  );
+};
+export const turboCatalogSchema = z.preprocess(
+  boolToMode,
+  z
+    .object({
+      ...Object.fromEntries(TURBO_KEYS.map((k) => [k, turboModeSchema.optional()])),
+      hdScreen: z.enum(['turbo', 'turboBitrate', 'free', 'off']).optional(),
+    })
+    .strict()
+);
+
+// Override por usuário: chave -> boolean (ausente = segue o catálogo).
+export const turboOverrideSchema = z
+  .object(Object.fromEntries(TURBO_KEYS.map((k) => [k, z.boolean().optional()])))
   .strict();
 
 const turboUserIdsSchema = z.array(userIdParamSchema).min(1, 'Selecione ao menos um usuário.').max(500, 'Máximo de 500 usuários por vez.');
@@ -404,6 +428,8 @@ export const adminBroadcastCreateSchema = z
 // (music-metadata) contra app_settings.soundboard_max_duration_ms na rota -
 // isto aqui só garante o formato do payload.
 export const soundboardUploadBodySchema = z.object({
+  // true = som PESSOAL do membro (benefício personalSounds), sem MANAGE_SERVER.
+  personal: z.boolean().optional(),
   name: z.string().trim().min(1, 'Nome do som é obrigatório.').max(32, 'Nome muito longo.'),
   fileData: z
     .string()
@@ -411,7 +437,12 @@ export const soundboardUploadBodySchema = z.object({
     .regex(/^data:audio\/(mpeg|ogg|wav|webm);base64,/, 'Formato de áudio não suportado.'),
 });
 
+// POST /api/users/me/banner (mesma forma do avatar).
+export const bannerUploadSchema = avatarUploadSchema;
 export const soundIdParamSchema = z.string().uuid('ID de som inválido.');
+
+// PUT /api/users/me/join-sound - escolhe um som existente como som de entrada.
+export const joinSoundSelectSchema = z.object({ soundId: soundIdParamSchema }).strict();
 
 // PATCH /api/admin/settings (adminSettings.routes.js) - limites globais do
 // soundboard, editáveis só por admin da aplicação. Faixas generosas mas
@@ -427,7 +458,7 @@ export const appSettingsUpdateSchema = z
     soundboardMaxBytes: z.number().int().min(64 * 1024).max(10 * 1024 * 1024).optional(),
     userBackgroundsServerEnabled: z.boolean().optional(),
     userBackgroundsMaxCount: z.number().int().min(1).max(50).optional(),
-    turboBenefits: turboBenefitsSchema.optional(),
+    turboBenefits: turboCatalogSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'Nenhum campo para atualizar.' });
 

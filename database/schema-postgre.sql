@@ -649,9 +649,38 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS user_backgrounds_max_count INT
 -- Tamanho maximo (bytes, ja decodificado) de cada efeito sonoro.
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS soundboard_max_bytes INTEGER NOT NULL DEFAULT 2097152;
 
--- Catálogo global de benefícios TURBO ({ "nameStyle": true, ... }); chave
--- ausente = benefício ligado. Override por usuário em users.turbo_benefits.
+-- Catálogo global de benefícios TURBO ({ "nameStyle": "turbo", ... }); modos
+-- turbo|free|off (hdScreen também turboBitrate); chave ausente = default em
+-- server/src/utils/turbo.js. Override por usuário em users.turbo_benefits.
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS turbo_benefits JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Migração idempotente: booleanos legados do catálogo -> modo (true = turbo,
+-- false = off). Só o catálogo; override por usuário continua booleano.
+UPDATE app_settings
+SET turbo_benefits = (
+  SELECT COALESCE(jsonb_object_agg(
+    key,
+    CASE WHEN jsonb_typeof(value) = 'boolean'
+         THEN to_jsonb((CASE WHEN value::text = 'true' THEN 'turbo' ELSE 'off' END)::text)
+         ELSE value END), '{}'::jsonb)
+  FROM jsonb_each(turbo_benefits)
+)
+WHERE EXISTS (SELECT 1 FROM jsonb_each(turbo_benefits) WHERE jsonb_typeof(value) = 'boolean');
+
+-- Preferência de fantasma na voz (benefício ghostVoice; só vale com status
+-- invisível, ver contrato TURBO). Opt-in.
+-- Perfil TURBO (profileBanner / joinSound). Arquivo some do perfil público (e o
+-- som some da voz) quando o benefício some; a coluna/arquivo ficam guardados.
+-- Preferência do anel de fala (benefício speakingRing); o anel só vale com benefício E preferência ligada.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS speaking_ring BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banner_path VARCHAR(255) NULL;
+-- LEGADO (upload próprio de som de entrada, descontinuado): join_sound_path/
+-- join_sound_ms não são mais lidos nem escritos; ficam só pra não perder dados.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS join_sound_path VARCHAR(255) NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS join_sound_ms INTEGER NULL;
+-- ATENÇÃO deploy: está em USER_COLUMNS (server/src/db/users.repo.js) - rode este
+-- schema ANTES de reiniciar o server, senão todo SELECT de usuário quebra.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ghost_voice BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Fundos de camera (virtual background): user_id NULL = fundo PADRAO do
 -- sistema (visivel a todos, gerenciado so por admin da aplicacao); user_id
@@ -686,6 +715,26 @@ CREATE TABLE IF NOT EXISTS soundboard_sounds (
   CONSTRAINT fk_soundboard_sounds_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS ix_soundboard_sounds_server ON soundboard_sounds (server_id, created_at ASC);
+
+-- Som de entrada (joinSound) = um som JÁ existente nos soundboards (do servidor ou
+-- pessoal do usuário). SET NULL: se o som for apagado, o usuário fica sem som.
+-- (users.join_sound_id é adicionada logo abaixo da tabela soundboard_sounds.)
+-- Som PESSOAL (benefício personalSounds): owner_user_id preenchido = som de um
+-- membro, fora da cota do servidor; NULL = som do servidor. CASCADE (não SET
+-- NULL, que o transformaria em som do servidor). Sem o benefício do dono o som
+-- fica oculto e mudo; volta sozinho ao renovar.
+ALTER TABLE soundboard_sounds ADD COLUMN IF NOT EXISTS owner_user_id BIGINT NULL;
+DO $$ BEGIN
+  ALTER TABLE soundboard_sounds ADD CONSTRAINT fk_soundboard_sounds_owner
+    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS ix_soundboard_sounds_owner ON soundboard_sounds (server_id, owner_user_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS join_sound_id UUID NULL;
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT fk_users_join_sound
+    FOREIGN KEY (join_sound_id) REFERENCES soundboard_sounds(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- MIGRACAO (bancos ja existentes que ainda tem messages.room_id):
 -- 1) a tabela channels acima e criada normalmente (CREATE TABLE IF NOT EXISTS);

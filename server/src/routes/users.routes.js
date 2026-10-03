@@ -8,6 +8,8 @@ import {
   profileUpdateSchema,
   passwordChangeSchema,
   avatarUploadSchema,
+  bannerUploadSchema,
+  joinSoundSelectSchema,
   statusUpdateSchema,
   userIdParamSchema,
 } from '../validation/schemas.js';
@@ -19,6 +21,10 @@ import {
   updateAvatarPath,
   updatePasswordHash,
   updateUserStatus,
+  getTurboState,
+  hasBenefit,
+  updateBannerPath,
+  updateJoinSound,
 } from '../db/users.repo.js';
 import { formatTag } from '../utils/discriminator.js';
 import { countCommonRooms, listRoomIdsForUser } from '../db/rooms.repo.js';
@@ -26,9 +32,12 @@ import { findExistingFriendship } from '../db/friends.repo.js';
 import { revokeAllRefreshTokensForUser } from '../db/refreshTokens.repo.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { issueSession } from './auth.routes.js';
+import { refreshUserGhost, refreshSpeakingRing } from '../sockets/voiceGhost.js';
 import { setPreference } from '../sockets/onlineStore.js';
 import { broadcastUserStatus } from '../sockets/presenceBroadcast.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
+import { findSoundForJoin, listJoinSoundOptions } from '../db/soundboardSounds.repo.js';
+import { TURBO_LIMITS, joinSoundCheck } from '../utils/turbo.js';
 import { audit } from '../observability/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,7 +48,7 @@ const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 const AVATAR_DIR = path.join(UPLOADS_DIR, 'avatars');
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // 2MB, já decodificado (sem o overhead do base64)
 
-function toPublicProfile(user) {
+function toPublicProfile(user, turbo) {
   return {
     id: user.publicId,
     username: user.username,
@@ -65,9 +74,15 @@ function toPublicProfile(user) {
     // pra terceiros só sai via publicNameStyleSql / publicCard abaixo.
     isTurbo: user.isTurbo,
     turboUntil: user.turboUntil,
-    canStyleName: user.canStyleName,
+    turbo,
     nameStyle: user.nameStyle ?? {},
+    // Banner/som de entrada próprios (cru, pro editor); o público só vê com o benefício.
+    bannerPath: user.bannerPath,
+    // { soundId, name, serverId, serverName, path, durationMs } ou null
+    joinSound: user.joinSound ?? null,
     showCommonServers: user.showCommonServers,
+    ghostVoice: user.ghostVoice,
+    speakingRing: user.speakingRingPref, // preferência (o benefício vem em turbo.benefits.speakingRing)
     createdAt: user.created_at,
     updatedAt: user.updated_at,
   };
@@ -83,6 +98,8 @@ function publicCard(user) {
     avatarPath: user.avatarPath,
     bio: user.bio ?? '',
     isTurbo: user.isTurbo,
+    // Sem o benefício o banner some do público (arquivo e coluna ficam guardados).
+    bannerPath: user.canShowBanner ? user.bannerPath : null,
     nameStyle: user.isSystem || user.canStyleName ? user.nameStyle : {},
   };
 }
@@ -94,7 +111,7 @@ router.get('/me', async (req, res, next) => {
   try {
     const user = await findUserByPublicId(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    return res.json({ user: toPublicProfile(user) });
+    return res.json({ user: toPublicProfile(user, await getTurboState(user.id)) });
   } catch (err) {
     return next(err);
   }
@@ -104,7 +121,7 @@ router.get('/me', async (req, res, next) => {
 // são alterados (ver profileUpdateSchema e updateProfile).
 router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) => {
   try {
-    const { username, email, bio, nameStyle, showCommonServers } = req.body;
+    const { username, email, bio, nameStyle, showCommonServers, ghostVoice, speakingRing } = req.body;
 
     // Estilo do nome é benefício TURBO - checado aqui (não só escondendo o
     // editor no client).
@@ -138,8 +155,10 @@ router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) =>
       emailChanged = !existing;
     }
 
-    const updated = await updateProfile(req.user.internalId, { username, email, bio, nameStyle, showCommonServers });
+    const updated = await updateProfile(req.user.internalId, { username, email, bio, nameStyle, showCommonServers, ghostVoice, speakingRing });
     if (emailChanged) audit('email_changed', { user_id: req.user.id });
+    if (ghostVoice !== undefined) await refreshUserGhost(req.app.get('io'), req.user);
+    if (speakingRing !== undefined) await refreshSpeakingRing(req.app.get('io'), req.user);
     // Estilo TURBO ao vivo pros outros membros dos servidores do usuário -
     // sem isso só apareceria depois de recarregar o servidor. Mesma regra
     // de publicCard (só o estilo público). Falha aqui não desfaz o save.
@@ -157,7 +176,7 @@ router.patch('/me', validateBody(profileUpdateSchema), async (req, res, next) =>
         /* broadcast é best-effort */
       }
     }
-    return res.json({ user: toPublicProfile(updated) });
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
   } catch (err) {
     return next(err);
   }
@@ -176,6 +195,8 @@ router.patch('/me/status', validateBody(statusUpdateSchema), async (req, res, ne
 
     await setPreference(req.user.id, req.body.status);
     await broadcastUserStatus(req.app.get('io'), req.user);
+    // invisível liga/desliga o fantasma de voz na chamada em andamento
+    await refreshUserGhost(req.app.get('io'), req.user);
 
     return res.json({ status: updated.status });
   } catch (err) {
@@ -221,6 +242,12 @@ router.post('/me/avatar', validateBody(avatarUploadSchema), async (req, res, nex
     const user = await findUserByPublicId(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
+    // GIF animado é benefício (animatedAvatar); avatar GIF já salvo continua
+    // sendo servido se o benefício some.
+    if (ext === 'gif' && !(await hasBenefit(user.id, 'animatedAvatar'))) {
+      return res.status(403).json({ error: 'Avatar animado é um benefício TURBO.', code: 'animated_avatar_locked' });
+    }
+
     // Nome de arquivo determinístico (public_id do dono) - reenviar o mesmo
     // formato sobrescreve o arquivo antigo sozinho, sem acumular lixo.
     const relativePath = `avatars/${user.publicId}.${ext}`;
@@ -236,7 +263,7 @@ router.post('/me/avatar', validateBody(avatarUploadSchema), async (req, res, nex
     }
 
     const updated = await updateAvatarPath(user.id, relativePath);
-    return res.json({ user: toPublicProfile(updated) });
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
   } catch (err) {
     return next(err);
   }
@@ -251,7 +278,100 @@ router.delete('/me/avatar', async (req, res, next) => {
       await fs.unlink(path.join(UPLOADS_DIR, user.avatarPath)).catch(() => {});
     }
     const updated = await updateAvatarPath(user.id, null);
-    return res.json({ user: toPublicProfile(updated) });
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Banner do perfil (benefício profileBanner) - mesmo fluxo do avatar. Nome
+// determinístico por public_id; extensão antiga é apagada.
+router.post('/me/banner', validateBody(bannerUploadSchema), async (req, res, next) => {
+  try {
+    if (!(await hasBenefit(req.user.internalId, 'profileBanner'))) {
+      return res.status(403).json({ error: 'Banner de perfil é um benefício TURBO.', code: 'profile_banner_locked' });
+    }
+    const decoded = decodeImageDataUrl(req.body.image, { maxBytes: TURBO_LIMITS.bannerMaxBytes });
+    if (decoded.error) return res.status(400).json({ error: decoded.error });
+
+    // Banner GIF = animado: mesmo gate do avatar (animatedAvatar).
+    if (decoded.ext === 'gif' && !(await hasBenefit(req.user.internalId, 'animatedAvatar'))) {
+      return res.status(403).json({ error: 'Imagem animada é um benefício TURBO.', code: 'animated_avatar_locked' });
+    }
+
+    const user = await findUserByPublicId(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    const relativePath = `banners/${user.publicId}.${decoded.ext}`;
+    await fs.mkdir(path.join(UPLOADS_DIR, 'banners'), { recursive: true });
+    await fs.writeFile(path.join(UPLOADS_DIR, relativePath), decoded.buffer);
+    if (user.bannerPath && user.bannerPath !== relativePath) {
+      await fs.unlink(path.join(UPLOADS_DIR, user.bannerPath)).catch(() => {});
+    }
+    const updated = await updateBannerPath(user.id, relativePath);
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Remover é sempre livre (mesmo sem o benefício).
+router.delete('/me/banner', async (req, res, next) => {
+  try {
+    const user = await findUserByPublicId(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    if (user.bannerPath) await fs.unlink(path.join(UPLOADS_DIR, user.bannerPath)).catch(() => {});
+    const updated = await updateBannerPath(user.id, null);
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Som de entrada (benefício joinSound): o usuário ESCOLHE um som que já existe
+// nos soundboards dos servidores dele (ou um som pessoal próprio). Tocado pros
+// outros ao entrar na voz (sockets/mediasoup.handler.js, voice:joinSound).
+router.get('/me/join-sound/options', async (req, res, next) => {
+  try {
+    const rows = await listJoinSoundOptions(req.user.internalId);
+    const byServer = new Map();
+    for (const { serverId, serverName, ...s } of rows) {
+      if (!byServer.has(serverId)) byServer.set(serverId, { serverId, serverName, sounds: [] });
+      byServer.get(serverId).sounds.push({ ...s, eligible: s.durationMs <= TURBO_LIMITS.joinSoundMaxMs });
+    }
+    return res.json([...byServer.values()]);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/me/join-sound', validateBody(joinSoundSelectSchema), async (req, res, next) => {
+  try {
+    if (!(await hasBenefit(req.user.internalId, 'joinSound'))) {
+      return res.status(403).json({ error: 'Som de entrada é um benefício TURBO.', code: 'join_sound_locked' });
+    }
+    const sound = await findSoundForJoin(req.user.internalId, req.body.soundId);
+    if (!sound) return res.status(404).json({ error: 'Som não encontrado.', code: 'join_sound_not_found' });
+    const problem = joinSoundCheck(sound);
+    if (problem === 'join_sound_forbidden') {
+      return res.status(403).json({ error: 'Você não pode usar esse som.', code: problem });
+    }
+    if (problem === 'join_sound_too_long') {
+      return res.status(400).json({ error: 'Som muito longo para som de entrada.', code: problem, maxMs: TURBO_LIMITS.joinSoundMaxMs });
+    }
+    const updated = await updateJoinSound(req.user.internalId, sound.id);
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Limpar é sempre livre (mesmo sem o benefício).
+router.delete('/me/join-sound', async (req, res, next) => {
+  try {
+    const updated = await updateJoinSound(req.user.internalId, null);
+    if (!updated) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    return res.json({ user: toPublicProfile(updated, await getTurboState(updated.id)) });
   } catch (err) {
     return next(err);
   }

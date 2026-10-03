@@ -81,3 +81,14 @@ export function canAccessChannel({ channel, room, user, bitmask, roleIds, action
   if (!requiredRoleId) return true;
   return (roleIds ?? []).includes(requiredRoleId);
 }
+
+// Moderador de voz (ghostVoice): vê TODOS no canal, inclusive fantasmas.
+// Dono do servidor, ADMINISTRATOR, qualquer flag de moderação de voz ou admin
+// da plataforma (user.isAdmin).
+const VOICE_MOD_FLAGS =
+  PERMISSIONS.MOVE_MEMBERS | PERMISSIONS.MUTE_MEMBERS | PERMISSIONS.DISCONNECT_MEMBERS | PERMISSIONS.DISABLE_MEDIA;
+
+export function isVoiceModerator({ room, user, bitmask }) {
+  if (user?.isAdmin || isServerOwner(room, user)) return true;
+  return (Number(bitmask) & (PERMISSIONS.ADMINISTRATOR | VOICE_MOD_FLAGS)) !== 0;
+}

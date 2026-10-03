@@ -1,7 +1,10 @@
 import { isRoomMember } from "../db/rooms.repo.js";
 import { findChannelById, listChannelsForServer } from "../db/channels.repo.js";
 import { channelIdParamSchema, roomIdParamSchema } from "../validation/schemas.js";
-import { listVoicePresence } from "./voicePresence.js";
+import { listVoicePresence, voiceRoomOf } from "./voicePresence.js";
+import { listGhostIds } from "./voicePresence.js";
+import { computeEffectiveGhost } from "./voiceGhost.js";
+import { joinModsRoomIfModerator, modsRoomOf } from "./modsRoom.js";
 import { listPublicStatuses } from "./onlineStore.js";
 import {
   addPresence,
@@ -10,6 +13,20 @@ import {
   listPresence,
 } from "./presenceStore.js";
 import { canUserAccessChannel } from "./chat.handler.js";
+
+// Lista completa (com ghost:true) só pra quem está na voz do canal ou é
+// moderador; o resto recebe a filtrada.
+async function voiceSnapshot(socket, channelId, isMod) {
+  const full = isMod || socket.rooms.has(voiceRoomOf(channelId));
+  return { channelId, participants: await listVoicePresence(channelId, { full }) };
+}
+
+// presence:update de canal é para quem "vê" o canal: fantasma (set da voz) não
+// aparece nele (o roster de voz já mostra pra quem pode, via voice:update).
+async function withoutGhosts(channelId, members) {
+  const ghosts = new Set(await listGhostIds(channelId));
+  return ghosts.size ? members.filter((m) => !ghosts.has(m.userId)) : members;
+}
 
 export function registerPresenceHandlers(io, socket) {
   const user = socket.data.user;
@@ -28,6 +45,9 @@ export function registerPresenceHandlers(io, socket) {
     if (!member) return ack({ error: "Você não é membro desse servidor." });
 
     socket.join(parsed.data);
+    // Moderador de voz entra na mods:{serverId} e passa a ver os fantasmas.
+    await joinModsRoomIfModerator(socket, parsed.data);
+    const isMod = socket.rooms.has(modsRoomOf(parsed.data));
 
     // Abrir um servidor não é entrar em nenhum canal específico (isso é
     // channel:join), mas a UI precisa mostrar de cara quem já está em cada
@@ -36,8 +56,7 @@ export function registerPresenceHandlers(io, socket) {
     const channels = await listChannelsForServer(parsed.data);
     const voiceChannels = channels.filter((channel) => channel.type === "voice");
     for (const channel of voiceChannels) {
-      const participants = await listVoicePresence(channel.id);
-      socket.emit("voice:update", { channelId: channel.id, participants });
+      socket.emit("voice:update", await voiceSnapshot(socket, channel.id, isMod));
     }
 
     // Snapshot inicial do status de presença global (independente de canal/
@@ -67,8 +86,11 @@ export function registerPresenceHandlers(io, socket) {
     }
 
     socket.join(channel.id);
-    await addPresence(channel.id, user, socket.id);
-    const members = await listPresence(channel.id);
+    // Quem já seria fantasma não entra na presença do canal de voz (senão
+    // abrir o canal o revelaria antes/sem entrar na chamada).
+    const hide = channel.type === "voice" && (await computeEffectiveGhost(user));
+    if (!hide) await addPresence(channel.id, user, socket.id);
+    const members = await withoutGhosts(channel.id, await listPresence(channel.id));
     io.to(channel.id).emit("presence:update", {
       channelId: channel.id,
       members,
@@ -78,8 +100,7 @@ export function registerPresenceHandlers(io, socket) {
     // (Redis) para quem acabou de entrar, mesmo sem estar conectado na
     // chamada - assim o roster já aparece preenchido.
     if (channel.type === "voice") {
-      const participants = await listVoicePresence(channel.id);
-      socket.emit("voice:update", { channelId: channel.id, participants });
+      socket.emit("voice:update", await voiceSnapshot(socket, channel.id, socket.rooms.has(modsRoomOf(channel.server_id))));
     }
 
     return ack({ ok: true, members });
@@ -92,7 +113,7 @@ export function registerPresenceHandlers(io, socket) {
 
     socket.leave(parsed.data);
     await removePresence(parsed.data, user.id, socket.id);
-    const members = await listPresence(parsed.data);
+    const members = await withoutGhosts(parsed.data, await listPresence(parsed.data));
     io.to(parsed.data).emit("presence:update", {
       channelId: parsed.data,
       members,
@@ -103,7 +124,7 @@ export function registerPresenceHandlers(io, socket) {
   socket.on("disconnect", async () => {
     const affectedChannels = await removeSocketFromAllRooms(socket.id);
     for (const channelId of affectedChannels) {
-      const members = await listPresence(channelId);
+      const members = await withoutGhosts(channelId, await listPresence(channelId));
       io.to(channelId).emit("presence:update", { channelId, members });
     }
   });

@@ -9,6 +9,7 @@ import { validateBody } from '../middleware/validate.js';
 import { backgroundUploadSchema, backgroundIdParamSchema } from '../validation/schemas.js';
 import { decodeImageDataUrl } from '../utils/imageUpload.js';
 import { getAppSettings } from '../db/appSettings.repo.js';
+import { getTurboState } from '../db/users.repo.js';
 import {
   listSystemBackgrounds,
   listUserBackgrounds,
@@ -31,19 +32,24 @@ const MAX_BACKGROUND_BYTES = 2 * 1024 * 1024; // já decodificado, sem o overhea
 const router = Router();
 router.use(requireAuth);
 
+// Upload no servidor vale com a flag global OU com o benefício
+// extraBackgrounds; o teto é backgroundsMax (2x com o benefício).
+async function userBackgroundQuota(userId) {
+  const [settings, state] = await Promise.all([getAppSettings(), getTurboState(userId)]);
+  return {
+    enabled: settings.userBackgroundsServerEnabled || state?.benefits.extraBackgrounds === true,
+    max: state?.limits.backgroundsMax ?? settings.userBackgroundsMaxCount,
+  };
+}
+
 router.get('/', async (req, res, next) => {
   try {
-    const settings = await getAppSettings();
+    const { enabled, max } = await userBackgroundQuota(req.user.internalId);
     const [defaults, mine] = await Promise.all([
       listSystemBackgrounds(),
-      settings.userBackgroundsServerEnabled ? listUserBackgrounds(req.user.internalId) : [],
+      enabled ? listUserBackgrounds(req.user.internalId) : [],
     ]);
-    return res.json({
-      defaults,
-      mine,
-      userServerUploadEnabled: settings.userBackgroundsServerEnabled,
-      maxUserBackgrounds: settings.userBackgroundsMaxCount,
-    });
+    return res.json({ defaults, mine, userServerUploadEnabled: enabled, maxUserBackgrounds: max });
   } catch (err) {
     return next(err);
   }
@@ -92,12 +98,12 @@ router.delete('/system/:id', requireAdmin, (req, res, next) => removeBackground(
 // Trava do recurso pago + cota, antes de gravar qualquer coisa em disco.
 async function requireServerUploadEnabled(req, res, next) {
   try {
-    const settings = await getAppSettings();
-    if (!settings.userBackgroundsServerEnabled) {
-      return res.status(403).json({ error: 'Upload de fundos no servidor não está disponível.' });
+    const { enabled, max } = await userBackgroundQuota(req.user.internalId);
+    if (!enabled) {
+      return res.status(403).json({ error: 'Upload de fundos no servidor não está disponível.', code: 'backgrounds_upload_unavailable' });
     }
-    if ((await countUserBackgrounds(req.user.internalId)) >= settings.userBackgroundsMaxCount) {
-      return res.status(400).json({ error: `Limite de ${settings.userBackgroundsMaxCount} fundos atingido.` });
+    if ((await countUserBackgrounds(req.user.internalId)) >= max) {
+      return res.status(400).json({ error: `Limite de ${max} fundos atingido.`, code: 'backgrounds_limit_reached', max });
     }
     return next();
   } catch (err) {

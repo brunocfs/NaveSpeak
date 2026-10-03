@@ -248,6 +248,13 @@ Coluna nova em tabela JÁ existente (ex.: `users.is_system`/`name_style`) não
 precisa de nada disso - o `GRANT` já é por tabela inteira, cobre colunas
 novas sozinho.
 
+**Ordem do deploy: aplique o `schema-postgre.sql` ANTES de reiniciar o
+server.** `users.ghost_voice` está em `USER_COLUMNS` (`db/users.repo.js`), então
+todo `SELECT` de usuário falha com "column ghost_voice does not exist" (login,
+`/me`, sockets) se o server novo subir antes da migração. O schema é
+idempotente (`ADD COLUMN IF NOT EXISTS`, e a migração do catálogo TURBO só
+reescreve booleanos legados), pode rodar quantas vezes precisar.
+
 Pra nunca mais precisar lembrar deste passo, configure uma vez (também como
 `postgres`) que TODA tabela/sequência futura criada por ele já nasça com
 esses grants:
@@ -451,7 +458,15 @@ server {
     ssl_certificate     /etc/letsencrypt/live/SEU_DOMINIO/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/SEU_DOMINIO/privkey.pem;
 
-    client_max_body_size 5m;   # avatar em base64 (limite da app é 3mb no JSON)
+    client_max_body_size 5m;   # avatar/banner em base64 (limite da app é 3mb no JSON)
+
+    # Uploads maiores que o default acima - SEM isto o nginx devolve 413 antes
+    # do server ver o pedido. A app valida o limite real por usuário (anexo
+    # 20MB grátis / 50MB TURBO, em base64 ~67MB; efeito sonoro até 15mb).
+    # Repita o bloco de proxy do `location /` (proxy_pass etc.) em cada um:
+    #   location /api/attachments                 { client_max_body_size 70m; <proxy_pass...> }
+    #   location ~ ^/api/rooms/[^/]+/soundboard$  { client_max_body_size 15m; <proxy_pass...> }
+    # Banner (3mb) e join-sound (1mb) cabem no 5m global; não precisam de bloco.
 
     location / {
         proxy_pass http://127.0.0.1:4100;
