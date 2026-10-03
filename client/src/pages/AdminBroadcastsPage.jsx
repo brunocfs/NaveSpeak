@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listBroadcasts, sendBroadcast } from "../api/adminBroadcasts.js";
 import MessageInput from "../components/MessageInput.jsx";
 import MessageContent from "../components/MessageContent.jsx";
@@ -13,6 +14,30 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Comunicado pode ter até 20k chars: no histórico colapsa em 6 linhas com
+// toggle "ver mais" quando longo (muito texto ou muitas quebras).
+function CollapsibleContent({ content, attachments }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const isLong = (content?.length ?? 0) > 400 || (content?.split("\n").length ?? 0) > 6;
+  return (
+    <div className="mt-2">
+      <div className={isLong && !expanded ? "line-clamp-6" : undefined}>
+        <MessageContent content={content} attachments={attachments} />
+      </div>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs font-semibold text-purple-600 hover:underline dark:text-purple-300"
+        >
+          {expanded ? t("common.showLess") : t("common.showMore")}
+        </button>
+      )}
+    </div>
+  );
 }
 
 const inputClass =
@@ -162,7 +187,8 @@ export function BroadcastsPanel() {
                 canal e da DM (ver ChatPanel.jsx/DmPanel.jsx), assim o
                 comunicado sai formatado e pode levar foto/arquivo do mesmo
                 jeito que qualquer mensagem normal. */}
-            <MessageInput ref={messageInputRef} onSend={handleComposerSend} />
+            {/* 20000 espelha BROADCAST_MAX_CHARS em server/src/validation/schemas.js */}
+            <MessageInput ref={messageInputRef} onSend={handleComposerSend} maxChars={20000} />
           </div>
         </section>
 
@@ -204,9 +230,7 @@ export function BroadcastsPanel() {
                     {b.recipientCount} destinatário(s) · por {b.createdByTag} em {formatDate(b.createdAt)}
                   </span>
                 </div>
-                <div className="mt-2">
-                  <MessageContent content={b.content} attachments={b.attachments} />
-                </div>
+                <CollapsibleContent content={b.content} attachments={b.attachments} />
               </li>
             ))}
           </ul>

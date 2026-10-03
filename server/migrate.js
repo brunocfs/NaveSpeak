@@ -117,6 +117,14 @@ async function migrateReportsStatusColumns(pool) {
   `);
 }
 
+// content era VARCHAR(2000): broadcast admin aceita 20000 e TURBO 4000 no chat.
+// Idempotente (TEXT -> TEXT é no-op).
+async function migrateContentToText(pool) {
+  for (const t of ['messages', 'private_messages', 'system_broadcasts']) {
+    await pool.query(`ALTER TABLE ${t} ALTER COLUMN content TYPE TEXT;`);
+  }
+}
+
 async function main() {
   const sql = await readFile(schemaPath, 'utf8');
 
@@ -133,6 +141,7 @@ async function main() {
     await migrateLegacyMessages(pool);
     await migrateLegacyRoomInvites(pool);
     await migrateReportsStatusColumns(pool);
+    await migrateContentToText(pool);
     await ensureSystemUser(pool);
     console.log(`Migração aplicada com sucesso em "${process.env.DB_NAME}" (PostgreSQL).`);
   } finally {

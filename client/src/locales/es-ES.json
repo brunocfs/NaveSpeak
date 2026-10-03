@@ -3,6 +3,8 @@
     "cancel": "Cancelar",
     "save": "Guardar",
     "close": "Cerrar",
+    "showMore": "Ver más",
+    "showLess": "Ver menos",
     "systemDefault": "Predeterminado del sistema",
     "back": "Volver",
     "loading": "Cargando...",
@@ -25,6 +27,7 @@
       "general": "General",
       "notifications": "Notificaciones",
       "audioVideo": "Audio y vídeo",
+      "shortcuts": "Atajos",
       "privacy": "Privacidad",
       "turbo": "TURBO"
     },
@@ -112,6 +115,65 @@
       "noKeyWarning": "Sin tecla asignada, el micrófono queda siempre silenciado en los canales de voz - asigna una antes de salir.",
       "help": "Mientras esté activado, el micrófono empieza silenciado en cualquier canal de voz y solo transmite mientras mantienes la tecla. Silenciar manualmente sigue funcionando por encima, incluso manteniendo la tecla.",
       "globalHint": "En la aplicación de escritorio la tecla funciona incluso con la ventana sin foco/minimizada."
+    },
+    "shortcuts": {
+      "title": "Atajos de teclado",
+      "help": "Asigna una combinación (p. ej. Ctrl + Shift + A) a cada acción. Sin atajo asignado, nada se activa.",
+      "globalHint": "En la app de escritorio los atajos funcionan incluso con la ventana sin foco.",
+      "none": "ninguno",
+      "clear": "Quitar",
+      "server": "Servidor",
+      "channel": "Canal de voz",
+      "conflict": "{{combo}} ya lo usa \"{{name}}\".",
+      "pickerTitle": "Elige qué compartir",
+      "toast": {
+        "noChannel": "Elige un canal de voz en Preferencias > Atajos.",
+        "pttOn": "Push-to-talk activado",
+        "pttOff": "Push-to-talk desactivado",
+        "screenError": "No se pudieron listar las pantallas/ventanas disponibles."
+      },
+      "actions": {
+        "toggleMute": {
+          "label": "Silenciar / activar micrófono",
+          "desc": "Activa o desactiva tu micrófono en la llamada."
+        },
+        "toggleDeafen": {
+          "label": "Ensordecer / activar audio",
+          "desc": "Ensordece (o vuelve a oír) a todos en la llamada."
+        },
+        "toggleCamera": {
+          "label": "Activar / desactivar cámara",
+          "desc": "Alterna tu cámara en la llamada."
+        },
+        "toggleScreenShare": {
+          "label": "Compartir pantalla",
+          "desc": "Abre el selector de pantalla o detiene lo compartido."
+        },
+        "openSoundboard": {
+          "label": "Abrir efectos de sonido",
+          "desc": "Abre/cierra el panel de efectos del servidor."
+        },
+        "togglePushToTalk": {
+          "label": "Alternar push-to-talk",
+          "desc": "Activa/desactiva el modo push-to-talk."
+        },
+        "joinChannel": {
+          "label": "Entrar al canal predefinido",
+          "desc": "Se conecta directo al canal de voz elegido abajo."
+        },
+        "leaveVoice": {
+          "label": "Salir de la llamada",
+          "desc": "Se desconecta del canal de voz actual."
+        },
+        "acceptCall": {
+          "label": "Contestar llamada",
+          "desc": "Contesta la llamada privada entrante."
+        },
+        "declineCall": {
+          "label": "Rechazar llamada",
+          "desc": "Rechaza la llamada privada entrante."
+        }
+      }
     }
   },
   "auth": {

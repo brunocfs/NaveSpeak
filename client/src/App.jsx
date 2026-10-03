@@ -11,6 +11,7 @@ import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import TitleBar from "./components/TitleBar.jsx";
 import VoiceStatusBar from "./components/VoiceStatusBar.jsx";
 import VoicePanel from "./components/VoicePanel.jsx";
+import GlobalShortcuts from "./components/GlobalShortcuts.jsx";
 import CallInviteBanner from "./components/CallInviteBanner.jsx";
 import UpdateAvailableBanner from "./components/UpdateAvailableBanner.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -134,6 +135,7 @@ export default function App() {
                 </Routes>
                 {/* <VoiceStatusBar /> */}
                 <VoicePanel />
+                <GlobalShortcuts />
                 <CallInviteBanner />
                 <UpdateAvailableBanner />
               </NotificationProvider>

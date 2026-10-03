@@ -283,6 +283,9 @@ export default function DmSidebar({
           <Rocket className="turbo-icon size-5" /> TURBO
         </button>
 
+        {/* desativado temporariamente: botão-mistério (teaser da "tecnologia" do
+            Zeno) que abre o CipherPanel. Lógica (cipherText, panel "cipher",
+            CipherPanel) mantida - basta descomentar pra reativar.
         <button
           type="button"
           onClick={() => onSelectPanel?.("cipher")}
@@ -294,6 +297,7 @@ export default function DmSidebar({
           <Lock className="cipher-icon size-5" />
           <span className="cipher-text font-mono">{cipherText}</span>
         </button>
+        */}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">

@@ -239,7 +239,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id BIGSERIAL NOT NULL PRIMARY KEY,
   channel_id UUID NOT NULL,
   user_id BIGINT NOT NULL,
-  content VARCHAR(2000) NOT NULL,
+  content TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_messages_channel FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
   CONSTRAINT fk_messages_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS private_messages (
   id BIGSERIAL PRIMARY KEY,
   sender_id BIGINT NOT NULL,
   recipient_id BIGINT NOT NULL,
-  content VARCHAR(2000) NOT NULL,
+  content TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_private_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_private_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -363,7 +363,7 @@ ALTER TABLE conversation_clears ADD COLUMN IF NOT EXISTS last_read_message_id BI
 -- admin), não participa da entrega nem da leitura da conversa.
 CREATE TABLE IF NOT EXISTS system_broadcasts (
   id BIGSERIAL PRIMARY KEY,
-  content VARCHAR(2000) NOT NULL,
+  content TEXT NOT NULL,
   target VARCHAR(10) NOT NULL,
   recipient_public_id UUID NULL,
   recipient_count INTEGER NOT NULL,

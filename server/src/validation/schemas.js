@@ -406,10 +406,13 @@ export const attachmentsArraySchema = z
 // `content` pode vir vazio se houver ao menos 1 anexo - mesma regra de
 // chat:send/dm:send (aplicada manualmente na rota, não dá pra expressar só
 // com messageContentSchema porque ele já exige min(1)).
+// Teto só do broadcast admin; client espelha este valor.
+const BROADCAST_MAX_CHARS = 20000;
+
 export const adminBroadcastCreateSchema = z
   .object({
     target: z.enum(['all', 'user'], { errorMap: () => ({ message: 'Alvo inválido.' }) }),
-    content: z.string().trim().max(2000, 'Mensagem muito longa (máx. 2000 caracteres).').default(''),
+    content: z.string().trim().max(BROADCAST_MAX_CHARS, `Mensagem muito longa (máx. ${BROADCAST_MAX_CHARS} caracteres).`).default(''),
     tag: z.string().trim().optional(),
     attachments: attachmentsArraySchema.default([]),
   })

@@ -30,3 +30,5 @@ electron.md
 
 # Workspace do Maestri (roles/agentes locais)
 .maestri/
+
+patch-notes-*.md

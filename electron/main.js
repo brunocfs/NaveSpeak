@@ -141,89 +141,106 @@ if (UiohookKey) {
     DOM_CODE_TO_UIOHOOK_KEY[`F${i}`] = UiohookKey[`F${i}`];
 }
 
-// Keycode (uiohook) atualmente vigiado, ou null = hook parado. Só existe
-// UMA tecla vigiada por vez (o app só tem um producer de mic próprio) -
-// nunca precisa de mais que isso.
-let watchedKeycode = null;
+// Combinação = todas as teclas (keycodes uiohook) seguradas juntas. Dois
+// consumidores dividem o MESMO hook: push-to-talk (UMA combinação, pulso de
+// segurar/soltar) e atalhos da aba Atalhos (várias, id -> combinação, pulso
+// só ao completar a combinação). O hook só roda enquanto algum dos dois tem
+// algo a vigiar.
+let watchedKeycodes = null;
+let comboActive = false;
+const shortcutCombos = new Map(); // id -> Set<keycode>
+const activeShortcuts = new Set();
+const heldKeycodes = new Set();
 let hookStarted = false;
 
-function stopPushToTalkHook() {
-  if (hookStarted) {
-    try {
-      uIOhook.stop();
-    } catch (err) {
-      console.error(
-        "[push-to-talk] Falha ao parar o hook global:",
-        err.message,
-      );
-    }
-    hookStarted = false;
+// Liga/desliga o hook conforme haja o que vigiar. Devolve false se não deu
+// pra ligar.
+function syncHook() {
+  const needed = watchedKeycodes !== null || shortcutCombos.size > 0;
+  if (needed === hookStarted) return true;
+  try {
+    if (needed) uIOhook.start();
+    else uIOhook.stop();
+  } catch (err) {
+    console.error("[hotkeys] Falha ao alternar o hook global:", err.message);
+    return false;
   }
-  watchedKeycode = null;
+  hookStarted = needed;
+  heldKeycodes.clear();
+  comboActive = false;
+  activeShortcuts.clear();
+  return true;
+}
+
+function stopPushToTalkHook() {
+  watchedKeycodes = null;
+  shortcutCombos.clear();
+  syncHook();
+}
+
+// "KeyA+ControlLeft" -> Set de keycodes, ou null se alguma tecla não tem
+// tradução pro hook global.
+function toKeycodes(code) {
+  const keycodes = String(code)
+    .split("+")
+    .map((c) => DOM_CODE_TO_UIOHOOK_KEY[c]);
+  return keycodes.some((k) => k === undefined) ? null : new Set(keycodes);
 }
 
 // Chamado pelo renderer (via IPC) toda vez que o efeito de push-to-talk em
 // MediaSessionContext.jsx arma/desarma - ou seja, só roda enquanto o
-// usuário está DE VERDADE numa chamada com push-to-talk ligado (não o tempo
-// todo o app estiver aberto), minimizando o quanto o hook global fica ativo.
-// Devolve `true`/`false` pro renderer saber se a tecla escolhida tem
-// suporte fora do foco (sem suporte, o botão de segurar continua
-// funcionando normalmente, só que apenas com a janela em foco).
+// usuário está DE VERDADE numa chamada com push-to-talk ligado.
+// Devolve `true`/`false` pro renderer saber se o atalho tem suporte fora do
+// foco (sem suporte, só funciona com a janela em foco).
 function setPushToTalkWatchedKey(code) {
-  if (!uIOhook) {
-    console.warn(
-      "[push-to-talk] Pedido de vigiar tecla sem uiohook disponível - ignorado.",
-    );
-    return false;
+  if (!uIOhook) return false;
+  watchedKeycodes = code ? toKeycodes(code) : null;
+  if (code && !watchedKeycodes) {
+    console.warn(`[push-to-talk] Atalho "${code}" sem tradução pro hook global.`);
   }
-  if (!code) {
-    console.log("[push-to-talk] Desligando hook global (sem tecla a vigiar).");
-    stopPushToTalkHook();
-    return true;
+  comboActive = false;
+  const ok = syncHook();
+  return code ? ok && watchedKeycodes !== null : true;
+}
+
+// `list` = [{ id, combo }] da aba Atalhos. Devolve os ids que o hook global
+// consegue vigiar; os demais ficam só com a janela em foco.
+function setGlobalShortcuts(list) {
+  if (!uIOhook) return [];
+  shortcutCombos.clear();
+  for (const { id, combo } of list ?? []) {
+    const keycodes = combo && toKeycodes(combo);
+    if (keycodes) shortcutCombos.set(id, keycodes);
   }
-  const keycode = DOM_CODE_TO_UIOHOOK_KEY[code];
-  if (keycode === undefined) {
-    console.warn(
-      `[push-to-talk] Tecla "${code}" sem tradução pro hook global - fica só com a janela em foco.`,
-    );
-    stopPushToTalkHook();
-    return false;
-  }
-  watchedKeycode = keycode;
-  if (!hookStarted) {
-    try {
-      uIOhook.start();
-      hookStarted = true;
-    } catch (err) {
-      console.error(
-        "[push-to-talk] Falha ao iniciar o hook global:",
-        err.message,
-      );
-      watchedKeycode = null;
-      return false;
-    }
-  }
-  console.log(
-    `[push-to-talk] Vigiando tecla "${code}" (keycode ${keycode}) globalmente.`,
-  );
-  return true;
+  activeShortcuts.clear();
+  syncHook();
+  return [...shortcutCombos.keys()];
 }
 
 if (uIOhook) {
-  // Filtra pela tecla vigiada AQUI, antes de mandar qualquer coisa pro
-  // renderer - o renderer nunca recebe qual tecla foi apertada, só um pulso
-  // "a tecla configurada mudou de estado" (ver preload.js).
+  // Filtra AQUI, antes de mandar qualquer coisa pro renderer - ele nunca
+  // recebe qual tecla foi apertada, só pulsos de "combinação completa".
   uIOhook.on("keydown", (e) => {
-    if (watchedKeycode !== null && e.keycode === watchedKeycode) {
-      console.log("[push-to-talk] keydown da tecla vigiada");
+    heldKeycodes.add(e.keycode);
+    const held = (set) => [...set].every((k) => heldKeycodes.has(k));
+    if (watchedKeycodes && !comboActive && held(watchedKeycodes)) {
+      comboActive = true;
       mainWindow?.webContents.send("push-to-talk:keydown");
+    }
+    for (const [id, set] of shortcutCombos) {
+      if (activeShortcuts.has(id) || !held(set)) continue;
+      activeShortcuts.add(id);
+      mainWindow?.webContents.send("shortcuts:triggered", id);
     }
   });
   uIOhook.on("keyup", (e) => {
-    if (watchedKeycode !== null && e.keycode === watchedKeycode) {
-      console.log("[push-to-talk] keyup da tecla vigiada");
+    heldKeycodes.delete(e.keycode);
+    if (comboActive && watchedKeycodes.has(e.keycode)) {
+      comboActive = false;
       mainWindow?.webContents.send("push-to-talk:keyup");
     }
+    for (const id of activeShortcuts)
+      if (shortcutCombos.get(id)?.has(e.keycode)) activeShortcuts.delete(id);
   });
   // Nunca deixa a thread nativa do hook rodando depois do app fechar.
   app.on("will-quit", stopPushToTalkHook);
@@ -740,6 +757,9 @@ app.whenReady().then(() => {
   // desligar. Só existe aqui, dentro de whenReady, junto dos outros handles.
   ipcMain.handle("push-to-talk:set-watched-key", (event, code) =>
     setPushToTalkWatchedKey(code),
+  );
+  ipcMain.handle("shortcuts:set-watched", (event, list) =>
+    setGlobalShortcuts(list),
   );
 
   // Chamado ao clicar numa notificação desktop (ver NotificationContext.jsx)

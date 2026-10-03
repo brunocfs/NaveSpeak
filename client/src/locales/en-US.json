@@ -3,6 +3,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "close": "Close",
+    "showMore": "Show more",
+    "showLess": "Show less",
     "systemDefault": "System default",
     "back": "Back",
     "loading": "Loading...",
@@ -25,6 +27,7 @@
       "general": "General",
       "notifications": "Notifications",
       "audioVideo": "Audio & Video",
+      "shortcuts": "Shortcuts",
       "privacy": "Privacy",
       "turbo": "TURBO"
     },
@@ -112,6 +115,65 @@
       "noKeyWarning": "With no key assigned, the mic stays muted in voice channels - assign one before leaving.",
       "help": "While enabled, the mic starts muted in any voice channel and only transmits while the key is held. Manual mute still works on top, even while holding the key.",
       "globalHint": "In the desktop app the key works even when the window is unfocused/minimized."
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "help": "Assign a combination (e.g. Ctrl + Shift + A) to each action. Nothing fires without an assigned shortcut.",
+      "globalHint": "In the desktop app, shortcuts work even when the window is unfocused.",
+      "none": "none",
+      "clear": "Clear",
+      "server": "Server",
+      "channel": "Voice channel",
+      "conflict": "{{combo}} is already used by \"{{name}}\".",
+      "pickerTitle": "Choose what to share",
+      "toast": {
+        "noChannel": "Pick a voice channel in Preferences > Shortcuts.",
+        "pttOn": "Push-to-talk on",
+        "pttOff": "Push-to-talk off",
+        "screenError": "Could not list the available screens/windows."
+      },
+      "actions": {
+        "toggleMute": {
+          "label": "Mute / unmute microphone",
+          "desc": "Turns your mic on or off in the call."
+        },
+        "toggleDeafen": {
+          "label": "Deafen / undeafen",
+          "desc": "Deafens (or re-enables) everyone in the call."
+        },
+        "toggleCamera": {
+          "label": "Turn camera on / off",
+          "desc": "Toggles your camera in the call."
+        },
+        "toggleScreenShare": {
+          "label": "Share screen",
+          "desc": "Opens the screen picker, or stops the current share."
+        },
+        "openSoundboard": {
+          "label": "Open sound effects",
+          "desc": "Opens/closes the server soundboard panel."
+        },
+        "togglePushToTalk": {
+          "label": "Toggle push-to-talk",
+          "desc": "Turns push-to-talk mode on/off."
+        },
+        "joinChannel": {
+          "label": "Join preset channel",
+          "desc": "Connects straight to the voice channel chosen below."
+        },
+        "leaveVoice": {
+          "label": "Leave call",
+          "desc": "Disconnects from the current voice channel."
+        },
+        "acceptCall": {
+          "label": "Answer call",
+          "desc": "Answers the incoming private call."
+        },
+        "declineCall": {
+          "label": "Decline call",
+          "desc": "Declines the incoming private call."
+        }
+      }
     }
   },
   "auth": {

@@ -3,6 +3,8 @@
     "cancel": "Cancelar",
     "save": "Salvar",
     "close": "Fechar",
+    "showMore": "Ver mais",
+    "showLess": "Ver menos",
     "systemDefault": "Padrão do sistema",
     "back": "Voltar",
     "loading": "Carregando...",
@@ -25,6 +27,7 @@
       "general": "Geral",
       "notifications": "Notificações",
       "audioVideo": "Áudio e Vídeo",
+      "shortcuts": "Atalhos",
       "privacy": "Privacidade",
       "turbo": "TURBO"
     },
@@ -112,6 +115,65 @@
       "noKeyWarning": "Sem tecla atribuída, o mic fica sempre mudo em canais de voz - atribua uma antes de sair daqui.",
       "help": "Enquanto ligado, o mic começa mudo em qualquer canal de voz e só transmite com a tecla segurada. Mutar manualmente continua funcionando por cima, mesmo segurando a tecla.",
       "globalHint": "No app desktop a tecla funciona mesmo com a janela sem foco/minimizada."
+    },
+    "shortcuts": {
+      "title": "Atalhos de teclado",
+      "help": "Atribua uma combinação (ex.: Ctrl + Shift + A) a cada ação. Sem atalho atribuído, nada dispara.",
+      "globalHint": "No app desktop os atalhos funcionam mesmo com a janela sem foco.",
+      "none": "nenhum",
+      "clear": "Limpar",
+      "server": "Servidor",
+      "channel": "Canal de voz",
+      "conflict": "{{combo}} já é usado por \"{{name}}\".",
+      "pickerTitle": "Escolha o que compartilhar",
+      "toast": {
+        "noChannel": "Escolha um canal de voz em Preferências > Atalhos.",
+        "pttOn": "Push-to-talk ligado",
+        "pttOff": "Push-to-talk desligado",
+        "screenError": "Não foi possível listar as telas/janelas disponíveis."
+      },
+      "actions": {
+        "toggleMute": {
+          "label": "Mutar / desmutar microfone",
+          "desc": "Liga ou desliga o seu mic na chamada."
+        },
+        "toggleDeafen": {
+          "label": "Desativar / ativar áudio",
+          "desc": "Ensurdece (ou volta a ouvir) todos da chamada."
+        },
+        "toggleCamera": {
+          "label": "Ligar / desligar câmera",
+          "desc": "Alterna a sua câmera na chamada."
+        },
+        "toggleScreenShare": {
+          "label": "Compartilhar tela",
+          "desc": "Abre o seletor de tela, ou para o compartilhamento atual."
+        },
+        "openSoundboard": {
+          "label": "Abrir efeitos sonoros",
+          "desc": "Abre/fecha o painel de efeitos sonoros do servidor."
+        },
+        "togglePushToTalk": {
+          "label": "Alternar push-to-talk",
+          "desc": "Liga/desliga o modo push-to-talk."
+        },
+        "joinChannel": {
+          "label": "Entrar no canal predefinido",
+          "desc": "Conecta direto ao canal de voz escolhido abaixo."
+        },
+        "leaveVoice": {
+          "label": "Sair da chamada",
+          "desc": "Desconecta do canal de voz atual."
+        },
+        "acceptCall": {
+          "label": "Atender chamada",
+          "desc": "Atende a chamada privada recebida."
+        },
+        "declineCall": {
+          "label": "Recusar chamada",
+          "desc": "Recusa a chamada privada recebida."
+        }
+      }
     }
   },
   "auth": {

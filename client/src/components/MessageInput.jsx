@@ -61,7 +61,7 @@ let nextFileId = 0;
 // via AttachmentDropZone, mas quem guarda a lista de arquivo é este
 // componente) - addDroppedFiles é o método exposto pra isso.
 const MessageInput = forwardRef(function MessageInput(
-  { onSend, disabled, mentionCandidates = [], onTyping },
+  { onSend, disabled, mentionCandidates = [], onTyping, maxChars: maxCharsProp },
   ref,
 ) {
   const { t } = useTranslation();
@@ -70,7 +70,7 @@ const MessageInput = forwardRef(function MessageInput(
   const longMessages = useBenefit("longMessages");
   const bigUploads = useBenefit("bigUploads");
   const maxBytes = limits?.attachmentMaxBytes ?? FREE_ATTACHMENT_BYTES;
-  const maxChars = limits?.messageMaxChars ?? FREE_MESSAGE_CHARS;
+  const maxChars = maxCharsProp ?? limits?.messageMaxChars ?? FREE_MESSAGE_CHARS;
   const [content, setContent] = useState("");
   // Menção sendo digitada agora: { start, query } (start = índice do "@" em
   // `content`) ou null quando o cursor não está num token de menção. Ver
@@ -596,7 +596,7 @@ const MessageInput = forwardRef(function MessageInput(
       {content.length >= maxChars * 0.9 && (
         <p className="flex items-center gap-2 px-3 text-xs text-slate-500 dark:text-slate-400">
           {t("turbo.limits.charCount", { count: content.length, max: maxChars })}
-          {longMessages.locked && (
+          {longMessages.locked && maxCharsProp == null && (
             <button type="button" onClick={openTurbo} className="inline-flex items-center gap-1 text-fuchsia-500 hover:underline dark:text-fuchsia-300">
               <Lock className="size-3" /> {t("turbo.locked.cta")}
             </button>

@@ -51,6 +51,17 @@ contextBridge.exposeInMainWorld('naveSpeak', {
       return () => ipcRenderer.removeListener('push-to-talk:keyup', listener);
     },
   },
+  // Atalhos da aba Atalhos (hook global, mesmo do push-to-talk). `setWatched`
+  // recebe [{ id, combo }] e devolve os ids vigiáveis fora do foco;
+  // `onTriggered(cb(id))` dispara quando a combinação é completada.
+  shortcuts: {
+    setWatched: (list) => ipcRenderer.invoke('shortcuts:set-watched', list),
+    onTriggered: (callback) => {
+      const listener = (_event, id) => callback(id);
+      ipcRenderer.on('shortcuts:triggered', listener);
+      return () => ipcRenderer.removeListener('shortcuts:triggered', listener);
+    },
+  },
   // Botões da barra de título custom (ver TitleBar.jsx) - a janela roda sem
   // frame nativo (frame:false em main.js), então minimizar/maximizar/fechar
   // só existem via IPC pro processo main mexer na BrowserWindow de verdade.

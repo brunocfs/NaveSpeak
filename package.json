@@ -1,7 +1,7 @@
 {
   "name": "navespeak",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "App de voz, texto e compartilhamento de tela para um grupo fechado de usuarios via VPN.",
   "workspaces": [
     "server",

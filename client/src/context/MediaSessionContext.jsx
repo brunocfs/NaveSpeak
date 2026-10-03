@@ -20,6 +20,7 @@ import { createDeepFilterNetStream } from '../audio/deepfilternet.js';
 import { createNoiseGateStream } from '../audio/noiseGate.js';
 import { createMicGainStream } from '../audio/micGain.js';
 import { playSound, playSoundboardSound, stopSoundboardSounds } from '../utils/sounds.js';
+import { isEditableTarget } from '../utils/shortcuts.js';
 import { soundboardSrc } from '../api/soundboard.js';
 import CameraSetupModal from '../components/CameraSetupModal.jsx';
 
@@ -48,19 +49,6 @@ function screenProduceOptions(quality) {
 function screenContentHint(quality) {
   const { frameRate } = { ...DEFAULT_SCREEN_QUALITY, ...quality };
   return frameRate > 30 ? 'motion' : 'detail';
-}
-
-// Push-to-talk: ignora o próprio código da tecla quando o foco está num
-// campo de texto (chat, busca etc.) - sem isso, atribuir uma tecla comum
-// (ex.: "V") faria qualquer letra digitada também abrir/fechar o mic
-// enquanto a pessoa escreve.
-function isEditableTarget(target) {
-  if (!target) return false;
-  return (
-    target.tagName === 'INPUT' ||
-    target.tagName === 'TEXTAREA' ||
-    target.isContentEditable
-  );
 }
 
 // window.naveSpeak.pushToTalk só existe dentro do app Electron (exposto por
@@ -1199,14 +1187,24 @@ export function MediaSessionProvider({ children }) {
       setPttActive(true);
       if (!mutedRef.current && !audioLockedRef.current) applyProducerPause(false);
     }
+    // Atalho = um ou mais `code` unidos por "+": press quando todos estão
+    // segurados juntos, release quando qualquer um solta.
+    const combo = pushToTalkKey ? pushToTalkKey.split('+') : [];
+    const held = new Set();
     function handleKeyDown(e) {
-      if (e.code === pushToTalkKey && !e.repeat) press(e.target);
+      held.add(e.code);
+      if (!e.repeat && combo.length && combo.every((c) => held.has(c))) press(e.target);
     }
     function handleKeyUp(e) {
-      if (e.code === pushToTalkKey) release();
+      held.delete(e.code);
+      if (combo.includes(e.code)) release();
+    }
+    function clearHeld() {
+      held.clear();
     }
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', clearHeld);
 
     // Fallback SÓ pra quando não há hook global (navegador comum, fora do
     // Electron): solta sozinho se a janela perder foco (alt-tab etc.), já
@@ -1242,6 +1240,7 @@ export function MediaSessionProvider({ children }) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', clearHeld);
       if (!hasGlobalPushToTalk) window.removeEventListener('blur', release);
       if (hasGlobalPushToTalk) {
         window.naveSpeak.pushToTalk.setWatchedKey(null);

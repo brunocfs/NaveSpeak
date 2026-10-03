@@ -169,6 +169,13 @@ const DEFAULT_PREFERENCES = {
   // e notificações têm volume próprio (acima). Teto 100%: ver o porquê em
   // RemoteAudioPlayers.jsx (sem Web Audio na reprodução).
   callVolume: 100,
+  // Atalhos da aba Atalhos: id da ação (utils/shortcuts.js) -> combinação
+  // (`KeyboardEvent.code`s unidos por "+", mesmo formato de pushToTalkKey).
+  // Ação sem entrada = sem atalho (opt-in, nada dispara sem o usuário atribuir).
+  shortcuts: {},
+  // Canal de voz do atalho "Entrar no canal predefinido":
+  // { roomId, roomName, channelId, channelName } ou null.
+  shortcutChannel: null,
 };
 
 // Modos do supressor de ruído (ver noiseSuppressionMode acima) - usado em
@@ -291,6 +298,17 @@ export function PreferencesProvider({ children }) {
       soundboardVolume: preferences.soundboardVolume,
       micVolume: preferences.micVolume,
       callVolume: preferences.callVolume,
+      shortcuts: preferences.shortcuts,
+      shortcutChannel: preferences.shortcutChannel,
+      setShortcut: (id, combo) =>
+        setPreferences((prev) => {
+          const next = { ...prev.shortcuts };
+          if (combo) next[id] = combo;
+          else delete next[id];
+          return { ...prev, shortcuts: next };
+        }),
+      setShortcutChannel: (shortcutChannel) =>
+        setPreferences((prev) => ({ ...prev, shortcutChannel })),
       setTheme: (theme) => setPreferences((prev) => ({ ...prev, theme })),
       toggleTheme: () =>
         setPreferences((prev) => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' })),

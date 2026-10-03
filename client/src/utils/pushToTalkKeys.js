@@ -19,8 +19,10 @@ const KEY_LABELS = {
   Backslash: "\\",
 };
 
+// Atalho guardado como `code`s unidos por "+" (ex.: "ControlLeft+ShiftLeft+KeyA").
 export function formatKeyLabel(code) {
   if (!code) return null;
+  if (code.includes("+")) return code.split("+").map(formatKeyLabel).join(" + ");
   if (KEY_LABELS[code]) return KEY_LABELS[code];
   // "KeyV" -> "V", "Digit5" -> "5" - cobre a grande maioria das teclas que
   // fazem sentido pra push-to-talk sem precisar de uma entrada por tecla.

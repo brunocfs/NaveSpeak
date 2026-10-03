@@ -14,10 +14,12 @@ import {
   supportsAudioOutputSelection,
 } from "../api/media.js";
 import { useMicLevel } from "../hooks/useMicLevel.js";
+import { useKeyCapture } from "../hooks/useKeyCapture.js";
 import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
 import AccountProfileSettings from "./AccountProfileSettings.jsx";
 import PrivacySettings from "./PrivacySettings.jsx";
 import TurboSettings from "./TurboSettings.jsx";
+import ShortcutsSettings from "./ShortcutsSettings.jsx";
 import { PREFERENCES_EVENT } from "../utils/preferencesEvents.js";
 
 // Faixa de dB do medidor/slider de sensibilidade - -70 (bem sensível, capta
@@ -87,7 +89,7 @@ const hasAutoLaunch =
 // convenção de "modal com abas" no app. "Geral" = preferências sem relação
 // com chamada de voz; "Áudio e Vídeo" = tudo que mexe em captura/mic/webcam
 // (dispositivos, supressor de ruído, sensibilidade do microfone).
-const TABS = ["account", "general", "notifications", "audioVideo", "privacy", "turbo"];
+const TABS = ["account", "general", "notifications", "audioVideo", "shortcuts", "privacy", "turbo"];
 
 // Botão de engrenagem + modal de preferências, no cabeçalho de RoomsPage.jsx
 // ao lado do "Sair" (pedido do escopo). Modal usa o mesmo padrão visual
@@ -167,18 +169,10 @@ export default function PreferencesModal() {
   // normal dela (ex.: Tab tirando o foco do botão, Espaço re-clicando).
   const [capturingKey, setCapturingKey] = useState(false);
 
-  useEffect(() => {
-    if (!capturingKey) return;
-    function handleKeyDown(e) {
-      e.preventDefault();
-      setCapturingKey(false);
-      if (e.code === "Escape") return;
-      setDraft((prev) => ({ ...prev, pushToTalkKey: e.code }));
-    }
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [capturingKey]);
+  useKeyCapture(capturingKey, (combo) => {
+    setCapturingKey(false);
+    if (combo) setDraft((prev) => ({ ...prev, pushToTalkKey: combo }));
+  });
 
   function stopPreview() {
     setPreviewStream((stream) => {
@@ -1318,6 +1312,7 @@ export default function PreferencesModal() {
 
                       {tab === "account" && <AccountProfileSettings />}
                       {tab === "privacy" && <PrivacySettings />}
+                      {tab === "shortcuts" && <ShortcutsSettings />}
                       {tab === "turbo" && <TurboSettings />}
                     </div>
                   </div>
