@@ -123,6 +123,16 @@ Referência: `AdminUsersPanel.jsx`.
 - Classes repetidas no mesmo arquivo viram constantes de string no topo
   (`const actionBtn = "..."`), não componentes novos.
 
+## Card de configuração (aba TURBO)
+
+Referência: `TurboSettings.jsx` e `TurboProfileSection.jsx`. Dentro da aba TURBO
+das Preferências, todo bloco de configuração usa o mesmo card compacto, sem
+exceção (inclusive banner e estilo do nome):
+
+- `<section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/60">`
+- Não usar o card de seção branco (`rounded-2xl bg-white p-6 shadow-sm ring-1`) nessa aba.
+- Convite/estado do TURBO no topo: `border-purple-400/30 bg-linear-to-r from-purple-600/10 to-fuchsia-500/10`.
+
 ## Código
 
 - Componentes `.jsx` com `export default function Nome(...)`, um por arquivo, em
