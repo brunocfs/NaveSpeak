@@ -9,7 +9,9 @@ import {
   assertMediaDevicesAvailable,
   DEFAULT_SCREEN_QUALITY,
   suggestScreenBitrateKbps,
+  clampScreenQuality,
 } from '../api/media.js';
+import { useAuth } from './AuthContext.jsx';
 import { useWindowPopout } from '../hooks/useWindowPopout.js';
 import { usePreferences } from './PreferencesContext.jsx';
 import { createRnnoiseStream } from '../audio/rnnoise.js';
@@ -81,7 +83,12 @@ function emitAsync(socket, event, payload) {
   return new Promise((resolve, reject) => {
     socket.timeout(EMIT_TIMEOUT_MS).emit(event, payload, (err, response) => {
       if (err) reject(new Error('O servidor não respondeu a tempo.'));
-      else if (response?.error) reject(new Error(response.error));
+      else if (response?.error) {
+        const e = new Error(response.error);
+        e.code = response.code;
+        e.maxBitrateKbps = response.maxBitrateKbps;
+        reject(e);
+      }
       else resolve(response ?? {});
     });
   });
@@ -189,6 +196,11 @@ function extractPacketLossPercent(report) {
 }
 
 export function MediaSessionProvider({ children }) {
+  const turboLimitsRef = useRef(null);
+  const { turbo, refetchTurbo } = useAuth();
+  turboLimitsRef.current = turbo?.limits ?? null;
+  const refetchTurboRef = useRef(refetchTurbo);
+  refetchTurboRef.current = refetchTurbo;
   const [connected, setConnected] = useState(false);
   // Ping (RTT do transport de envio) e perda de pacotes (inbound do
   // transport de recebimento) - atualizado por polling enquanto `connected`
@@ -1377,7 +1389,7 @@ export function MediaSessionProvider({ children }) {
   // `withAudio` pede o áudio do sistema/app junto (ver requestScreenStream
   // em api/media.js) - sempre opcional, sem áudio nenhum se omitido/recusado.
   const shareScreen = useCallback(
-    async (sourceId, { withAudio = false, quality } = {}) => {
+    async (sourceId, { withAudio = false, quality, retried = false } = {}) => {
       if (!sendTransportRef.current) {
         setError('Entre na voz antes de compartilhar a tela.');
         return;
@@ -1387,14 +1399,17 @@ export function MediaSessionProvider({ children }) {
         return;
       }
       setError(null);
+      // Teto resolvido pelo servidor (useTurboLimits), lido no INÍCIO do
+      // compartilhamento: mudança de modo só vale no próximo.
+      const q = clampScreenQuality(quality, turboLimitsRef.current);
       let stream = null;
       let producer = null;
       try {
-        const captured = await requestScreenStream(sourceId, { withAudio, ...quality });
+        const captured = await requestScreenStream(sourceId, { withAudio, ...q });
         stream = captured.stream;
         const { hasAudio, audioError } = captured;
         const [track] = stream.getVideoTracks();
-        track.contentHint = screenContentHint(quality);
+        track.contentHint = screenContentHint(q);
         activeScreenVideoTrackRef.current = track;
 
         // Se o usuário parar a captura pelo controle nativo do navegador/SO
@@ -1408,7 +1423,7 @@ export function MediaSessionProvider({ children }) {
 
         producer = await sendTransportRef.current.produce({
           track,
-          ...screenProduceOptions(quality),
+          ...screenProduceOptions(q),
           appData: { source: 'screen' },
         });
         screenProducerRef.current = producer;
@@ -1430,6 +1445,13 @@ export function MediaSessionProvider({ children }) {
             activeScreenVideoTrackRef.current = null;
           }
           stream.getTracks().forEach((t) => t.stop());
+        }
+        // O teto caiu no meio da sessão (TURBO revogado/modo trocado): usa o
+        // teto que o servidor informou e tenta UMA vez de novo.
+        if (err.code === 'screen_bitrate_limit' && !retried && err.maxBitrateKbps) {
+          turboLimitsRef.current = { ...turboLimitsRef.current, screenMaxBitrateKbps: err.maxBitrateKbps };
+          refetchTurboRef.current?.();
+          return shareScreen(sourceId, { withAudio, quality: q, retried: true });
         }
         if (err.name !== 'NotAllowedError') {
           setError(err.message ?? 'Não foi possível compartilhar a tela.');
@@ -1472,17 +1494,18 @@ export function MediaSessionProvider({ children }) {
         return shareScreen(sourceId, { withAudio, quality });
       }
       setError(null);
+      const q = quality && clampScreenQuality(quality, turboLimitsRef.current);
       const wantAudio = withAudio ?? screenAudioEnabled;
       const prevTrack = activeScreenVideoTrackRef.current;
       let stream = null;
       let replaced = false;
       try {
-        const captured = await requestScreenStream(sourceId, { withAudio: wantAudio, ...quality });
+        const captured = await requestScreenStream(sourceId, { withAudio: wantAudio, ...q });
         stream = captured.stream;
         const { hasAudio, audioError } = captured;
         const [newTrack] = stream.getVideoTracks();
         // Sem `quality` (troca só de fonte) mantém o hint da captura atual.
-        newTrack.contentHint = quality ? screenContentHint(quality) : prevTrack?.contentHint || screenContentHint();
+        newTrack.contentHint = q ? screenContentHint(q) : prevTrack?.contentHint || screenContentHint();
         // ANTES de qualquer stop() da track antiga (mais abaixo) - é essa
         // atribuição que faz o 'ended' dela ser ignorado como "própria
         // troca", ver comentário de activeScreenVideoTrackRef no topo.
@@ -1513,11 +1536,11 @@ export function MediaSessionProvider({ children }) {
         // maxBitrate/maxFramerate direto no RTCRtpSender por baixo do
         // producer (API padrão WebRTC, mediasoup-client expõe via
         // `producer.rtpSender`).
-        if (quality && screenProducerRef.current.rtpSender) {
+        if (q && screenProducerRef.current.rtpSender) {
           const sender = screenProducerRef.current.rtpSender;
           const params = sender.getParameters();
           if (params.encodings?.[0]) {
-            const { maxBitrate, maxFramerate } = screenProduceOptions(quality).encodings[0];
+            const { maxBitrate, maxFramerate } = screenProduceOptions(q).encodings[0];
             params.encodings[0].maxBitrate = maxBitrate;
             params.encodings[0].maxFramerate = maxFramerate;
             await sender.setParameters(params);

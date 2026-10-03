@@ -25,7 +25,8 @@
       "general": "General",
       "notifications": "Notifications",
       "audioVideo": "Audio & Video",
-      "privacy": "Privacy"
+      "privacy": "Privacy",
+      "turbo": "TURBO"
     },
     "theme": {
       "label": "Theme",
@@ -243,5 +244,169 @@
     "invitePlaceholder": "Invite code or link",
     "joining": "Joining...",
     "joinSubmit": "Join server"
+  },
+  "turboWelcome": {
+    "title": "You are now TURBO!",
+    "until": "Active until {{date}}.",
+    "noExpiry": "Active, no expiration date.",
+    "benefitBadge": "TURBO rocket next to your name",
+    "benefitNameStyle": "Custom name style",
+    "cta": "Let's go!"
+  },
+  "turbo": {
+    "benefits": {
+      "nameStyle": {
+        "title": "Colored, animated name",
+        "desc": "Color, gradient and effect on your name."
+      },
+      "hdScreen": {
+        "title": "HD screen share",
+        "desc": "Share your screen at 1440p/60fps with higher bitrate.",
+        "modeA": "Without TURBO: 1440p/60fps at 4000 kbps. With TURBO: 6000 kbps.",
+        "modeB": "Only TURBO gets 1440p/60fps (6000 kbps); everyone else stays at 1080p/30fps."
+      },
+      "bigUploads": {
+        "title": "Bigger attachments",
+        "desc": "Upload files up to 50 MB."
+      },
+      "mediaPopout": {
+        "title": "Media pop-out",
+        "desc": "Pop someone's camera or screen out into its own window."
+      },
+      "ghostVoice": {
+        "title": "Ghost voice",
+        "desc": "Stay hidden in voice channels while your status is invisible."
+      },
+      "profileBanner": {
+        "title": "Profile banner",
+        "desc": "Customize your profile with a banner."
+      },
+      "speakingRing": {
+        "title": "Speaking ring",
+        "desc": "Custom ring when you talk."
+      },
+      "extraBackgrounds": {
+        "title": "More backgrounds",
+        "desc": "More custom backgrounds, even where the server disallows them."
+      },
+      "animatedAvatar": {
+        "title": "Animated avatar",
+        "desc": "Use a GIF as your avatar."
+      },
+      "longMessages": {
+        "title": "Long messages",
+        "desc": "Double the per-message character limit."
+      },
+      "personalSounds": {
+        "title": "Personal sounds",
+        "desc": "Your own soundboard sounds."
+      },
+      "joinSound": {
+        "title": "Join sound",
+        "desc": "Play a sound when you join a voice channel."
+      },
+      "serverPerks": {
+        "title": "Server perks",
+        "desc": "Extra perks for your servers."
+      }
+    },
+    "admin": {
+      "mode": {
+        "turbo": "TURBO only",
+        "free": "Everyone",
+        "off": "Off",
+        "turboBitrate": "Everyone at 1440p, TURBO-only bitrate"
+      },
+      "ghostVoiceNote": "Moderators and admins always see ghost users in voice channels.",
+      "title": "TURBO benefits",
+      "help": "Defines who gets each benefit. To allow or block a benefit for a specific TURBO user, use the Users tab. Granting TURBO is also done in the Users tab.",
+      "loadError": "Could not load the benefits.",
+      "saveError": "Could not save."
+    },
+    "locked": {
+      "cta": "TURBO exclusive"
+    },
+    "limits": {
+      "fileTooBig": "File larger than {{max}}.",
+      "charCount": "{{count}}/{{max}} characters",
+      "dropMax": "Up to {{max}} per file"
+    },
+    "banner": {
+      "title": "Profile banner",
+      "upload": "Upload banner",
+      "remove": "Remove banner"
+    },
+    "sounds": {
+      "title": "My sounds",
+      "add": "Add sound",
+      "remove": "Remove sound",
+      "joinTitle": "Join sound",
+      "joinHint": "A short sound (up to 5s), yours or from one of your servers, played for everyone when you join a voice channel.",
+      "choose": "Choose sound",
+      "change": "Change sound",
+      "currentFrom": "{{name}} — {{server}} ({{seconds}}s)",
+      "pickerTitle": "Choose join sound",
+      "searchPlaceholder": "Search sound by name",
+      "noResults": "No sounds found.",
+      "personal": "personal",
+      "tooLong": "Too long for a join sound (max 5s).",
+      "setAsJoin": "Set as join sound"
+    },
+    "errors": {
+      "attachment_too_large": "File larger than allowed ({{max}}).",
+      "message_too_long": "Message too long (max {{max}} characters).",
+      "backgrounds_limit_reached": "Limit of {{max}} backgrounds reached - remove one.",
+      "backgrounds_upload_unavailable": "Uploading backgrounds to the server is not available.",
+      "personal_sounds_locked": "Personal sounds are a TURBO benefit.",
+      "personal_sounds_limit": "Limit of {{max}} personal sounds reached.",
+      "soundboard_limit": "Limit of {{max}} sound effects reached.",
+      "profile_banner_locked": "Profile banner is a TURBO benefit.",
+      "join_sound_locked": "Join sound is a TURBO benefit.",
+      "join_sound_too_long": "Sound too long for a join sound (max {{max}}).",
+      "animated_avatar_locked": "GIF avatars are TURBO-only. Check out the TURBO benefits.",
+      "screen_bitrate_limit": "Screen share quality above the allowed limit.",
+      "join_sound_not_found": "Sound not found (it may have been removed).",
+      "join_sound_forbidden": "You can't use this sound as your join sound."
+    },
+    "landing": {
+      "heroSubtitle": "Take NaveSpeak to the next level: higher quality, more personalization and exclusive perks.",
+      "heroCta": "Get TURBO",
+      "askAdmin": "Talk to an admin",
+      "statusActive": "Active for you",
+      "statusFree": "Included for everyone",
+      "statusLocked": "TURBO exclusive",
+      "footerTitle": "Ready for liftoff?",
+      "footerText": "All these benefits arrive at once when TURBO is activated on your account.",
+      "demo": {
+        "you": "You",
+        "ghostInside": "People in the channel see you",
+        "ghostOutside": "People outside can't see you"
+      }
+    },
+    "settings": {
+      "inactive": "You don't have TURBO active. See what it unlocks.",
+      "discover": "Discover TURBO",
+      "speakingRing": {
+        "toggle": "Show my colored speaking ring",
+        "preview": "This is how others see you talking (your name color)."
+      },
+      "play": "Play",
+      "personalDesc": "Sounds that are only yours, played on each server's soundboard. Manage them per server below.",
+      "personalEmpty": "None of your servers allow personal sounds for you.",
+      "summary": "Other benefits",
+      "active": "Active",
+      "accountLink": "Banner, name style and other benefits: see the TURBO tab",
+      "soundboardLink": "TURBO settings"
+    }
+  },
+  "privacy": {
+    "ghostVoice": {
+      "label": "Ghost voice",
+      "hint": "With invisible status you are hidden from voice channel lists (except for moderators)."
+    }
+  },
+  "voice": {
+    "ghostActive": "You are in ghost mode",
+    "ghostMember": "Ghost (only moderators see this)"
   }
 }

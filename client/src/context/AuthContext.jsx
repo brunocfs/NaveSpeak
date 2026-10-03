@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest, setAccessToken } from '../api/http.js';
+import { getProfile } from '../api/profile.js';
+import TurboWelcomeModal from '../components/TurboWelcomeModal.jsx';
 import { connectSocket, disconnectSocket, getSocket } from '../api/socket.js';
 
 const AuthContext = createContext(null);
@@ -93,16 +95,89 @@ export function AuthProvider({ children }) {
     return () => socket.off('account:forceLogout', handleForceLogout);
   }, []);
 
+  // Forja liberou TURBO: vira isTurbo na hora (sem reload) e abre o popup.
+  // `turboWelcome` = null (fechado) ou { until }.
+  const [turboWelcome, setTurboWelcome] = useState(null);
+  useEffect(() => {
+    const socket = getSocket();
+    function handleGranted({ until = null } = {}) {
+      setUser((prev) => (prev ? { ...prev, isTurbo: true, turboUntil: until } : prev));
+      setTurboWelcome({ until });
+    }
+    socket.on('account:turboGranted', handleGranted);
+    if (import.meta.env.DEV) window.__turboPreview = (until = null) => handleGranted({ until });
+    return () => {
+      socket.off('account:turboGranted', handleGranted);
+      if (import.meta.env.DEV) delete window.__turboPreview;
+    };
+  }, []);
+
+  // Catálogo TURBO efetivo do usuário (GET /users/me -> turbo). Benefício é
+  // por usuário, então os eventos só disparam refetch (não carregam o valor).
+  const [turbo, setTurbo] = useState(null);
+  const userId = user?.id;
+  const refetchTurbo = useCallback(() => {
+    getProfile()
+      .then((d) => {
+        const tb = d.user?.turbo ?? null;
+        setTurbo(tb);
+        // Mantém o user em dia (badge some na revogação, ganha na concessão)
+        // e a preferência de voz fantasma.
+        if (tb) {
+          setUser((prev) =>
+            prev ? { ...prev, isTurbo: tb.active, turboUntil: tb.until, ghostVoice: d.user.ghostVoice, nameStyle: d.user.nameStyle, joinSound: d.user.joinSound ?? null, bannerPath: d.user.bannerPath ?? null, speakingRing: d.user.speakingRing } : prev
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!userId) {
+      setTurbo(null);
+      return undefined;
+    }
+    refetchTurbo();
+    const socket = getSocket();
+    socket.on('turbo:catalogChanged', refetchTurbo);
+    socket.on('account:turboGranted', refetchTurbo);
+    socket.on('connect', refetchTurbo); // reconexão: eventos perdidos enquanto offline
+    return () => {
+      socket.off('connect', refetchTurbo);
+      socket.off('turbo:catalogChanged', refetchTurbo);
+      socket.off('account:turboGranted', refetchTurbo);
+    };
+  }, [userId, refetchTurbo]);
+
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, updateUser, logoutNotice }),
-    [user, loading, login, register, logout, updateUser, logoutNotice]
+    () => ({ user, loading, login, register, logout, updateUser, logoutNotice, turbo, refetchTurbo }),
+    [user, loading, login, register, logout, updateUser, logoutNotice, turbo, refetchTurbo]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <TurboWelcomeModal open={!!turboWelcome} until={turboWelcome?.until} onClose={() => setTurboWelcome(null)} />
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth precisa estar dentro de <AuthProvider>.');
   return ctx;
+}
+
+// Benefício efetivo pra este usuário. `locked` = vale só pra TURBO e ele não
+// tem (mostrar cadeado + CTA). Enquanto o catálogo não carrega: sem acesso,
+// sem cadeado.
+export function useBenefit(key) {
+  const { turbo } = useAuth();
+  const mode = turbo?.catalog?.[key] ?? 'off';
+  const has = !!turbo?.benefits?.[key];
+  return { has, mode, locked: !has && mode !== 'off' };
+}
+
+// Tetos de tela/upload/mensagem/fundos já resolvidos pelo servidor.
+export function useTurboLimits() {
+  return useAuth().turbo?.limits ?? null;
 }

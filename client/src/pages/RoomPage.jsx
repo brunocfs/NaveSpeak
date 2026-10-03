@@ -40,7 +40,8 @@ import {
 import { hasPermission } from "../api/roles.js";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
-import { useAuth } from "../context/AuthContext.jsx";
+import { useAuth, useBenefit } from "../context/AuthContext.jsx";
+import { speakingRingColor } from "../utils/turboBenefits.js";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import DownloadAppLink from "../components/DownloadAppLink.jsx";
 import ScreenSourcePicker from "../components/ScreenSourcePicker.jsx";
@@ -52,6 +53,7 @@ export default function RoomPage(serverId) {
   const { roomId } = serverId;
   const navigate = useNavigate();
   const { user } = useAuth();
+  const ownSpeakingRing = useBenefit("speakingRing").has;
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const { setActiveChannel } = useNotifications();
@@ -1051,6 +1053,12 @@ export default function RoomPage(serverId) {
                             <VoiceRosterEntry
                               key={p.userId}
                               userId={p.userId}
+                              ghost={Boolean(p.ghost)}
+                              ringColor={
+                                (isSelf ? ownSpeakingRing : p.speakingRing)
+                                  ? speakingRingColor(members.find((m) => m.id === p.userId)?.nameStyle ?? p.nameStyle)
+                                  : null
+                              }
                               isSelf={isSelf}
                               username={p.username}
                               displayName={displayName(p.userId, p.username)}

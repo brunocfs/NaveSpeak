@@ -54,6 +54,35 @@ export function suggestScreenBitrateKbps(resolution, frameRate) {
   return SCREEN_BITRATE_SUGGESTIONS_KBPS[`${resolution}:${frameRate}`] ?? 3000;
 }
 
+// Teto de tela do usuário (turbo.limits do GET /users/me, já resolvido pelo
+// servidor - o client não recalcula modo A/B). Sem limits (ainda carregando):
+// 1080p/30/4000, o mesmo teto do plano grátis mais restrito.
+const FALLBACK_SCREEN_LIMITS = { screenMaxResolution: '1080p', screenMaxFps: 30, screenMaxBitrateKbps: 4000 };
+const resolutionHeight = (value) => SCREEN_RESOLUTIONS.find((r) => r.value === value)?.height ?? 0;
+
+// Marca cada resolução/fps como permitido ou não (picker mostra cadeado nos bloqueados).
+export function allowedScreenPresets(limits) {
+  const l = { ...FALLBACK_SCREEN_LIMITS, ...limits };
+  const maxHeight = resolutionHeight(l.screenMaxResolution);
+  return {
+    resolutions: SCREEN_RESOLUTIONS.map((r) => ({ ...r, allowed: r.height <= maxHeight })),
+    framerates: SCREEN_FRAMERATES.map((fps) => ({ fps, allowed: fps <= l.screenMaxFps })),
+    maxBitrateKbps: l.screenMaxBitrateKbps,
+  };
+}
+
+// Qualidade acima do permitido (preferência antiga, perda do TURBO) cai para
+// 1080p/30; bitrate sempre limitado ao teto.
+export function clampScreenQuality(quality, limits) {
+  const l = { ...FALLBACK_SCREEN_LIMITS, ...limits };
+  const q = { ...DEFAULT_SCREEN_QUALITY, ...quality };
+  const resolution =
+    resolutionHeight(q.resolution) <= resolutionHeight(l.screenMaxResolution) ? q.resolution : DEFAULT_SCREEN_QUALITY.resolution;
+  const frameRate = q.frameRate <= l.screenMaxFps ? q.frameRate : DEFAULT_SCREEN_QUALITY.frameRate;
+  const bitrateKbps = Math.min(q.bitrateKbps ?? suggestScreenBitrateKbps(resolution, frameRate), l.screenMaxBitrateKbps);
+  return { resolution, frameRate, bitrateKbps };
+}
+
 export async function listScreenSources() {
   if (!isElectron()) return null;
   return window.naveSpeak.getScreenSources();

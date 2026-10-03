@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Droplets, Plus, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { turboErrorText } from "../utils/turboErrors.js";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import { listMediaDevices, requestCameraStream } from "../api/media.js";
 import {
@@ -44,6 +46,7 @@ const readAsDataUrl = (file) =>
 // (servidor, todos veem), pessoais LOCAIS (IndexedDB) e, se o admin liberar
 // (recurso futuro pago), pessoais no servidor.
 export default function CameraSetupModal({ onConfirm, onCancel }) {
+  const { t: tr } = useTranslation();
   const preferences = usePreferences();
   const [deviceId, setDeviceId] = useState(preferences.cameraDeviceId);
   const [mode, setMode] = useState(preferences.cameraBackground.mode);
@@ -56,7 +59,7 @@ export default function CameraSetupModal({ onConfirm, onCancel }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const [remote, setRemote] = useState({ defaults: [], mine: [], serverUpload: false });
+  const [remote, setRemote] = useState({ defaults: [], mine: [], serverUpload: false, max: null });
   const [local, setLocal] = useState([]);
   const [uploadError, setUploadError] = useState(null);
   const videoRef = useRef(null);
@@ -136,7 +139,7 @@ export default function CameraSetupModal({ onConfirm, onCancel }) {
   useEffect(() => {
     listBackgrounds()
       .then((data) =>
-        setRemote({ defaults: data.defaults, mine: data.mine, serverUpload: data.userServerUploadEnabled }),
+        setRemote({ defaults: data.defaults, mine: data.mine, serverUpload: data.userServerUploadEnabled, max: data.maxUserBackgrounds }),
       )
       .catch(() => {}); // sem lista do servidor ainda dá pra usar blur e fundos locais
     listLocalBackgrounds().then(setLocal).catch(() => {});
@@ -183,6 +186,9 @@ export default function CameraSetupModal({ onConfirm, onCancel }) {
       if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error("Use PNG, JPG ou WebP.");
       if (remote.serverUpload) {
         if (file.size > MAX_SERVER_BYTES) throw new Error("Imagem maior que 2MB.");
+        if (remote.max != null && remote.mine.length >= remote.max) {
+          throw Object.assign(new Error("limit"), { code: "backgrounds_limit_reached", data: { max: remote.max } });
+        }
         const { background } = await uploadMyBackground({ name, image: await readAsDataUrl(file) });
         setRemote((prev) => ({ ...prev, mine: [...prev.mine, background] }));
         setMode("image");
@@ -198,7 +204,7 @@ export default function CameraSetupModal({ onConfirm, onCancel }) {
         setImage({ source: "local", id: record.id });
       }
     } catch (err) {
-      setUploadError(err.message);
+      setUploadError(turboErrorText(tr, err));
     }
   }
 

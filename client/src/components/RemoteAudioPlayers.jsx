@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { usePreferences } from "../context/PreferencesContext.jsx";
+import { getSocket } from "../api/socket.js";
+import { soundboardSrc } from "../api/soundboard.js";
 
 // Um <audio> por participante remoto com mic (ou por compartilhamento de
 // tela com áudio) - tocando sempre, INDEPENDENTE do tile dele aparecer no
@@ -87,6 +89,26 @@ export default function RemoteAudioPlayers({
   // volume individual de cada um. Clamp: valor vem do localStorage.
   const { callVolume } = usePreferences();
   const master = Math.min(100, Math.max(0, Number(callVolume) || 0)) / 100;
+
+  // Som de entrada (benefício joinSound de quem entrou): o servidor emite só
+  // pra quem está no canal. Respeita "Silenciar todos", mute local e o
+  // volume individual + geral, como o mic da própria pessoa.
+  const joinRef = useRef({});
+  joinRef.current = { deafened, isLocallyMuted, getUserVolume, master, outputDeviceId };
+  useEffect(() => {
+    const socket = getSocket();
+    function onJoinSound({ userId, filePath }) {
+      const c = joinRef.current;
+      if (!filePath || c.deafened || c.isLocallyMuted?.(userId)) return;
+      const audio = new Audio(soundboardSrc(filePath));
+      audio.volume = Math.min(1, Math.max(0, ((c.getUserVolume ? c.getUserVolume(userId) : 100) * c.master) / 100));
+      if (c.outputDeviceId && typeof audio.setSinkId === "function") audio.setSinkId(c.outputDeviceId).catch(() => {});
+      audio.play().catch(() => {});
+    }
+    socket.on("voice:joinSound", onJoinSound);
+    return () => socket.off("voice:joinSound", onJoinSound);
+  }, []);
+
   return (
     <>
       {tiles

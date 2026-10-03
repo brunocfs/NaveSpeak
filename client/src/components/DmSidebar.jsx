@@ -274,14 +274,14 @@ export default function DmSidebar({
             <Download className="size-5" /> Baixar app
           </a>
         )}
-        {/* <button
+        <button
           type="button"
           onClick={() => onSelectPanel?.("turbo")}
           title="Conheça o TURBO"
           className="turbo-button cursor-pointer items-center flex rounded-xl px-3 py-2 gap-2 text-sm font-bold tracking-wide transition hover:brightness-110"
         >
           <Rocket className="turbo-icon size-5" /> TURBO
-        </button> */}
+        </button>
 
         <button
           type="button"

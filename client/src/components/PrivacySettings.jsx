@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getProfile, updateProfile } from "../api/profile.js";
 import { useToast } from "../context/ToastContext.jsx";
+import GhostVoiceToggle from "./GhostVoiceToggle.jsx";
 import { Toggle } from "./Toggle.jsx";
 
 // Aba "Privacidade" das preferências. Diferente das outras abas, salva direto
@@ -41,18 +42,22 @@ export default function PrivacySettings() {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/60">
-      <Toggle
-        checked={Boolean(showCommonServers)}
-        disabled={busy || showCommonServers === null}
-        label="Mostrar servidores em comum"
-        onChange={handleChange}
-      />
-      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-        Outros usuários veem quantos servidores vocês têm em comum no seu
-        perfil. Se desativar, você também deixa de ver essa informação no
-        perfil dos outros.
-      </p>
+    <div className="space-y-3">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/60">
+        <Toggle
+          checked={Boolean(showCommonServers)}
+          disabled={busy || showCommonServers === null}
+          label="Mostrar servidores em comum"
+          onChange={handleChange}
+        />
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Outros usuários veem quantos servidores vocês têm em comum no seu
+          perfil. Se desativar, você também deixa de ver essa informação no
+          perfil dos outros.
+        </p>
+      </div>
+
+      <GhostVoiceToggle />
     </div>
   );
 }

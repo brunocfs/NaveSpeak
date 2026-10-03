@@ -26,7 +26,9 @@ import {
   Eye,
   EyeOff,
   Pencil,
+  Ghost,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 // Uma linha da lista de participantes de um canal de voz na sidebar de
 // RoomPage.jsx. Extraída num componente à parte porque useSpeaking() é um
 // hook - precisa de uma instância de componente por participante, não dá
@@ -85,7 +87,12 @@ export default function VoiceRosterEntry({
   localControls,
   member,
   onEditNickname,
+  // Participante fantasma (o servidor só manda ghost:true a moderadores).
+  ghost = false,
+  // Cor do anel de fala (speakingRing de quem fala) - null = verde padrão.
+  ringColor = null,
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const speaking = useSpeaking(micStream);
   const hasMenu = Boolean(
@@ -208,12 +215,12 @@ export default function VoiceRosterEntry({
       onClick={handleUserProfilePreview}
       className=" cursor-pointer flex justify-between rounded-xl items-center gap-1 px-3 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
     >
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="flex min-w-0 items-center gap-1" style={ringColor ? { "--speak-ring": ringColor } : undefined}>
         <Avatar
           avatarPath={avatarPath}
           username={displayName}
           size="xs"
-          className={`ring-2 transition ${soundboardActive ? "ring-purple-500" : speaking ? "ring-emerald-500" : "ring-transparent"}`}
+          className={`ring-2 transition ${soundboardActive ? "ring-purple-500" : speaking ? (ringColor ? "ring-(--speak-ring)" : "ring-emerald-500") : "ring-transparent"}`}
         />
 
         {/* nameStyle vem do member (já filtrado pelo benefício TURBO no
@@ -225,6 +232,7 @@ export default function VoiceRosterEntry({
           }
           className="ml-1 truncate"
         />
+        {ghost && <Ghost className="ml-1 size-3.5 shrink-0 text-slate-400" title={t("voice.ghostMember")} aria-label={t("voice.ghostMember")} />}
       </div>
 
       <div className="flex shrink-0 gap-1 items-center">

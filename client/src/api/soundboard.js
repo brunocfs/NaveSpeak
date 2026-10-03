@@ -12,8 +12,12 @@ export const soundboardSrc = (filePath) => `${API_URL}/uploads/${filePath}`;
 // MediaSessionContext.jsx#triggerSoundboardSound).
 export const listSounds = (roomId) => apiRequest(`/rooms/${roomId}/soundboard`);
 
-export const uploadSound = (roomId, { name, fileData }) =>
-  apiRequest(`/rooms/${roomId}/soundboard`, { method: 'POST', body: JSON.stringify({ name, fileData }) });
+// `personal: true` = som pessoal do usuário (benefício personalSounds).
+export const uploadSound = (roomId, { name, fileData, personal }) =>
+  apiRequest(`/rooms/${roomId}/soundboard`, {
+    method: 'POST',
+    body: JSON.stringify({ name, fileData, ...(personal && { personal: true }) }),
+  });
 
 export const deleteSound = (roomId, soundId) =>
   apiRequest(`/rooms/${roomId}/soundboard/${soundId}`, { method: 'DELETE' });

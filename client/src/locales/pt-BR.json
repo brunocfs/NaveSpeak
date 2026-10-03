@@ -25,7 +25,8 @@
       "general": "Geral",
       "notifications": "Notificações",
       "audioVideo": "Áudio e Vídeo",
-      "privacy": "Privacidade"
+      "privacy": "Privacidade",
+      "turbo": "TURBO"
     },
     "theme": {
       "label": "Tema",
@@ -243,5 +244,169 @@
     "invitePlaceholder": "Código ou link de convite",
     "joining": "Entrando...",
     "joinSubmit": "Entrar no servidor"
+  },
+  "turboWelcome": {
+    "title": "Você agora é TURBO!",
+    "until": "Ativo até {{date}}.",
+    "noExpiry": "Ativo, sem data de expiração.",
+    "benefitBadge": "Foguete TURBO ao lado do seu nome",
+    "benefitNameStyle": "Estilo de nome personalizado",
+    "cta": "Bora!"
+  },
+  "turbo": {
+    "benefits": {
+      "nameStyle": {
+        "title": "Nome colorido e com efeito",
+        "desc": "Cor, gradiente e efeito no seu nome."
+      },
+      "hdScreen": {
+        "title": "Tela em HD",
+        "desc": "Compartilhe a tela em 1440p/60fps com mais bitrate.",
+        "modeA": "Sem TURBO: 1440p/60fps a 4000 kbps. Com TURBO: 6000 kbps.",
+        "modeB": "Só TURBO tem 1440p/60fps (6000 kbps); os demais ficam em 1080p/30fps."
+      },
+      "bigUploads": {
+        "title": "Anexos maiores",
+        "desc": "Envie arquivos de até 50 MB."
+      },
+      "mediaPopout": {
+        "title": "Janela flutuante de mídia",
+        "desc": "Destaque a câmera ou tela de alguém em uma janela própria."
+      },
+      "ghostVoice": {
+        "title": "Voz fantasma",
+        "desc": "Fique invisível nos canais de voz quando estiver com status invisível."
+      },
+      "profileBanner": {
+        "title": "Banner de perfil",
+        "desc": "Personalize seu perfil com um banner."
+      },
+      "speakingRing": {
+        "title": "Anel de fala",
+        "desc": "Anel personalizado quando você fala."
+      },
+      "extraBackgrounds": {
+        "title": "Mais fundos",
+        "desc": "Mais fundos personalizados, mesmo onde o servidor não permite."
+      },
+      "animatedAvatar": {
+        "title": "Avatar animado",
+        "desc": "Use GIF como avatar."
+      },
+      "longMessages": {
+        "title": "Mensagens longas",
+        "desc": "Dobro do limite de caracteres por mensagem."
+      },
+      "personalSounds": {
+        "title": "Sons pessoais",
+        "desc": "Seus próprios sons no soundboard."
+      },
+      "joinSound": {
+        "title": "Som de entrada",
+        "desc": "Toque um som ao entrar em um canal de voz."
+      },
+      "serverPerks": {
+        "title": "Vantagens de servidor",
+        "desc": "Vantagens extras para os seus servidores."
+      }
+    },
+    "admin": {
+      "mode": {
+        "turbo": "Só TURBO",
+        "free": "Todos",
+        "off": "Desligado",
+        "turboBitrate": "Todos em 1440p, bitrate só TURBO"
+      },
+      "ghostVoiceNote": "Moderadores e admins sempre veem usuários fantasma nos canais de voz.",
+      "title": "Benefícios TURBO",
+      "help": "Define quem recebe cada benefício. Para liberar ou bloquear um benefício de um usuário TURBO específico, use a aba Usuários. Conceder TURBO também é pela aba Usuários.",
+      "loadError": "Não foi possível carregar os benefícios.",
+      "saveError": "Não foi possível salvar."
+    },
+    "locked": {
+      "cta": "Exclusivo TURBO"
+    },
+    "limits": {
+      "fileTooBig": "Arquivo maior que {{max}}.",
+      "charCount": "{{count}}/{{max}} caracteres",
+      "dropMax": "Até {{max}} por arquivo"
+    },
+    "banner": {
+      "title": "Banner do perfil",
+      "upload": "Enviar banner",
+      "remove": "Remover banner"
+    },
+    "sounds": {
+      "title": "Meus sons",
+      "add": "Adicionar som",
+      "remove": "Remover som",
+      "joinTitle": "Som de entrada",
+      "joinHint": "Um som seu ou de um servidor seu, curto (até 5s), que toca para todos quando você entra num canal de voz.",
+      "choose": "Escolher som",
+      "change": "Trocar som",
+      "currentFrom": "{{name}} — {{server}} ({{seconds}}s)",
+      "pickerTitle": "Escolher som de entrada",
+      "searchPlaceholder": "Buscar som pelo nome",
+      "noResults": "Nenhum som encontrado.",
+      "personal": "pessoal",
+      "tooLong": "Muito longo para som de entrada (máx. 5s).",
+      "setAsJoin": "Definir como som de entrada"
+    },
+    "errors": {
+      "attachment_too_large": "Arquivo maior que o permitido ({{max}}).",
+      "message_too_long": "Mensagem muito longa (máx. {{max}} caracteres).",
+      "backgrounds_limit_reached": "Limite de {{max}} fundos atingido - remova algum.",
+      "backgrounds_upload_unavailable": "Upload de fundos no servidor não está disponível.",
+      "personal_sounds_locked": "Sons pessoais são um benefício TURBO.",
+      "personal_sounds_limit": "Limite de {{max}} sons pessoais atingido.",
+      "soundboard_limit": "Limite de {{max}} efeitos sonoros atingido.",
+      "profile_banner_locked": "Banner de perfil é um benefício TURBO.",
+      "join_sound_locked": "Som de entrada é um benefício TURBO.",
+      "join_sound_too_long": "Som muito longo para som de entrada (máx. {{max}}).",
+      "animated_avatar_locked": "GIF como avatar é exclusivo TURBO. Veja os benefícios do TURBO.",
+      "screen_bitrate_limit": "Qualidade de compartilhamento acima do permitido.",
+      "join_sound_not_found": "Som não encontrado (talvez tenha sido removido).",
+      "join_sound_forbidden": "Você não pode usar esse som como som de entrada."
+    },
+    "landing": {
+      "heroSubtitle": "Leve o NaveSpeak para outro nível: mais qualidade, mais personalização e privilégios exclusivos.",
+      "heroCta": "Ser TURBO",
+      "askAdmin": "Fale com um admin",
+      "statusActive": "Ativo pra você",
+      "statusFree": "Incluso para todos",
+      "statusLocked": "Exclusivo TURBO",
+      "footerTitle": "Pronto para decolar?",
+      "footerText": "Todos esses benefícios chegam de uma vez quando o TURBO é ativado na sua conta.",
+      "demo": {
+        "you": "Você",
+        "ghostInside": "Quem está no canal te vê",
+        "ghostOutside": "Quem está fora não vê você"
+      }
+    },
+    "settings": {
+      "inactive": "Você não tem o TURBO ativo. Veja o que ele libera.",
+      "discover": "Conhecer o TURBO",
+      "speakingRing": {
+        "toggle": "Mostrar meu anel de fala colorido",
+        "preview": "Assim os outros veem você falando (cor do seu nome)."
+      },
+      "play": "Ouvir",
+      "personalDesc": "Sons só seus, tocados no soundboard de cada servidor. Gerencie por servidor abaixo.",
+      "personalEmpty": "Nenhum dos seus servidores permite sons pessoais para você.",
+      "summary": "Outros benefícios",
+      "active": "Ativo",
+      "accountLink": "Banner, estilo do nome e outros benefícios: ver aba TURBO",
+      "soundboardLink": "Configurações TURBO"
+    }
+  },
+  "privacy": {
+    "ghostVoice": {
+      "label": "Voz fantasma",
+      "hint": "Com status invisível, você some da lista dos canais de voz (exceto para moderadores)."
+    }
+  },
+  "voice": {
+    "ghostActive": "Você está como fantasma",
+    "ghostMember": "Fantasma (só moderadores veem)"
   }
 }

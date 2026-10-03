@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { turboErrorText } from "../utils/turboErrors.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { setAccessToken } from "../api/http.js";
 import { API_URL } from "../api/config.js";
@@ -9,7 +11,7 @@ import {
   uploadAvatar,
   removeAvatar,
 } from "../api/profile.js";
-import TurboProfileSection from "./TurboProfileSection.jsx";
+import { openPreferences } from "../utils/preferencesEvents.js";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -47,6 +49,7 @@ function validateAvatarFile(file) {
 // do seu <main> - ele é quem tinha esse JSX/lógica antes.
 export default function AccountProfileSettings() {
   const { updateUser } = useAuth();
+  const { t } = useTranslation();
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -127,7 +130,7 @@ export default function AccountProfileSettings() {
       // a troca depois de um F5 (novo /auth/refresh).
       updateUser({ avatarPath: data.user.avatarPath });
     } catch (err) {
-      setAvatarError(err.message);
+      setAvatarError(turboErrorText(t, err));
       setAvatarPreview(null);
     } finally {
       setAvatarBusy(false);
@@ -460,7 +463,13 @@ export default function AccountProfileSettings() {
         </form>
       </section>
 
-      <TurboProfileSection profile={profile} onSaved={setProfile} />
+      <button
+        type="button"
+        onClick={() => openPreferences("turbo")}
+        className="cursor-pointer text-sm text-fuchsia-500 hover:underline dark:text-fuchsia-300"
+      >
+        {t("turbo.settings.accountLink")}
+      </button>
 
       {/* Alterar senha */}
       {/* <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:ring-slate-800">

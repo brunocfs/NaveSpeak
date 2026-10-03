@@ -22,10 +22,10 @@ import {
   Shrink,
   Fullscreen,
 } from "lucide-react";
-import { useAuth } from "../context/AuthContext.jsx";
+import { useAuth, useBenefit } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { useCall } from "../context/CallContext.jsx";
-import { useDisplayName } from "../context/NicknamesContext.jsx";
+import { useDisplayName, useMemberNameStyles } from "../context/NicknamesContext.jsx";
 import VideoLayoutManager from "./VideoLayoutManager.jsx";
 import SimpleVideoGrid from "./SimpleVideoGrid.jsx";
 import ParticipantTile from "./ParticipantTile.jsx";
@@ -35,6 +35,7 @@ import PrivateCallPanel from "./PrivateCallPanel.jsx";
 import SoundboardPanel from "./SoundboardPanel.jsx";
 import { usePreferences } from "../context/PreferencesContext.jsx";
 import { useSpeaking } from "../hooks/useSpeaking.js";
+import { speakingRingColor } from "../utils/turboBenefits.js";
 import { useTilePopouts } from "../hooks/useTilePopouts.js";
 
 // Só existe pro PiP flutuante (ver `floating` mais abaixo): reporta se um
@@ -77,6 +78,7 @@ export default function VoicePanel() {
   // Apelidos do servidor da chamada atual (voiceRoomId nulo em chamada
   // privada = sempre username).
   const displayName = useDisplayName(media.voiceRoomId);
+  const memberStyles = useMemberNameStyles(media.voiceRoomId);
   const {
     videoLayoutMode,
     setVideoLayoutMode,
@@ -325,6 +327,8 @@ export default function VoicePanel() {
 
   // Um tile por PESSOA (câmera se estiver ligada, senão avatar com iniciais)
   // - nunca um por stream, para não duplicar quem está só com o mic ligado.
+  const ownRingBenefit = useBenefit("speakingRing").has;
+  const ownRingColor = ownRingBenefit ? speakingRingColor(user?.nameStyle) : null;
   const personTiles = useMemo(() => {
     const tiles = [];
     if (user) {
@@ -361,6 +365,7 @@ export default function VoicePanel() {
         // (useSpeaking nunca acende sozinho).
         micStream: micTransmitting ? localMicStream : null,
         soundboardActive: soundboardSpeakers.has(user.id),
+        ringColor: ownRingColor,
       });
     }
     for (const p of participants) {
@@ -398,6 +403,7 @@ export default function VoicePanel() {
         videoStream: cameraEntry?.stream ?? null,
         micStream: micEntry?.stream ?? null,
         soundboardActive: soundboardSpeakers.has(p.userId),
+        ringColor: p.speakingRing ? speakingRingColor(memberStyles?.[p.userId]) : null,
         hiddenMedia,
         onToggleHiddenMedia: () => toggleMediaHidden(p.userId, "camera"),
         needsManualStart,
@@ -409,6 +415,8 @@ export default function VoicePanel() {
     return tiles;
   }, [
     participants,
+    memberStyles,
+    ownRingColor,
     remoteStreams,
     user,
     micTransmitting,
@@ -580,7 +588,14 @@ export default function VoicePanel() {
     () => new Set(tilePopoutWindows.keys()),
     [tilePopoutWindows],
   );
+  // Popout por tile é benefício TURBO (o do painel inteiro continua grátis).
+  const tilePopoutAllowed = useBenefit("mediaPopout").has;
+  useEffect(() => {
+    if (tilePopoutAllowed) return;
+    for (const key of tilePopoutWindows.keys()) closeTilePopout(key);
+  }, [tilePopoutAllowed, tilePopoutWindows, closeTilePopout]);
   function handleTogglePopoutTile(key) {
+    if (!tilePopoutAllowed) return;
     if (tilePopoutWindows.has(key)) {
       closeTilePopout(key);
       return;

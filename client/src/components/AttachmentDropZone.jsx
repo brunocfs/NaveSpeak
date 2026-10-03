@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Paperclip } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useTurboLimits } from "../context/AuthContext.jsx";
 
 // Overlay de "solte pra anexar" em volta de qualquer conteúdo (ChatPanel.jsx/
 // DmPanel.jsx envolvem o painel inteiro com isso, não só o MessageInput -
@@ -11,6 +13,8 @@ export default function AttachmentDropZone({ onFilesDropped, disabled, className
   // filho do container conforme o cursor passa por cima deles - sem o
   // contador o overlay "pisca" toda hora que o mouse cruza uma borda interna.
   const [depth, setDepth] = useState(0);
+  const { t } = useTranslation();
+  const maxBytes = useTurboLimits()?.attachmentMaxBytes;
   const active = depth > 0;
 
   function hasFiles(e) {
@@ -56,6 +60,11 @@ export default function AttachmentDropZone({ onFilesDropped, disabled, className
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
             <Paperclip className="size-5" />
             Solte para anexar
+            {maxBytes && (
+              <span className="text-xs font-normal opacity-80">
+                {t("turbo.limits.dropMax", { max: `${Math.round(maxBytes / 1024 / 1024)} MB` })}
+              </span>
+            )}
           </div>
         </div>
       )}

@@ -11,7 +11,11 @@ import {
   Users,
   Play,
   AppWindow,
+  Lock,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useBenefit } from "../context/AuthContext.jsx";
+import { useOpenTurbo } from "../hooks/useOpenTurbo.js";
 import { useSpeaking } from "../hooks/useSpeaking.js";
 import Avatar from "./Avatar.jsx";
 
@@ -86,10 +90,15 @@ export default function ParticipantTile({
   // VideoLayoutManager) que passa este prop, nunca o próprio objeto de tile.
   poppedOut = false,
   onTogglePopout,
+  // Cor do anel de fala (benefício speakingRing de quem fala) - null = verde padrão.
+  ringColor = null,
   className = "",
   style,
 }) {
   const videoRef = useRef(null);
+  const { t } = useTranslation();
+  const popoutBenefit = useBenefit("mediaPopout");
+  const openTurbo = useOpenTurbo();
   // Ensurdecido não vê o anel de "falando" dos outros (sem stream o
   // useSpeaking também não roda um AnalyserNode à toa).
   const speaking = useSpeaking(
@@ -147,13 +156,15 @@ export default function ParticipantTile({
         : kind === "person" && soundboardActive
           ? "ring-purple-500"
           : speaking
-            ? "ring-green-400"
+            ? ringColor
+              ? "ring-(--speak-ring)"
+              : "ring-green-400"
             : "ring-transparent";
 
   return (
     <div
       className={`group relative aspect-video w-full  items-center justify-center overflow-hidden rounded-xl bg-[#191a1e] ring-3 transition ${ringClass} ${className}`}
-      style={style}
+      style={ringColor ? { "--speak-ring": ringColor, ...style } : style}
     >
       {hasVideo && (
         <video
@@ -296,7 +307,16 @@ export default function ParticipantTile({
             : "opacity-0 group-hover:opacity-100"
         }`}
       >
-        {onTogglePopout && !isLocal && (
+        {onTogglePopout && !isLocal && popoutBenefit.locked && (
+          <button
+            onClick={openTurbo}
+            title={t("turbo.locked.cta")}
+            className="rounded-lg bg-black/50 p-1.5 text-white transition hover:bg-black/70"
+          >
+            <Lock className="size-3.5 text-fuchsia-300" />
+          </button>
+        )}
+        {onTogglePopout && !isLocal && popoutBenefit.has && (
           <button
             onClick={onTogglePopout}
             title={

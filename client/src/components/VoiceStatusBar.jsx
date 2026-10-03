@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, RefreshCw, Headphones } from "lucide-react";
+import { Ghost, Mic, MicOff, Video, VideoOff, ScreenShare, ScreenShareOff, RefreshCw, Headphones } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useAuth, useBenefit } from "../context/AuthContext.jsx";
 import { useMediaSession } from "../context/MediaSessionContext.jsx";
 import { isElectron, listScreenSources } from "../api/media.js";
 import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
@@ -12,6 +14,10 @@ import ScreenSourcePicker from "./ScreenSourcePicker.jsx";
 // saía da tela da sala.
 export default function VoiceStatusBar() {
   const media = useMediaSession();
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const canGhost = useBenefit("ghostVoice").has;
+  const ghostActive = canGhost && Boolean(user?.ghostVoice) && user?.status === "invisible";
   // Fontes de tela/janela do Electron - fora dele, getDisplayMedia já mostra
   // o seletor nativo do navegador, então isso fica sempre null.
   const [screenPickerSources, setScreenPickerSources] = useState(null);
@@ -138,6 +144,11 @@ export default function VoiceStatusBar() {
       >
         <Headphones className="size-5 text-white" />
       </button>
+      {ghostActive && (
+        <span className="inline-flex items-center gap-1 text-xs text-fuchsia-300" title={t("privacy.ghostVoice.hint")}>
+          <Ghost className="size-4" /> {t("voice.ghostActive")}
+        </span>
+      )}
       <button
         onClick={() => media.leaveVoice()}
         className="rounded-xl bg-red-600 px-3 py-1 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400"

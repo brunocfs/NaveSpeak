@@ -41,7 +41,13 @@ export function NicknamesProvider({ children }) {
     return () => socket.off("member:nickname", handleNickname);
   }, []);
 
+  // nameStyle público dos membros (já filtrado pelo benefício no servidor) - anel de fala na VoicePanel.
+  const [stylesByServer, setStylesByServer] = useState({});
   const setServerNicknames = useCallback((serverId, members) => {
+    setStylesByServer((prev) => ({
+      ...prev,
+      [serverId]: Object.fromEntries(members.filter((m) => m.nameStyle).map((m) => [m.id, m.nameStyle])),
+    }));
     setByServer((prev) => ({
       ...prev,
       [serverId]: Object.fromEntries(
@@ -51,8 +57,8 @@ export function NicknamesProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ byServer, setServerNicknames }),
-    [byServer, setServerNicknames],
+    () => ({ byServer, stylesByServer, setServerNicknames }),
+    [byServer, stylesByServer, setServerNicknames],
   );
 
   return (
@@ -78,4 +84,9 @@ export function useDisplayName(serverId) {
     (userId, username) => map?.[userId] || username,
     [map],
   );
+}
+
+// nameStyle de um membro de `serverId` (undefined se o servidor nunca foi aberto).
+export function useMemberNameStyles(serverId) {
+  return useNicknames().stylesByServer[serverId];
 }

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { AppWindow, Monitor } from "lucide-react";
+import { AppWindow, Lock, Monitor } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
-  SCREEN_RESOLUTIONS,
-  SCREEN_FRAMERATES,
-  DEFAULT_SCREEN_QUALITY,
+  allowedScreenPresets,
+  clampScreenQuality,
   suggestScreenBitrateKbps,
 } from "../api/media.js";
+import { useTurboLimits } from "../context/AuthContext.jsx";
+import { useOpenTurbo } from "../hooks/useOpenTurbo.js";
 import NavespeakLogoV1 from "./NavespeakLogoV1.jsx";
 
 // Modal pra escolher o que compartilhar + qualidade.
@@ -40,8 +42,15 @@ export default function ScreenSourcePicker({
   const [selected, setSelected] = useState(null);
   const [tab, setTab] = useState("screen");
   const [withAudio, setWithAudio] = useState(defaultWithAudio);
-  const [resolution, setResolution] = useState(DEFAULT_SCREEN_QUALITY.resolution);
-  const [frameRate, setFrameRate] = useState(DEFAULT_SCREEN_QUALITY.frameRate);
+  const { t } = useTranslation();
+  const limits = useTurboLimits();
+  const openTurbo = useOpenTurbo();
+  // Teto vindo do servidor (nada de recalcular modo A/B aqui). Opções acima
+  // dele ficam com cadeado e levam ao TurboPanel; o padrão já nasce dentro do teto.
+  const presets = allowedScreenPresets(limits);
+  const initial = clampScreenQuality({}, limits);
+  const [resolution, setResolution] = useState(initial.resolution);
+  const [frameRate, setFrameRate] = useState(initial.frameRate);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customBitrate, setCustomBitrate] = useState("");
 
@@ -56,7 +65,7 @@ export default function ScreenSourcePicker({
   ];
   const activeTab = tabs.find((t) => t.value === tab);
   const canConfirm = !loading && (!hasSources || Boolean(selected));
-  const suggestedBitrate = suggestScreenBitrateKbps(resolution, frameRate);
+  const suggestedBitrate = Math.min(suggestScreenBitrateKbps(resolution, frameRate), presets.maxBitrateKbps);
 
   function confirm(sourceId) {
     const bitrateKbps = advancedOpen && customBitrate ? Number(customBitrate) : undefined;
@@ -129,15 +138,17 @@ export default function ScreenSourcePicker({
           <div className="flex flex-col gap-1 text-sm">
             <span>Resolução</span>
             <div className="quality-pill-group">
-              {SCREEN_RESOLUTIONS.map((r) => (
+              {presets.resolutions.map((r) => (
                 <button
                   key={r.value}
                   type="button"
                   className="quality-pill"
                   aria-pressed={resolution === r.value}
-                  onClick={() => setResolution(r.value)}
+                  title={r.allowed ? undefined : t("turbo.locked.cta")}
+                  onClick={() => (r.allowed ? setResolution(r.value) : openTurbo())}
                 >
                   {r.label}
+                  {!r.allowed && <Lock className="ml-1 inline size-3" />}
                 </button>
               ))}
             </div>
@@ -145,15 +156,17 @@ export default function ScreenSourcePicker({
           <div className="flex flex-col gap-1 text-sm">
             <span>Taxa de quadros</span>
             <div className="quality-pill-group">
-              {SCREEN_FRAMERATES.map((fps) => (
+              {presets.framerates.map(({ fps, allowed }) => (
                 <button
                   key={fps}
                   type="button"
                   className="quality-pill"
                   aria-pressed={frameRate === fps}
-                  onClick={() => setFrameRate(fps)}
+                  title={allowed ? undefined : t("turbo.locked.cta")}
+                  onClick={() => (allowed ? setFrameRate(fps) : openTurbo())}
                 >
                   {fps} FPS
+                  {!allowed && <Lock className="ml-1 inline size-3" />}
                 </button>
               ))}
             </div>
@@ -173,7 +186,7 @@ export default function ScreenSourcePicker({
                 <input
                   type="number"
                   min={500}
-                  max={8000}
+                  max={presets.maxBitrateKbps}
                   step={100}
                   placeholder={String(suggestedBitrate)}
                   value={customBitrate}

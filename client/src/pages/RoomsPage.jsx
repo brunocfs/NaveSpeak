@@ -70,6 +70,12 @@ export default function RoomsPage() {
     }
   }
   useEffect(() => {
+    if (location.state?.openPanel !== 'turbo') return;
+    setRoomPanel(false);
+    selectPanel('turbo');
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.state, location.pathname, navigate]);
+  useEffect(() => {
     const target = location.state?.openDmWith;
     if (!target) return;
     setRoomPanel(false);

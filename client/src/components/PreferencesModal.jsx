@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,8 @@ import { useMicLevel } from "../hooks/useMicLevel.js";
 import { formatKeyLabel } from "../utils/pushToTalkKeys.js";
 import AccountProfileSettings from "./AccountProfileSettings.jsx";
 import PrivacySettings from "./PrivacySettings.jsx";
+import TurboSettings from "./TurboSettings.jsx";
+import { PREFERENCES_EVENT } from "../utils/preferencesEvents.js";
 
 // Faixa de dB do medidor/slider de sensibilidade - -70 (bem sensível, capta
 // até sussurro/ruído baixo de sala) a -10 (só voz alta bem perto do mic).
@@ -85,7 +87,7 @@ const hasAutoLaunch =
 // convenção de "modal com abas" no app. "Geral" = preferências sem relação
 // com chamada de voz; "Áudio e Vídeo" = tudo que mexe em captura/mic/webcam
 // (dispositivos, supressor de ruído, sensibilidade do microfone).
-const TABS = ["account", "general", "notifications", "audioVideo", "privacy"];
+const TABS = ["account", "general", "notifications", "audioVideo", "privacy", "turbo"];
 
 // Botão de engrenagem + modal de preferências, no cabeçalho de RoomsPage.jsx
 // ao lado do "Sair" (pedido do escopo). Modal usa o mesmo padrão visual
@@ -264,7 +266,8 @@ export default function PreferencesModal() {
       );
   }, [open]);
 
-  function handleOpen() {
+  // `tabId` (string) vem do evento de openPreferences(); no onClick chega o evento do clique.
+  function handleOpen(tabId) {
     setDraft({
       theme,
       language,
@@ -286,13 +289,32 @@ export default function PreferencesModal() {
       notificationOutputDeviceId,
       soundboardVolume,
     });
-    setTab(TABS[0]);
+    setTab(TABS.includes(tabId) ? tabId : TABS[0]);
     setOpen(true);
     refreshDevices();
     if (hasAutoLaunch) {
       window.naveSpeak.autoLaunch.get().then(setAutoLaunchState);
     }
   }
+
+  // Abrir/fechar de fora (atalhos "Configurações TURBO", cadeados): ver utils/preferencesEvents.js.
+  const modalRef = useRef({});
+  modalRef.current = { open, handleOpen, handleClose };
+  useEffect(() => {
+    function onEvent(e) {
+      const { tab: wanted, close } = e.detail ?? {};
+      const m = modalRef.current;
+      if (close) {
+        if (m.open) m.handleClose();
+      } else if (m.open) {
+        setTab(TABS.includes(wanted) ? wanted : TABS[0]);
+      } else {
+        m.handleOpen(wanted);
+      }
+    }
+    window.addEventListener(PREFERENCES_EVENT, onEvent);
+    return () => window.removeEventListener(PREFERENCES_EVENT, onEvent);
+  }, []);
 
   function handleClose() {
     stopPreview();
@@ -1296,6 +1318,7 @@ export default function PreferencesModal() {
 
                       {tab === "account" && <AccountProfileSettings />}
                       {tab === "privacy" && <PrivacySettings />}
+                      {tab === "turbo" && <TurboSettings />}
                     </div>
                   </div>
                 </div>

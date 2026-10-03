@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../context/AuthContext.jsx";
 import {
   listUsers,
@@ -12,7 +13,7 @@ import {
 import Avatar from "./Avatar.jsx";
 import { Toggle } from "./Toggle.jsx";
 import TurboBadge from "./TurboBadge.jsx";
-import { TURBO_BENEFITS } from "./AdminTurboPanel.jsx";
+import { TURBO_BENEFITS } from "../utils/turboBenefits.js";
 
 const DURATIONS = [
   { hours: 1, label: "1 hora" },
@@ -44,6 +45,7 @@ const inputClass =
 // Todos os usuários da plataforma + moderação. Por privacidade só mostra SE
 // o usuário está em voz e o tipo, nunca a sala nem com quem.
 export default function AdminUsersPanel() {
+  const { t } = useTranslation();
   const { user: me } = useAuth();
   const [q, setQ] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
@@ -307,7 +309,7 @@ export default function AdminUsersPanel() {
                     const current = u.turboBenefits?.[b.key];
                     return (
                       <label key={b.key} className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-                        {b.label}
+                        {t(`turbo.benefits.${b.key}.title`)}
                         <select
                           name={b.key}
                           defaultValue={current === true ? "on" : current === false ? "off" : ""}

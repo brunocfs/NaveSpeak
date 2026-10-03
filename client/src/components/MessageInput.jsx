@@ -8,19 +8,25 @@ import {
 import {
   Check,
   Loader2,
+  Lock,
   Paperclip,
   Type,
   X,
   SendHorizontal,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { uploadAttachment } from "../api/attachments.js";
+import { useBenefit, useTurboLimits } from "../context/AuthContext.jsx";
+import { useOpenTurbo } from "../hooks/useOpenTurbo.js";
+import { turboErrorText } from "../utils/turboErrors.js";
 import { renderLiveTokens } from "../utils/messageFormatting.jsx";
 import Avatar from "./Avatar.jsx";
 import EmojiPicker from "./EmojiPicker.jsx";
 import FormatToolbar from "./FormatToolbar.jsx";
 
 const MAX_ATTACHMENTS = 10;
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB - mesmo limite validado no server (attachments.routes.js)
+const FREE_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB - fallback; o teto real vem de useTurboLimits (server)
+const FREE_MESSAGE_CHARS = 2000;
 const MAX_MENTION_SUGGESTIONS = 8;
 const MAX_TEXTAREA_HEIGHT = 200; // px (~8 linhas) - acima disso o textarea rola por dentro
 
@@ -58,6 +64,13 @@ const MessageInput = forwardRef(function MessageInput(
   { onSend, disabled, mentionCandidates = [], onTyping },
   ref,
 ) {
+  const { t } = useTranslation();
+  const limits = useTurboLimits();
+  const openTurbo = useOpenTurbo();
+  const longMessages = useBenefit("longMessages");
+  const bigUploads = useBenefit("bigUploads");
+  const maxBytes = limits?.attachmentMaxBytes ?? FREE_ATTACHMENT_BYTES;
+  const maxChars = limits?.messageMaxChars ?? FREE_MESSAGE_CHARS;
   const [content, setContent] = useState("");
   // Menção sendo digitada agora: { start, query } (start = índice do "@" em
   // `content`) ou null quando o cursor não está num token de menção. Ver
@@ -266,7 +279,7 @@ const MessageInput = forwardRef(function MessageInput(
     updateFile(id, { status: "uploading" });
     uploadAttachment(file)
       .then((attachment) => updateFile(id, { status: "done", attachment }))
-      .catch((err) => updateFile(id, { status: "error", error: err.message }));
+      .catch((err) => updateFile(id, { status: "error", error: turboErrorText(t, err) }));
   }
 
   // Compartilhado pelo seletor de arquivo, pelo drop e pelo paste de imagem -
@@ -293,7 +306,7 @@ const MessageInput = forwardRef(function MessageInput(
         ? URL.createObjectURL(file)
         : null;
 
-      if (file.size > MAX_ATTACHMENT_BYTES) {
+      if (file.size > maxBytes) {
         setFiles((prev) => [
           ...prev,
           {
@@ -303,7 +316,9 @@ const MessageInput = forwardRef(function MessageInput(
             size: file.size,
             previewUrl,
             status: "error",
-            error: "Arquivo maior que 20MB.",
+            error:
+              t("turbo.limits.fileTooBig", { max: formatBytes(maxBytes) }) +
+              (bigUploads.locked ? ` ${t("turbo.locked.cta")}` : ""),
           },
         ]);
         continue;
@@ -352,7 +367,7 @@ const MessageInput = forwardRef(function MessageInput(
     const result = await onSend(content.trim(), readyAttachments);
 
     if (result?.error) {
-      setError(result.error);
+      setError(turboErrorText(t, result));
       return;
     }
 
@@ -508,7 +523,7 @@ const MessageInput = forwardRef(function MessageInput(
               ref={textInputRef}
               rows={1}
               placeholder="Lança o papo..."
-              maxLength={2000}
+              maxLength={maxChars}
               value={content}
               onChange={handleContentChange}
               onKeyDown={handleTextKeyDown}
@@ -577,6 +592,17 @@ const MessageInput = forwardRef(function MessageInput(
           <SendHorizontal />
         </button> */}
       </div>
+
+      {content.length >= maxChars * 0.9 && (
+        <p className="flex items-center gap-2 px-3 text-xs text-slate-500 dark:text-slate-400">
+          {t("turbo.limits.charCount", { count: content.length, max: maxChars })}
+          {longMessages.locked && (
+            <button type="button" onClick={openTurbo} className="inline-flex items-center gap-1 text-fuchsia-500 hover:underline dark:text-fuchsia-300">
+              <Lock className="size-3" /> {t("turbo.locked.cta")}
+            </button>
+          )}
+        </p>
+      )}
 
       {error && (
         <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">

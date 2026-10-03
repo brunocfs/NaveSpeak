@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getAppSettings, updateAppSettings } from "../api/soundboard.js";
-import { Toggle } from "./Toggle.jsx";
+import { TURBO_BENEFITS } from "../utils/turboBenefits.js";
 import TurboBadge from "./TurboBadge.jsx";
 
-// Catálogo de benefícios TURBO (espelha turboBenefitsSchema no servidor).
-// Benefício novo = entrada nova aqui + no schema.
-export const TURBO_BENEFITS = [{ key: "nameStyle", label: "Nome colorido e com efeito" }];
+const MODES = ["turbo", "free", "off"];
 
-// Catálogo GLOBAL: o que todo usuário TURBO recebe. Override por usuário fica
-// na aba Usuários. Chave ausente no servidor = ligado.
+// Catálogo GLOBAL: por benefício, turbo (só TURBO) / free (todos) / off
+// (ninguém); hdScreen ganha turboBitrate. Override por usuário: aba Usuários.
 export default function AdminTurboPanel() {
+  const { t } = useTranslation();
   const [benefits, setBenefits] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -17,10 +17,10 @@ export default function AdminTurboPanel() {
   useEffect(() => {
     getAppSettings()
       .then((data) => setBenefits(data.settings.turboBenefits ?? {}))
-      .catch((err) => setError(err.message || "Não foi possível carregar os benefícios."));
+      .catch((err) => setError(err.message || t("turbo.admin.loadError")));
   }, []);
 
-  async function toggle(key, value) {
+  async function setMode(key, value) {
     const next = { ...benefits, [key]: value };
     setBusy(true);
     setError(null);
@@ -28,7 +28,7 @@ export default function AdminTurboPanel() {
       const data = await updateAppSettings({ turboBenefits: next });
       setBenefits(data.settings.turboBenefits);
     } catch (err) {
-      setError(err.message || "Não foi possível salvar.");
+      setError(err.message || t("turbo.admin.saveError"));
     } finally {
       setBusy(false);
     }
@@ -38,12 +38,11 @@ export default function AdminTurboPanel() {
     <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white">
-          Benefícios TURBO <TurboBadge className="size-4" />
+          {t("turbo.admin.title")} <TurboBadge className="size-4" />
         </h2>
       </div>
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        Vale pra todos os usuários TURBO. Para liberar ou bloquear um benefício de um usuário específico, use a aba
-        Usuários. Conceder TURBO também é pela aba Usuários.
+        {t("turbo.admin.help")}
       </p>
 
       {error && <p className="mb-3 text-xs text-red-500 dark:text-red-400">{error}</p>}
@@ -53,14 +52,31 @@ export default function AdminTurboPanel() {
           {TURBO_BENEFITS.map((b) => (
             <li
               key={b.key}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/60"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/60"
             >
-              <Toggle
-                checked={benefits[b.key] !== false}
-                label={b.label}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{t(`turbo.benefits.${b.key}.title`)}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{t(`turbo.benefits.${b.key}.desc`)}</p>
+                {b.key === "hdScreen" && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    A: {t("turbo.benefits.hdScreen.modeA")} · B: {t("turbo.benefits.hdScreen.modeB")}
+                  </p>
+                )}
+                {b.key === "ghostVoice" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">{t("turbo.admin.ghostVoiceNote")}</p>
+                )}
+              </div>
+              <select
+                aria-label={t(`turbo.benefits.${b.key}.title`)}
+                value={benefits[b.key] ?? "turbo"}
                 disabled={busy}
-                onChange={(v) => toggle(b.key, v)}
-              />
+                onChange={(e) => setMode(b.key, e.target.value)}
+                className="cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-[#0f1117] dark:text-white"
+              >
+                {(b.key === "hdScreen" ? ["turbo", "turboBitrate", "free", "off"] : MODES).map((m) => (
+                  <option key={m} value={m}>{t(`turbo.admin.mode.${m}`)}</option>
+                ))}
+              </select>
             </li>
           ))}
         </ul>

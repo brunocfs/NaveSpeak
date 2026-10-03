@@ -71,6 +71,8 @@ export async function apiRequest(path, options = {}) {
     }
     const error = new Error(payload?.error ?? `Erro na requisição (${res.status}).`);
     error.status = res.status;
+    error.code = payload?.code;
+    error.data = payload;
     error.details = payload?.details;
     // ID de correlação do backend - é o que o suporte usa pra achar o log.
     error.requestId = res.headers.get('X-Request-Id') ?? payload?.requestId ?? null;
