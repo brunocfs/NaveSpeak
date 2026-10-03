@@ -25,6 +25,7 @@ import {
   hasBenefit,
   updateBannerPath,
   updateJoinSound,
+  markTurboWelcomeSeen,
 } from '../db/users.repo.js';
 import { formatTag } from '../utils/discriminator.js';
 import { countCommonRooms, listRoomIdsForUser } from '../db/rooms.repo.js';
@@ -109,6 +110,18 @@ router.use(requireAuth);
 
 router.get('/me', async (req, res, next) => {
   try {
+    const user = await findUserByPublicId(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    return res.json({ user: toPublicProfile(user, await getTurboState(user.id)) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Popup 'Você agora é TURBO!' visto - só marca com TURBO ativo.
+router.post('/me/turbo/welcome-seen', async (req, res, next) => {
+  try {
+    await markTurboWelcomeSeen(req.user.internalId);
     const user = await findUserByPublicId(req.user.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
     return res.json({ user: toPublicProfile(user, await getTurboState(user.id)) });

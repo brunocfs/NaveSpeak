@@ -142,6 +142,7 @@ async function main() {
     await migrateLegacyRoomInvites(pool);
     await migrateReportsStatusColumns(pool);
     await migrateContentToText(pool);
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_welcome_seen_at TIMESTAMPTZ NULL;');
     await ensureSystemUser(pool);
     console.log(`Migração aplicada com sucesso em "${process.env.DB_NAME}" (PostgreSQL).`);
   } finally {

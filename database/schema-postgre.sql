@@ -143,6 +143,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS name_style JSONB NOT NULL DEFAULT '{}
 -- name_style NÃO é apagado quando o TURBO expira - só deixa de ser exibido.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_until TIMESTAMP NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_benefits JSONB NOT NULL DEFAULT '{}'::jsonb;
+-- popup 'Você agora é TURBO!': NULL = ainda não visto (resetado na concessão
+-- quando não havia TURBO ativo; ver grantTurbo em db/users.repo.js).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS turbo_welcome_seen_at TIMESTAMPTZ NULL;
 
 -- Moderacao da plataforma (painel admin, routes/adminUsers.routes.js):
 -- banned_until = 'infinity' e ban permanente; data futura e bloqueio

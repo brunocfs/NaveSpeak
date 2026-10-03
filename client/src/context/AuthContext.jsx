@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest, setAccessToken } from '../api/http.js';
-import { getProfile } from '../api/profile.js';
+import { getProfile, markTurboWelcomeSeen } from '../api/profile.js';
 import TurboWelcomeModal from '../components/TurboWelcomeModal.jsx';
 import { connectSocket, disconnectSocket, getSocket } from '../api/socket.js';
 
@@ -95,17 +95,31 @@ export function AuthProvider({ children }) {
     return () => socket.off('account:forceLogout', handleForceLogout);
   }, []);
 
-  // Forja liberou TURBO: vira isTurbo na hora (sem reload) e abre o popup.
+  // Forja liberou TURBO: vira isTurbo na hora (sem reload); o popup abre via turbo.welcomePending.
   // `turboWelcome` = null (fechado) ou { until }.
   const [turboWelcome, setTurboWelcome] = useState(null);
+  // true = popup já aberto e POST de "visto" já disparado; evita reabrir/repostar
+  // quando evento + estado do servidor chegam juntos. Volta a false quando o
+  // servidor confirma welcomePending=false (ver refetchTurbo) ou no logout.
+  const welcomeHandledRef = useRef(false);
+  const showTurboWelcome = useCallback((until) => {
+    if (until && new Date(until).getTime() <= Date.now()) return; // TURBO expirou
+    welcomeHandledRef.current = true;
+    setTurboWelcome((prev) => prev ?? { until });
+    markTurboWelcomeSeen()
+      .then(() => setTurbo((prev) => (prev ? { ...prev, welcomePending: false } : prev)))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     const socket = getSocket();
     function handleGranted({ until = null } = {}) {
       setUser((prev) => (prev ? { ...prev, isTurbo: true, turboUntil: until } : prev));
-      setTurboWelcome({ until });
+      // Não abre o modal aqui: o server emite o evento em toda concessão
+      // (inclusive extensão). Quem decide é turbo.welcomePending, via
+      // refetchTurbo (registrado no efeito abaixo no mesmo evento).
     }
     socket.on('account:turboGranted', handleGranted);
-    if (import.meta.env.DEV) window.__turboPreview = (until = null) => handleGranted({ until });
+    if (import.meta.env.DEV) window.__turboPreview = (until = null) => setTurboWelcome({ until });
     return () => {
       socket.off('account:turboGranted', handleGranted);
       if (import.meta.env.DEV) delete window.__turboPreview;
@@ -121,6 +135,10 @@ export function AuthProvider({ children }) {
       .then((d) => {
         const tb = d.user?.turbo ?? null;
         setTurbo(tb);
+        // Popup persistente: servidor diz que TURBO está ativo e o popup ainda
+        // não foi visto (sobrevive a reload/outro dispositivo).
+        if (tb?.welcomePending && tb.active && !welcomeHandledRef.current) showTurboWelcome(tb.until);
+        else if (tb && tb.welcomePending === false) welcomeHandledRef.current = false;
         // Mantém o user em dia (badge some na revogação, ganha na concessão)
         // e a preferência de voz fantasma.
         if (tb) {
@@ -130,10 +148,12 @@ export function AuthProvider({ children }) {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [showTurboWelcome]);
   useEffect(() => {
     if (!userId) {
       setTurbo(null);
+      welcomeHandledRef.current = false;
+      setTurboWelcome(null);
       return undefined;
     }
     refetchTurbo();

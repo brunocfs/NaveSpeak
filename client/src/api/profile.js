@@ -39,6 +39,10 @@ export const setJoinSound = (soundId) =>
 
 export const removeJoinSound = () => apiRequest('/users/me/join-sound', { method: 'DELETE' });
 
+// Marca o popup "Você agora é TURBO!" como visto (turbo.welcomePending -> false).
+export const markTurboWelcomeSeen = () =>
+  apiRequest('/users/me/turbo/welcome-seen', { method: 'POST' });
+
 export const removeAvatar = () => apiRequest('/users/me/avatar', { method: 'DELETE' });
 
 // Troca o status de presença (online/busy/away/invisible) - ver

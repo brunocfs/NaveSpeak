@@ -14,7 +14,7 @@ export default function UpdateAvailableBanner() {
   if (!updateAvailable) return null;
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-md dark:bg-blue-700">
+    <div className="fixed inset-x-0 top-(--titlebar-h) z-50 flex items-center justify-center gap-3 bg-purple-700 px-4 py-2 text-sm font-medium text-white shadow-md dark:bg-purple-800">
       <span>{t("shell.update.available")}</span>
       <button
         onClick={() => window.location.reload()}

@@ -26,7 +26,7 @@ export default function TitleBar() {
   return (
     <div
       style={{ WebkitAppRegion: "drag", height: 36 }}
-      className="relative flex shrink-0 select-none items-center justify-center bg-slate-100 text-slate-700 dark:bg-slate-950 dark:text-slate-200"
+      className="relative flex shrink-0 select-none items-center justify-center bg-purple-600 text-white dark:bg-purple-950 dark:text-purple-100"
     >
       <span className="text-xs font-semibold tracking-wide">Nave</span>
 
@@ -39,7 +39,7 @@ export default function TitleBar() {
           aria-label={t("shell.titleBar.minimize")}
           title={t("shell.titleBar.minimize")}
           onClick={() => window.naveSpeak.window.minimize()}
-          className="inline-flex w-11 items-center justify-center transition hover:bg-slate-200 dark:hover:bg-slate-800"
+          className="inline-flex w-11 items-center justify-center transition hover:bg-white/15"
         >
           <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="currentColor">
             <rect x="0" y="4.5" width="10" height="1" />
@@ -50,7 +50,7 @@ export default function TitleBar() {
           aria-label={t(isMaximized ? "shell.titleBar.restore" : "shell.titleBar.maximize")}
           title={t(isMaximized ? "shell.titleBar.restore" : "shell.titleBar.maximize")}
           onClick={() => window.naveSpeak.window.maximizeToggle()}
-          className="inline-flex w-11 items-center justify-center transition hover:bg-slate-200 dark:hover:bg-slate-800"
+          className="inline-flex w-11 items-center justify-center transition hover:bg-white/15"
         >
           {isMaximized ? (
             <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor">

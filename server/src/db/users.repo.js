@@ -294,12 +294,23 @@ export async function grantTurbo(publicIds, days) {
     `UPDATE users SET turbo_until = CASE
        WHEN $2::int IS NULL THEN 'infinity'::timestamp
        ELSE GREATEST(turbo_until, NOW()::timestamp) + make_interval(days => $2::int)
-     END
+     END,
+     -- reabre o popup só se não havia TURBO ativo (novo/expirado); estender não reseta
+     turbo_welcome_seen_at = CASE WHEN turbo_until > NOW() THEN turbo_welcome_seen_at ELSE NULL END
      WHERE public_id = ANY($1::uuid[]) AND is_system = FALSE
      RETURNING public_id AS "publicId", NULLIF(turbo_until, 'infinity') AS "turboUntil"`,
     [publicIds, days]
   );
   return rows;
+}
+
+// Marca o popup de boas-vindas como visto (só com TURBO ativo).
+export async function markTurboWelcomeSeen(userId) {
+  const { rowCount } = await pool.query(
+    `UPDATE users SET turbo_welcome_seen_at = NOW() WHERE id = $1 AND ${turboActiveSql('users')}`,
+    [userId]
+  );
+  return rowCount > 0;
 }
 
 // Remove o TURBO na hora. name_style/turbo_benefits ficam guardados.
@@ -365,7 +376,7 @@ export async function updateJoinSound(userId, soundId) {
 export async function getTurboState(userId) {
   const cols = TURBO_KEYS.map((k, n) => `${turboBenefitSql('u', k)} AS b${n}`).join(', ');
   const { rows } = await pool.query(
-    `SELECT ${turboActiveSql('u')} AS active, NULLIF(u.turbo_until, 'infinity') AS until,
+    `SELECT ${turboActiveSql('u')} AS active, (${turboActiveSql('u')} AND u.turbo_welcome_seen_at IS NULL) AS pending, NULLIF(u.turbo_until, 'infinity') AS until,
             s.turbo_benefits AS catalog, s.user_backgrounds_max_count AS bg, ${cols}
      FROM users u LEFT JOIN app_settings s ON s.id = 1
      WHERE u.id = $1`,
@@ -377,6 +388,7 @@ export async function getTurboState(userId) {
   const benefits = Object.fromEntries(TURBO_KEYS.map((k, n) => [k, r[`b${n}`]]));
   return {
     active: r.active,
+    welcomePending: r.pending === true,
     until: r.until ? new Date(r.until).toISOString() : null,
     catalog,
     benefits,
